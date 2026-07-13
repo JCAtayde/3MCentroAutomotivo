@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3M Centro Automotivo — Mecânica e Diagnóstico Eletrônico em Goiânia</title>
+<meta name="description" content="Oficina de diagnóstico em Goiânia. Osciloscópio, descarbonização por casca de nozes, troca de óleo de câmbio com máquina própria e elétrica automotiva. 4,9 no Google. Até 5x sem juros.">
+
+<link rel="canonical" href="https://www.3mcentroautomotivo.com.br/">
+<meta name="theme-color" content="#0C0E10">
+<meta name="robots" content="index,follow">
+<meta name="geo.region" content="BR-GO">
+<meta name="geo.placename" content="Goiânia">
+
+<!-- prévia ao compartilhar no WhatsApp, Instagram e Facebook -->
+<meta property="og:type" content="website">
+<meta property="og:locale" content="pt_BR">
+<meta property="og:site_name" content="3M Centro Automotivo">
+<meta property="og:title" content="3M Centro Automotivo — A gente não chuta. A gente analisa.">
+<meta property="og:description" content="Mecânica e diagnóstico eletrônico em Goiânia. Você acompanha cada etapa por vídeo e foto no WhatsApp. 4,9 no Google, 138 avaliações. Até 5x sem juros.">
+<meta property="og:image" content="https://www.3mcentroautomotivo.com.br/midia/fachada.jpg">
+<meta property="og:url" content="https://www.3mcentroautomotivo.com.br/">
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="icon" type="image/svg+xml" href="marca/3m-icone-avatar.svg">
+
+<!-- dados estruturados: é assim que o Google entende a oficina -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "AutoRepair",
+  "name": "3M Centro Automotivo",
+  "image": "https://www.3mcentroautomotivo.com.br/midia/fachada.jpg",
+  "url": "https://www.3mcentroautomotivo.com.br/",
+  "telephone": "+556231000115",
+  "priceRange": "$$",
+  "slogan": "A gente não chuta. A gente analisa.",
+  "description": "Mecânica multimarcas e diagnóstico eletrônico em Goiânia. Análise de falha com osciloscópio, descarbonização por jateamento de casca de nozes, troca de óleo de câmbio com máquina própria e elétrica automotiva.",
+  "address": {
+    "@type": "PostalAddress",
+    "streetAddress": "Av. Madrid, Qd 174, Lt 22, nº 101",
+    "addressLocality": "Goiânia",
+    "addressRegion": "GO",
+    "postalCode": "74330-550",
+    "addressCountry": "BR"
+  },
+  "geo": { "@type": "GeoCoordinates", "latitude": -16.7283156, "longitude": -49.3066243 },
+  "openingHoursSpecification": [{
+    "@type": "OpeningHoursSpecification",
+    "dayOfWeek": ["Monday","Tuesday","Wednesday","Thursday","Friday"],
+    "opens": "08:00", "closes": "18:00"
+  }],
+  "aggregateRating": { "@type": "AggregateRating", "ratingValue": "4.9", "reviewCount": "138" },
+  "sameAs": ["https://instagram.com/3mcentroautomotivo"],
+  "areaServed": { "@type": "City", "name": "Goiânia" },
+  "hasOfferCatalog": {
+    "@type": "OfferCatalog",
+    "name": "Serviços",
+    "itemListElement": [
+      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Análise de falha com osciloscópio" } },
+      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Descarbonização por jateamento de casca de nozes" } },
+      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Troca de óleo de câmbio automático com máquina própria" } },
+      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Elétrica automotiva" } },
+      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Mecânica de motor em geral" } },
+      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Suspensão e freios" } },
+      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Revisão preventiva" } }
+    ]
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --black:#0C0E10;
+  --panel:#14171A;
+  --panel-2:#1B1F23;
+  --line-d:#282D32;
+
+  --gold:#D9A83E;
+  --gold-lo:#A9812C;
+  --gold-hi:#F0CC7A;
+
+  --cream:#F1EFEA;
+  --cream-2:#FFFFFF;
+  --line-l:#D8D4CB;
+
+  --smoke:#8E959A;
+  --ink:#0C0E10;
+
+  --display:'Archivo',system-ui,sans-serif;
+  --body:'IBM Plex Sans',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --pad:clamp(20px,5vw,64px);
+}
+
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--black);color:#DDE1E4;font-family:var(--body);font-size:17px;line-height:1.62;
+  -webkit-font-smoothing:antialiased;overflow-x:hidden}
+img{max-width:100%;display:block}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+.wrap{max-width:1240px;margin:0 auto;padding-inline:var(--pad)}
+
+/* ---------- tipo ---------- */
+.eyebrow{font-family:var(--mono);font-size:.72rem;font-weight:500;letter-spacing:.17em;
+  text-transform:uppercase;color:var(--gold);display:flex;align-items:center;gap:10px}
+.eyebrow::before{content:"";width:26px;height:2px;background:var(--gold);flex:none}
+h1,h2{font-family:var(--display);font-variation-settings:'wdth' 114;font-weight:800;
+  text-transform:uppercase;letter-spacing:-.02em;line-height:1;}
+h2{font-size:clamp(1.45rem,2.9vw,2.15rem);margin-top:12px}
+h3{font-family:var(--display);font-variation-settings:'wdth' 106;font-weight:700;
+  font-size:1.02rem;line-height:1.24;letter-spacing:-.005em}
+.lead{max-width:62ch;margin-top:13px;font-size:.97rem;color:var(--smoke)}
+
+/* ---------- botões ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  font-family:var(--mono);font-size:.74rem;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;padding:11px 18px;border:1.5px solid var(--gold);
+  background:var(--gold);color:var(--black);cursor:pointer;white-space:nowrap;
+  transition:transform .18s ease,background .2s ease,color .2s ease}
+.btn:hover{transform:translateY(-2px);background:var(--gold-hi);border-color:var(--gold-hi)}
+.btn-ghost{background:transparent;color:var(--gold)}
+.btn-ghost:hover{background:var(--gold);color:var(--black)}
+.btn-dark{background:var(--black);border-color:var(--black);color:var(--gold)}
+.btn-dark:hover{background:var(--panel-2);border-color:var(--panel-2);color:var(--gold-hi)}
+
+/* ---------- topbar ---------- */
+.topbar{position:sticky;top:0;z-index:60;background:rgba(12,14,16,.92);
+  backdrop-filter:blur(10px);border-bottom:1px solid var(--line-d)}
+.topbar .wrap{display:flex;align-items:center;gap:18px;height:64px}
+.brand{display:flex;align-items:center;gap:13px}
+.brand svg{width:40px;height:auto;flex:none}
+.brand .nm{font-family:var(--display);font-weight:900;font-variation-settings:'wdth' 116;
+  text-transform:uppercase;letter-spacing:-.01em;font-size:1.02rem;color:#fff;line-height:1.1}
+.brand .nm small{display:block;font-family:var(--mono);font-size:.58rem;font-weight:500;
+  letter-spacing:.16em;color:var(--gold);margin-top:3px}
+.topbar nav{margin-left:auto;display:flex;align-items:center;gap:26px}
+.topbar nav a.link{font-family:var(--mono);font-size:.76rem;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--smoke);transition:color .2s}
+.topbar nav a.link:hover{color:var(--gold)}
+@media(max-width:980px){.topbar nav a.link{display:none}}
+
+/* ---------- hero ---------- */
+.hero{position:relative;padding-top:clamp(30px,3.4vw,46px);padding-bottom:clamp(20px,2.4vw,32px);overflow:hidden}
+.scope{position:absolute;inset:0;pointer-events:none;
+  background-image:
+    linear-gradient(to right,rgba(217,168,62,.075) 1px,transparent 1px),
+    linear-gradient(to bottom,rgba(217,168,62,.075) 1px,transparent 1px);
+  background-size:38px 38px;
+  mask-image:radial-gradient(120% 90% at 50% 30%,#000 25%,transparent 78%);
+  -webkit-mask-image:radial-gradient(120% 90% at 50% 30%,#000 25%,transparent 78%)}
+.hero .wrap{position:relative;z-index:2}
+.hero-grid{display:grid;grid-template-columns:1.06fr .94fr;gap:clamp(30px,4vw,58px);align-items:center}
+@media(max-width:980px){.hero-grid{grid-template-columns:1fr}}
+
+h1{font-size:clamp(1.95rem,4.6vw,3.25rem);line-height:.96;letter-spacing:-.028em;
+  margin-top:14px;color:#fff;font-variation-settings:'wdth' 118;font-weight:900}
+h1 .mede{position:relative;color:var(--gold);display:inline-block}
+h1 .mede svg{position:absolute;left:0;bottom:-.1em;width:100%;height:.24em;overflow:visible}
+.hero .lead{margin-top:17px;font-size:clamp(.95rem,1.15vw,1.02rem);color:#A8AFB4}
+.hero .lead strong{color:#fff;font-weight:600}
+.cta-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
+
+.gbadge{display:inline-flex;align-items:center;gap:12px;margin-top:20px;
+  border:1px solid var(--line-d);background:var(--panel);padding:9px 14px}
+.gbadge .stars{color:var(--gold);letter-spacing:2px;font-size:.92rem}
+.gbadge b{font-family:var(--display);font-weight:800;font-size:1.3rem;color:#fff;
+  font-variation-settings:'wdth' 110}
+.gbadge span{font-family:var(--mono);font-size:.71rem;color:var(--smoke);
+  text-transform:uppercase;letter-spacing:.08em;line-height:1.4}
+
+/* moldura da marca: metade dourada / metade branca */
+.frame{position:relative;padding:14px}
+.frame::before,.frame::after{content:"";position:absolute;top:0;bottom:0;width:50%;pointer-events:none}
+.frame::before{left:0;border:3px solid var(--gold);border-right:0}
+.frame::after{right:0;border:3px solid #fff;border-left:0}
+.frame>*{position:relative;z-index:1}
+
+/* slots de imagem */
+.slot{border:1.5px dashed var(--gold-lo);background:var(--panel);
+  background-image:repeating-linear-gradient(45deg,rgba(217,168,62,.05) 0 10px,transparent 10px 20px);
+  display:grid;place-items:center;text-align:center;padding:26px 18px;min-height:180px}
+.slot code{font-family:var(--mono);font-size:.72rem;font-weight:600;color:var(--gold);
+  letter-spacing:.06em;line-height:1.8;text-transform:uppercase}
+.slot small{display:block;font-family:var(--mono);font-size:.65rem;color:var(--smoke);
+  margin-top:9px;text-transform:none;letter-spacing:0}
+.slot-fachada{min-height:clamp(270px,32vw,400px)}
+
+/* traço do osciloscópio */
+.trace{width:100%;height:clamp(64px,8vw,104px);margin-top:22px;display:block;overflow:visible}
+.trace path.wave{fill:none;stroke:var(--gold);stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round;
+  filter:drop-shadow(0 0 7px rgba(217,168,62,.5));
+  stroke-dasharray:4600;stroke-dashoffset:4600;animation:draw 2.8s cubic-bezier(.35,0,.15,1) .35s forwards}
+.trace circle.probe{fill:#fff;filter:drop-shadow(0 0 8px rgba(255,255,255,.85))}
+@keyframes draw{to{stroke-dashoffset:0}}
+
+/* ---------- faixa dourada ---------- */
+.gold-bar{background:var(--gold);color:var(--black)}
+.gold-bar .wrap{display:grid;grid-template-columns:repeat(4,1fr)}
+.gold-bar div{padding:15px 16px;border-left:1px solid rgba(12,14,16,.22);
+  font-family:var(--mono);font-size:.74rem;letter-spacing:.05em;text-transform:uppercase;
+  color:rgba(12,14,16,.72);line-height:1.5}
+.gold-bar div:first-child{border-left:0}
+.gold-bar strong{display:block;color:var(--black);font-weight:600;font-size:.88rem;margin-bottom:3px}
+@media(max-width:800px){
+  .gold-bar .wrap{grid-template-columns:1fr 1fr}
+  .gold-bar div:nth-child(3){border-left:0}
+  .gold-bar div:nth-child(n+3){border-top:1px solid rgba(12,14,16,.22)}
+}
+
+/* ---------- seções ---------- */
+.sec{padding-block:clamp(42px,4.6vw,66px)}
+.sec-light{background:var(--cream);color:var(--ink)}
+.sec-light h2,.sec-light h3{color:var(--ink)}
+.sec-light .lead{color:#5F676C}
+.sec-light .eyebrow{color:var(--gold-lo)}
+.sec-light .eyebrow::before{background:var(--gold-lo)}
+
+/* instrumentos */
+.instr{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line-l);
+  border:1px solid var(--line-l);margin-top:30px}
+@media(max-width:760px){.instr{grid-template-columns:1fr}}
+.instr article{background:var(--cream-2);padding:clamp(20px,2.1vw,28px)}
+.instr .tag{font-family:var(--mono);font-size:.67rem;font-weight:600;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--ink);background:var(--gold);
+  display:inline-block;padding:5px 9px;margin-bottom:18px}
+.instr h3{margin-bottom:10px}
+.instr p{color:#5F676C;font-size:.89rem;line-height:1.55}
+.instr .rare{margin-top:16px;display:inline-block;font-family:var(--mono);font-size:.67rem;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--gold-lo);
+  border-top:1px solid var(--line-l);padding-top:12px;width:100%}
+
+/* documentação */
+.doc-grid{display:grid;grid-template-columns:.95fr 1.05fr;gap:clamp(30px,4vw,60px);align-items:center}
+@media(max-width:900px){.doc-grid{grid-template-columns:1fr}}
+.doc-list{list-style:none;margin-top:20px}
+.doc-list li{display:flex;gap:12px;align-items:flex-start;padding:10px 0;
+  border-top:1px solid var(--line-d);font-size:.9rem;color:#B7BEC2}
+.doc-list li::before{content:"✓";color:var(--gold);font-weight:700;flex:none;font-family:var(--mono)}
+.shots{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.shots .slot-video{grid-column:1/-1;min-height:210px}
+
+/* serviços */
+.svc{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line-l);
+  border:1px solid var(--line-l);margin-top:30px}
+@media(max-width:1000px){.svc{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.svc{grid-template-columns:1fr}}
+.svc article{background:var(--cream-2);padding:20px 18px;transition:background .2s}
+.svc article:hover{background:var(--black)}
+.svc article:hover h3{color:var(--gold)}
+.svc article:hover .benefit{color:var(--smoke)}
+.svc h3{margin-bottom:7px;font-size:.94rem;transition:color .2s}
+.svc .benefit{font-family:var(--mono);font-size:.69rem;letter-spacing:.06em;text-transform:uppercase;
+  color:#7C8489;line-height:1.6;transition:color .2s}
+.svc .num{font-family:var(--mono);font-size:.66rem;color:var(--gold-lo);letter-spacing:.1em;
+  display:block;margin-bottom:16px}
+
+/* descarbonização */
+.decarb{display:grid;grid-template-columns:1fr 1fr;gap:clamp(28px,4vw,56px);align-items:center}
+@media(max-width:900px){.decarb{grid-template-columns:1fr}}
+.steps{list-style:none;margin-top:20px;counter-reset:s}
+.steps li{counter-increment:s;position:relative;padding:12px 0 12px 50px;
+  border-top:1px solid var(--line-d);color:var(--smoke);font-size:.89rem}
+.steps li::before{content:counter(s,decimal-leading-zero);position:absolute;left:0;top:13px;
+  font-family:var(--mono);font-size:.76rem;font-weight:600;color:var(--gold);letter-spacing:.05em}
+.steps li b{color:#fff;font-weight:600;display:block;margin-bottom:2px}
+
+/* avaliações */
+.rev{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:30px}
+@media(max-width:900px){.rev{grid-template-columns:1fr}}
+.rev article{background:var(--cream-2);border:1px solid var(--line-l);padding:20px;
+  border-top:3px solid var(--gold)}
+.rev .stars{color:var(--gold);letter-spacing:2px;font-size:.9rem;margin-bottom:14px}
+.rev p{font-size:.9rem;line-height:1.6;color:var(--ink)}
+.rev footer{margin-top:18px;font-family:var(--mono);font-size:.68rem;letter-spacing:.07em;
+  text-transform:uppercase;color:#7C8489}
+.rev-note{margin-top:24px;font-family:var(--mono);font-size:.71rem;color:#7C8489}
+
+/* pagamento */
+.pay .wrap{padding-block:clamp(34px,3.6vw,50px);display:flex;flex-wrap:wrap;
+  align-items:center;justify-content:space-between;gap:30px}
+.pay h2{margin:0;max-width:15ch;color:var(--black)}
+.pay .pay-side{font-family:var(--mono);font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;
+  line-height:2;color:rgba(12,14,16,.72)}
+
+/* localização */
+.loc{display:grid;grid-template-columns:.85fr 1.15fr;gap:clamp(24px,3vw,40px);margin-top:30px}
+@media(max-width:900px){.loc{grid-template-columns:1fr}}
+.loc dl{border-top:1px solid var(--line-d)}
+.loc dt{font-family:var(--mono);font-size:.65rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--gold);padding-top:13px}
+.loc dd{padding:4px 0 13px;border-bottom:1px solid var(--line-d);font-size:.93rem;color:#DDE1E4}
+.loc dd a{border-bottom:1px solid var(--gold)}
+.loc iframe{width:100%;height:100%;min-height:290px;border:1px solid var(--line-d);
+  filter:grayscale(.5) invert(.92) contrast(.85) hue-rotate(180deg)}
+
+/* rodapé */
+footer.site{background:#080A0B;color:#7C8489;padding-block:40px 24px;border-top:1px solid var(--line-d)}
+footer.site .wrap{display:grid;grid-template-columns:1.5fr 1fr 1fr;gap:38px}
+@media(max-width:800px){footer.site .wrap{grid-template-columns:1fr}}
+footer.site h4{font-family:var(--mono);font-size:.69rem;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--gold);margin-bottom:17px;font-weight:600}
+footer.site a{display:block;padding:5px 0;font-size:.93rem;transition:color .2s}
+footer.site a:hover{color:var(--gold)}
+footer.site .fine{grid-column:1/-1;border-top:1px solid var(--line-d);margin-top:26px;padding-top:22px;
+  font-family:var(--mono);font-size:.67rem;letter-spacing:.05em;color:#4E565B;
+  display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}
+
+/* whatsapp flutuante */
+.float{position:fixed;right:20px;bottom:20px;z-index:90;width:60px;height:60px;border-radius:50%;
+  background:#25D366;display:grid;place-items:center;box-shadow:0 8px 28px rgba(0,0,0,.45);
+  transition:transform .2s}
+.float:hover{transform:scale(1.08)}
+.float svg{width:32px;height:32px;fill:#fff}
+
+.rv{opacity:0;transform:translateY(22px);transition:opacity .7s ease,transform .7s ease}
+.rv.in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+  .rv{opacity:1;transform:none}
+  .trace path.wave{stroke-dashoffset:0}
+}
+
+/* ---------- fotos reais ---------- */
+img.slot-fachada{width:100%;height:clamp(230px,26vw,330px);object-fit:cover;object-position:38% 55%}
+
+.foto-cap{margin-top:16px;font-family:var(--mono);font-size:.72rem;letter-spacing:.03em;
+  color:var(--smoke);line-height:1.8}
+.foto-cap strong{color:var(--gold);font-weight:500}
+
+/* ---------- casos ---------- */
+.casos{margin-top:34px}
+.caso{display:grid;grid-template-columns:minmax(0,330px) minmax(0,1fr);gap:clamp(22px,2.6vw,36px);
+  padding:clamp(22px,2.4vw,30px) 0;border-top:1px solid var(--line-d);align-items:start}
+.caso:first-child{border-top:0;padding-top:0}
+@media(max-width:900px){.caso{grid-template-columns:1fr;gap:26px}}
+.telas{display:flex;gap:10px;max-width:330px}
+.tela{flex:1;min-width:0}
+.tela .moldura{background:#000;border:5px solid #23282D;border-radius:20px;overflow:hidden;
+  box-shadow:0 14px 34px rgba(0,0,0,.5);position:relative}
+.tela video{width:100%;aspect-ratio:9/16;object-fit:contain;background:#000;display:block}
+.tela .dur{position:absolute;right:8px;bottom:8px;background:rgba(12,14,16,.88);color:var(--gold);
+  font-family:var(--mono);font-size:.62rem;padding:3px 6px;letter-spacing:.05em;pointer-events:none;border-radius:3px}
+.tela .leg{font-family:var(--mono);font-size:.62rem;letter-spacing:.06em;color:var(--smoke);
+  text-transform:uppercase;margin-top:10px;line-height:1.5;text-align:center}
+.caso .id{font-family:var(--mono);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--gold);display:block;margin-bottom:12px}
+.caso h3{font-family:var(--display);font-variation-settings:'wdth' 108;font-weight:800;
+  text-transform:uppercase;font-size:clamp(1.02rem,1.55vw,1.22rem);line-height:1.18;
+  letter-spacing:-.01em;color:#fff}
+.caso .rel{margin-top:11px;color:var(--smoke);font-size:.9rem;line-height:1.62}
+.caso .rel em{color:#C3CACE;font-style:italic}
+.caso ul.efeitos{list-style:none;margin-top:16px;border-top:1px solid var(--line-d);padding-top:12px}
+.caso ul.efeitos .cab{font-family:var(--mono);font-size:.63rem;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--gold);margin-bottom:8px;padding-left:0}
+.caso ul.efeitos .cab::before{display:none}
+.caso ul.efeitos li{font-size:.81rem;color:#9DA5AA;line-height:1.5;padding:3px 0 3px 17px;position:relative}
+.caso ul.efeitos li::before{content:"";position:absolute;left:0;top:10px;width:5px;height:5px;
+  background:var(--gold);transform:rotate(45deg)}
+</style>
+</head>
+<body>
+
+<!-- MARCA EM VETOR PURO (sem dependência de fonte) -->
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="logo3m" viewBox="0 0 300 300">
+    <path d="M150 46 H46 V254 H150" fill="none" stroke="#D9A83E" stroke-width="8"/>
+    <path d="M150 46 H254 V254 H150" fill="none" stroke="#FFFFFF" stroke-width="8"/>
+    <g transform="translate(68.1,105.4) scale(0.88)">
+      <g transform="translate(-0.16,6.21) scale(0.8758)">
+        <path d="M 9.4,32.7 A 26,26 0 1 1 44.5,50 A 26,26 0 1 1 12,87"
+              fill="none" stroke="#D9A83E" stroke-width="17"/>
+      </g>
+      <g transform="translate(82.2,0)">
+        <path d="M 0,100 L 0,0 L 20,0 L 52,62 L 84,0 L 104,0 L 104,100 L 86,100 L 86,34 L 58,86 L 46,86 L 18,34 L 18,100 Z"
+              fill="#D9A83E"/>
+      </g>
+    </g>
+  </symbol>
+</svg>
+
+<!-- ================= TOPBAR ================= -->
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="#topo" aria-label="3M Centro Automotivo">
+      <svg viewBox="0 0 300 300"><use href="#logo3m"/></svg>
+      <span class="nm">3M Centro Automotivo
+        <small>Goiânia · GO</small>
+      </span>
+    </a>
+    <nav>
+      <a class="link" href="#estrutura">Estrutura</a>
+      <a class="link" href="#diagnosticos">Diagnósticos</a>
+      <a class="link" href="#servicos">Serviços</a>
+      <a class="link" href="#descarbonizacao">Descarbonização</a>
+      <a class="link" href="#avaliacoes">Avaliações</a>
+      <a class="link" href="#local">Onde estamos</a>
+      <a class="btn" href="https://wa.me/556231000115?text=Ol%C3%A1!%20Quero%20agendar%20um%20servi%C3%A7o%20na%203M." target="_blank" rel="noopener">Agendar</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ================= HERO ================= -->
+<section class="hero" id="topo">
+  <div class="scope"></div>
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <p class="eyebrow">Mecânica e diagnóstico eletrônico · Goiânia</p>
+
+        <h1>A gente não chuta.<br>A gente
+          <span class="mede">analisa.
+            <svg viewBox="0 0 200 20" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M0,14 L38,14 L42,18 L70,17 L74,3 L80,10 L112,9 L116,15 L124,19 L132,13 L140,17 L148,14 L200,15"
+                    fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/>
+            </svg>
+          </span>
+        </h1>
+
+        <p class="lead">
+          Osciloscópio para enxergar a falha que o scanner não mostra. Descarbonização por
+          jateamento de casca de nozes. Máquina própria de troca de óleo de câmbio.
+          E, do começo ao fim, você acompanha o serviço por
+          <strong>vídeo e foto no seu WhatsApp</strong>.
+        </p>
+
+        <div class="cta-row">
+          <a class="btn" href="https://wa.me/556231000115?text=Ol%C3%A1!%20Quero%20agendar%20um%20servi%C3%A7o%20na%203M." target="_blank" rel="noopener">Agendar pelo WhatsApp</a>
+          <a class="btn btn-ghost" href="#estrutura">Ver nossa estrutura</a>
+        </div>
+
+        <div class="gbadge">
+          <div>
+            <div class="stars" aria-hidden="true">★★★★★</div>
+            <b>4,9</b>
+          </div>
+          <span>138 avaliações<br>no Google</span>
+        </div>
+      </div>
+
+      <div class="frame">
+        <img class="slot-fachada" src="midia/fachada-entrada.jpg"
+             alt="Fachada da 3M Centro Automotivo, na Av. Madrid, Jardim Europa, Goiânia">
+      </div>
+    </div>
+
+    <svg class="trace" viewBox="0 0 1200 240" preserveAspectRatio="none" aria-hidden="true">
+      <path id="wv" class="wave"
+        d="M0,170 L30,170 L32,205 L90,200 L94,30 L100,95 L165,90 L170,150 L178,186 L186,152 L194,178 L202,158 L210,172 L218,164 L226,169 L234,168 L300,170
+           L330,170 L332,205 L390,200 L394,30 L400,95 L465,90 L470,150 L478,186 L486,152 L494,178 L502,158 L510,172 L518,164 L526,169 L534,168 L600,170
+           L630,170 L632,205 L690,200 L694,30 L700,95 L765,90 L770,150 L778,186 L786,152 L794,178 L802,158 L810,172 L818,164 L826,169 L834,168 L900,170
+           L930,170 L932,205 L990,200 L994,30 L1000,95 L1065,90 L1070,150 L1078,186 L1086,152 L1094,178 L1102,158 L1110,172 L1118,164 L1126,169 L1134,168 L1200,170"/>
+      <circle class="probe" r="5.5">
+        <animateMotion dur="7s" repeatCount="indefinite" begin="2.6s">
+          <mpath href="#wv"/>
+        </animateMotion>
+      </circle>
+    </svg>
+  </div>
+</section>
+
+<!-- ================= FAIXA DOURADA ================= -->
+<div class="gold-bar">
+  <div class="wrap">
+    <div><strong>4,9 no Google</strong>138 avaliações</div>
+    <div><strong>Até 5x sem juros</strong>No cartão</div>
+    <div><strong>Vídeo e foto</strong>De cada serviço</div>
+    <div><strong>Seg a sex · 8h às 18h</strong>Jardim Europa</div>
+  </div>
+</div>
+
+<!-- ================= ESTRUTURA ================= -->
+<section class="sec sec-light" id="estrutura">
+  <div class="wrap">
+    <div class="rv">
+      <p class="eyebrow">Nossa estrutura</p>
+      <h2>O equipamento decide<br>quem acerta o diagnóstico</h2>
+      <p class="lead">
+        A maioria das oficinas troca peça até o defeito sumir — e quem paga a conta da
+        tentativa é você. Aqui existem os instrumentos para descobrir a causa antes de
+        encostar na primeira peça.
+      </p>
+    </div>
+
+    <div class="instr rv">
+      <article>
+        <span class="tag">Osciloscópio</span>
+        <h3>Análise de falha em tempo real</h3>
+        <p>O scanner mostra o código de erro. O osciloscópio mostra o sinal elétrico —
+          o que de fato acontece dentro do sensor, da bobina ou do bico injetor,
+          milissegundo a milissegundo. É a diferença entre ler o sintoma e ver a doença.</p>
+        <span class="rare">Raro em oficina independente</span>
+      </article>
+
+      <article>
+        <span class="tag">Jateamento com casca de nozes</span>
+        <h3>Descarbonização das válvulas de admissão</h3>
+        <p>Máquina específica que remove a crosta de carvão das válvulas de admissão e da
+          câmara de combustão com casca de nozes: abrasivo natural, implacável com o carvão
+          e inofensivo ao metal. O motor recupera força e volta ao consumo normal.</p>
+        <span class="rare">Praticamente único na região</span>
+      </article>
+
+      <article>
+        <span class="tag">Máquina de óleo de câmbio</span>
+        <h3>Troca total, não só o que escorre</h3>
+        <p>Máquina própria, feita aqui dentro, sem terceirizar. A troca por gravidade retira
+          menos da metade do óleo velho. A máquina substitui o fluido inteiro — que é o que o
+          câmbio automático precisa para não virar o segundo conserto mais caro do carro.</p>
+        <span class="rare">Você acompanha o processo</span>
+      </article>
+
+      <article>
+        <span class="tag">Elétrica automotiva</span>
+        <h3>Do curto ao módulo</h3>
+        <p>Chicote, aterramento, alternador, motor de partida, sensores e módulos. Defeito
+          elétrico intermitente é o pesadelo do motorista — e é exatamente onde o osciloscópio
+          separa quem encontra a causa de quem troca peça no escuro.</p>
+        <span class="rare">Mecânica e elétrica no mesmo lugar</span>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CASOS ================= -->
+<section class="sec" id="diagnosticos" style="background:#0A0C0D;border-block:1px solid var(--line-d)">
+  <div class="wrap">
+    <div class="abertura rv">
+      <div>
+        <p class="eyebrow">O que nos diferencia de verdade</p>
+        <h2>Você vê tudo<br>o que foi feito</h2>
+        <p class="lead">
+          O maior medo de quem deixa o carro na oficina não é o preço. É a dúvida:
+          <em>“será que trocaram mesmo?”</em> Aqui essa dúvida não existe — cada etapa vai
+          filmada para o seu WhatsApp.
+        </p>
+        <p class="lead">
+          Nenhum dos vídeos abaixo foi feito para o site. Todos foram gravados durante o serviço
+          e enviados ao dono do carro. Inclusive quando a resposta foi
+          <em>“seu carro não precisa de nada”</em>.
+        </p>
+      </div>
+      <ul class="doc-list">
+        <li>Foto da peça com defeito, antes de qualquer troca</li>
+        <li>Vídeo do serviço em execução</li>
+        <li>Explicação do que foi feito e por quê, em português claro</li>
+        <li>Orçamento aprovado por você antes de começar</li>
+        <li>Seu carro devolvido limpo</li>
+      </ul>
+    </div>
+
+    <div class="casos rv" id="casos"></div>
+
+    <div class="cta-row" style="margin-top:44px">
+      <a class="btn" href="https://wa.me/556231000115?text=Vi%20os%20casos%20no%20site%20e%20quero%20agendar%20um%20diagn%C3%B3stico." target="_blank" rel="noopener">Quero esse acompanhamento no meu carro</a>
+    </div>
+  </div>
+</section>
+
+<!-- ================= SERVIÇOS ================= -->
+<section class="sec sec-light" id="servicos">
+  <div class="wrap">
+    <div class="rv">
+      <p class="eyebrow">O que fazemos</p>
+      <h2>Serviços</h2>
+      <p class="lead">Mecânica multimarcas, do diagnóstico à entrega. Sempre com orçamento
+        aprovado antes e registro em foto e vídeo.</p>
+    </div>
+
+    <div class="svc rv">
+      <article><span class="num">MOTOR</span><h3>Mecânica de motor em geral</h3><p class="benefit">A vida útil do seu motor</p></article>
+      <article><span class="num">DIAGNÓSTICO</span><h3>Análise de falha com osciloscópio</h3><p class="benefit">Acerta a causa, não a peça</p></article>
+      <article><span class="num">ELÉTRICA</span><h3>Elétrica automotiva</h3><p class="benefit">Fim do defeito que vai e volta</p></article>
+      <article><span class="num">CÂMBIO</span><h3>Troca de óleo de câmbio</h3><p class="benefit">Máquina própria · troca total</p></article>
+      <article><span class="num">LIMPEZA</span><h3>Descarbonização</h3><p class="benefit">Força e consumo de volta</p></article>
+      <article><span class="num">SEGURANÇA</span><h3>Suspensão e freios</h3><p class="benefit">Proteção de quem está dentro</p></article>
+      <article><span class="num">LUBRIFICAÇÃO</span><h3>Troca de óleo e filtros</h3><p class="benefit">O item mais barato de manter</p></article>
+      <article><span class="num">PREVENÇÃO</span><h3>Revisão preventiva</h3><p class="benefit">O único conserto que sai barato</p></article>
+    </div>
+  </div>
+</section>
+
+<!-- ================= DESCARBONIZAÇÃO ================= -->
+<section class="sec" id="descarbonizacao">
+  <div class="wrap">
+    <div class="decarb">
+      <div class="rv">
+        <p class="eyebrow">Serviço exclusivo</p>
+        <h2>Descarbonização por<br>casca de nozes</h2>
+        <p class="lead">
+          Motores de injeção direta (TSI, GDI, THP e parecidos) acumulam uma crosta de carvão
+          nas válvulas de admissão. O combustível não passa mais por ali para lavar a válvula —
+          então a sujeira só engrossa, ano após ano.
+        </p>
+        <p class="lead">
+          O motorista sente na direção: <strong style="color:#fff">perde força, o consumo sobe,
+          o motor treme na marcha lenta</strong> e às vezes acende a luz de injeção. Aditivo no
+          tanque não resolve, porque a sujeira está do lado de fora da câmara.
+        </p>
+        <ul class="steps">
+          <li><b>Abrimos o coletor de admissão</b>Acesso direto às válvulas, com o motor no lugar.</li>
+          <li><b>Jateamos com casca de nozes</b>Abrasivo natural: arranca o carvão sem agredir a válvula nem o alumínio.</li>
+          <li><b>Aspiramos todo o resíduo</b>Nada de casca solta entrando no motor.</li>
+          <li><b>Fechamos e analisamos o resultado</b>Com o osciloscópio. Aqui ninguém confia na impressão.</li>
+        </ul>
+        <div class="cta-row">
+          <a class="btn" href="https://wa.me/556231000115?text=Ol%C3%A1!%20Quero%20saber%20se%20meu%20carro%20precisa%20de%20descarboniza%C3%A7%C3%A3o." target="_blank" rel="noopener">Meu carro precisa disso?</a>
+        </div>
+      </div>
+
+      <div class="rv">
+        <div class="frame">
+          <img src="midia/descarbonizacao.jpg"
+               alt="Válvulas de admissão antes e depois da descarbonização por jateamento com casca de nozes"
+               style="width:100%;display:block">
+        </div>
+        <p class="foto-cap">Válvulas de admissão do <strong>mesmo motor</strong>, antes e depois do
+          jateamento com casca de nozes. Todo aquele carvão preto estava sufocando a entrada de
+          ar — e o dono do carro pagava por isso em cada litro de combustível.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= AVALIAÇÕES ================= -->
+<section class="sec sec-light" id="avaliacoes">
+  <div class="wrap">
+    <div class="rv">
+      <p class="eyebrow">4,9 de 5 · 138 avaliações no Google</p>
+      <h2>Quem já deixou<br>o carro aqui</h2>
+    </div>
+
+    <div class="rev rv">
+      <article>
+        <div class="stars" aria-hidden="true">★★★★★</div>
+        <p>Enviaram vídeos e fotos de cada procedimento. Fui buscar o carro e ele estava limpo. Virei cliente.</p>
+        <footer>Cliente · Google</footer>
+      </article>
+      <article>
+        <div class="stars" aria-hidden="true">★★★★★</div>
+        <p>Explicaram cada etapa e o porquê. Cuidado com os detalhes, sem pressa e sem improviso.</p>
+        <footer>Cliente · Google</footer>
+      </article>
+      <article>
+        <div class="stars" aria-hidden="true">★★★★★</div>
+        <p>Andou comigo no carro para entender o problema e apontou as soluções de forma clara.</p>
+        <footer>Cliente · Google</footer>
+      </article>
+    </div>
+
+    <p class="rev-note">↑ Versões resumidas. No site final, as avaliações serão puxadas automaticamente do Google e atualizadas sozinhas.</p>
+  </div>
+</section>
+
+<!-- ================= PAGAMENTO ================= -->
+<section class="gold-bar pay">
+  <div class="wrap">
+    <h2>Até 5x sem juros no cartão</h2>
+    <div class="pay-side">
+      Cartão de crédito · Débito<br>
+      Pix · Dinheiro<br>
+      Orçamento aprovado antes de começar
+    </div>
+    <a class="btn btn-dark" href="https://wa.me/556231000115?text=Ol%C3%A1!%20Quero%20um%20or%C3%A7amento." target="_blank" rel="noopener">Pedir orçamento</a>
+  </div>
+</section>
+
+<!-- ================= LOCALIZAÇÃO ================= -->
+<section class="sec" id="local">
+  <div class="wrap">
+    <div class="rv">
+      <p class="eyebrow">Onde estamos</p>
+      <h2>Jardim Europa,<br>Goiânia</h2>
+    </div>
+
+    <div class="loc rv">
+      <div>
+        <dl>
+          <dt>Endereço</dt>
+          <dd>Av. Madrid, Qd 174, Lt 22, nº 101<br>Jardim Europa — Goiânia/GO<br>CEP 74330-550<br>
+            <a href="https://www.google.com/maps/dir/?api=1&destination=-16.7283156,-49.3066243&destination_place_id=ChIJLf28oVv3XpMRpA7RjPdCbPo"
+               target="_blank" rel="noopener" style="display:inline-block;margin-top:8px">Traçar rota até a oficina →</a></dd>
+          <dt>Telefone e WhatsApp</dt>
+          <dd><a href="tel:+556231000115">(62) 3100-0115</a></dd>
+          <dt>Horário</dt>
+          <dd>Segunda a sexta, das 8h às 18h<br><span style="color:var(--smoke)">Sábado e domingo: fechado</span></dd>
+          <dt>Instagram</dt>
+          <dd><a href="https://instagram.com/3mcentroautomotivo" target="_blank" rel="noopener">@3mcentroautomotivo</a></dd>
+        </dl>
+        <div class="cta-row">
+          <a class="btn" href="https://wa.me/556231000115?text=Ol%C3%A1!%20Quero%20agendar%20um%20hor%C3%A1rio." target="_blank" rel="noopener">Agendar horário</a>
+        </div>
+      </div>
+
+      <iframe title="Mapa — 3M Centro Automotivo"
+        src="https://www.google.com/maps?q=3M+Centro+Automotivo+Av.+Madrid+Jardim+Europa+Goi%C3%A2nia&output=embed"
+        loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+    </div>
+  </div>
+</section>
+
+<!-- ================= RODAPÉ ================= -->
+<footer class="site">
+  <div class="wrap">
+    <div>
+      <svg viewBox="0 0 300 300" style="width:78px;margin-bottom:18px"><use href="#logo3m"/></svg>
+      <p style="font-size:.93rem;line-height:1.7;max-width:36ch">
+        Mecânica multimarcas e diagnóstico eletrônico em Goiânia.<br>
+        A gente não chuta — a gente analisa.
+      </p>
+    </div>
+    <div>
+      <h4>Navegação</h4>
+      <a href="#estrutura">Estrutura</a>
+      <a href="#diagnosticos">Diagnósticos</a>
+      <a href="#servicos">Serviços</a>
+      <a href="#descarbonizacao">Descarbonização</a>
+      <a href="#avaliacoes">Avaliações</a>
+      <a href="#local">Onde estamos</a>
+    </div>
+    <div>
+      <h4>Contato</h4>
+      <a href="https://wa.me/556231000115" target="_blank" rel="noopener">WhatsApp (62) 3100-0115</a>
+      <a href="https://instagram.com/3mcentroautomotivo" target="_blank" rel="noopener">@3mcentroautomotivo</a>
+      <a href="#local">Av. Madrid, Qd 174 — Jardim Europa</a>
+    </div>
+    <div class="fine">
+      <span>© 2026 3M Centro Automotivo · Goiânia/GO</span>
+      <span>CNPJ: [preencher]</span>
+    </div>
+  </div>
+</footer>
+
+<a class="float" href="https://wa.me/556231000115?text=Ol%C3%A1!%20Quero%20agendar%20um%20servi%C3%A7o%20na%203M." target="_blank" rel="noopener" aria-label="Falar no WhatsApp">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 14.4c-.3-.2-1.8-.9-2-1s-.5-.2-.7.1-.8 1-1 1.2-.4.2-.7.1a8 8 0 0 1-2.4-1.5 9 9 0 0 1-1.6-2c-.2-.3 0-.5.1-.6l.5-.6.3-.5v-.5l-1-2.3c-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.2.2 2.1 3.2 5.1 4.5.7.3 1.3.5 1.7.6.7.2 1.4.2 1.9.1.6-.1 1.8-.7 2-1.4.3-.7.3-1.3.2-1.4-.1-.1-.3-.2-.5-.3zM12 2a10 10 0 0 0-8.6 15L2 22l5.1-1.3A10 10 0 1 0 12 2zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2z"/></svg>
+</a>
+
+<script>
+const io = new IntersectionObserver((es)=>{
+  es.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target);} });
+},{threshold:.12});
+document.querySelectorAll('.rv').forEach(el=>io.observe(el));
+</script>
+
+<script>
+/* =========================================================================
+   CASOS — edite os textos entre aspas. Não mexa em "arq".
+   Cada caso pode ter 1 ou 2 vídeos.
+   ========================================================================= */
+const CASOS = [
+
+  { id:"Caso 01 · Bicos injetores",
+    titulo:"Um bico entupido, três injetando demais",
+    relato:`Teste de vazão na bancada. Um bico praticamente não injetava combustível e os outros
+            três injetavam em excesso — a origem da falha do motor, do consumo alto e da mistura rica.
+            <br><br>Quando o cliente comprou os bicos novos, não instalamos direto: colocamos os
+            quatro na máquina primeiro e filmamos. Agora sim, todos injetando parelho.
+            <em>Peça nova também sai errada de fábrica. Aqui nenhuma entra no motor sem passar pelo teste.</em>`,
+    videos:[
+      {arq:"diag-06", leg:"O problema — vazão irregular"},
+      {arq:"diag-01", leg:"A conferência — bicos novos antes de instalar"}
+    ],
+    efeitos:{
+      cab:"O que a mistura rica causava no carro",
+      lista:["Excesso de combustível no motor",
+             "Consumo muito acima do normal",
+             "Fumaça escura e cheiro forte de combustível",
+             "Velas de ignição carbonizando",
+             "Catalisador entupindo antes da hora"]
+    }
+  },
+
+  { id:"Caso 02 · BMW 530i",
+    titulo:"Achamos o vazamento. E testamos de novo.",
+    relato:`BMW 530i perdendo líquido de arrefecimento. No teste de pressurização encontramos o
+            primeiro vazamento — resolvido praticamente sem custo. <em>A maioria das oficinas
+            entregaria o carro aqui.</em>
+            <br><br>Nós refizemos o teste. E aí apareceu o vazamento sério, na mangueira inferior
+            do motor. Foi substituída. Se o carro tivesse saído daqui no primeiro reparo, ele
+            voltaria fervendo na estrada.`,
+    videos:[
+      {arq:"diag-03", leg:"Parte 1 — o primeiro vazamento"},
+      {arq:"diag-02", leg:"Parte 2 — o segundo, esse sim grave"}
+    ],
+    efeitos:{
+      cab:"O que estava em jogo",
+      lista:["Perda contínua de líquido de arrefecimento",
+             "Superaquecimento do motor",
+             "Junta do cabeçote queimada",
+             "Cabeçote empenado",
+             "Motor fundido — numa BMW, o conserto mais caro que existe"]
+    }
+  },
+
+  { id:"Caso 03 · Jeep Compass 2.0 Flex",
+    titulo:"Chegou de guincho. E o teste só era possível no fim.",
+    relato:`O Compass chegou de guincho, superaquecido, com a junta do cabeçote já queimada. Na
+            primeira inspeção encontramos a borracha de vedação solta dentro do reservatório de
+            expansão — a primeira suspeita.
+            <br><br>A cliente contou que, ao abastecer, o frentista avisou que o nível do
+            arrefecimento estava baixo e ela autorizou completar. Depois disso pegou a estrada,
+            e o carro ferveu.
+            <br><br>Motor de alumínio não perdoa superaquecimento: o motor foi retificado aqui,
+            inteiro. E aqui está o ponto que muita gente não sabe — <strong>com a junta queimada, o
+            sistema não segura pressão. Não existe teste de arrefecimento confiável antes de o
+            motor estar pronto.</strong>
+            <br><br>Por isso, assim que ele ficou montado, a primeira coisa que fizemos foi o teste.
+            E ele acusou um <strong>microvazamento numa mangueira</strong> — a explicação do nível baixo
+            lá atrás, antes de tudo acontecer. Mangueira trocada, carro entregue redondo.
+            <em>Se tivéssemos parado no motor, o motor novo teria o mesmo destino do velho.</em>`,
+    videos:[ {arq:"diag-04", leg:"Teste do sistema de arrefecimento, com o motor já pronto"} ],
+    efeitos:{
+      cab:"O que esse caso ensina",
+      lista:["Nível de arrefecimento baixo nunca é normal — é vazamento até prova em contrário",
+             "Completar e seguir viagem é o caminho mais curto para fundir o motor",
+             "Motor de alumínio empena com o superaquecimento",
+             "Com a junta queimada, o sistema só pode ser testado depois do motor pronto",
+             "Esse teste final foi o que salvou o motor recém-retificado"]
+    }
+  },
+
+  { id:"Caso 04 · VW Gol",
+    titulo:"Falhando e morrendo depois de abastecer",
+    relato:`O cliente chegou dizendo que, logo depois de abastecer, o carro começou a falhar muito
+            e chegava a morrer. Na entrevista — que fazemos com todo cliente antes de encostar no
+            carro — ele contou que tinha trocado o tipo de combustível.
+            <br><br>O aparelho confirmou: o módulo ainda estava calculando a mistura como se no
+            tanque estivesse o combustível anterior. Motor flex que não reconhece o combustível
+            novo falha e morre exatamente assim. <em>Muita gente troca bico, bobina e vela à toa
+            por causa desse sintoma.</em>
+            <br><br>Já com o carro na oficina, seguimos o check-list e apareceram desgastes nas
+            buchas e em outros pontos. Mostramos tudo em vídeo, o cliente viu, autorizou, e a
+            manutenção foi feita.`,
+    videos:[
+      {arq:"diag-07", leg:"O scanner e a entrevista com o cliente"},
+      {arq:"diag-08", leg:"O que mais o carro pediu"}
+    ],
+    efeitos:{
+      cab:"Por que o diagnóstico correto economiza dinheiro",
+      lista:["Motor falhando, engasgando e morrendo",
+             "Mistura errada e consumo fora do normal",
+             "Sintoma que se confunde com defeito de peça",
+             "Sem medir, a conta seria bico + bobina + vela — tudo desnecessário"]
+    }
+  },
+
+  { id:"Caso 05 · Renault Duster",
+    titulo:"Cheiro de gasolina toda vez que enchia o tanque",
+    relato:`O cliente relatou que, sempre que completava o tanque, o carro ficava com cheiro forte
+            de combustível. Procuramos a causa e encontramos: o anel de vedação da tampa da bomba
+            de combustível estava ressecado.
+            <br><br><em>Peça pequena, troca simples, problema que assustava resolvido. Desde que
+            alguém se dê ao trabalho de procurar a origem em vez de dizer que “é normal”.</em>`,
+    videos:[ {arq:"diag-05", leg:"Tampa e anel de vedação da bomba"} ],
+    efeitos:{
+      cab:"O que um vazamento de combustível significa",
+      lista:["Vapor de combustível entrando na cabine",
+             "Cheiro forte que não passa",
+             "Risco real de incêndio",
+             "Combustível evaporando do seu tanque"]
+    }
+  },
+
+  { id:"Caso 06 · Renault Captur",
+    titulo:"O check-list que quase não achou nada",
+    relato:`A cliente trouxe o Captur só para um check-list, para saber se o carro precisava de
+            alguma coisa. A resposta honesta foi: <strong>quase nada.</strong>
+            <br><br>Só o kit de batente, o coxim e o guarda-pó. E o barulho de que ela reclamava
+            vinha do peito de aço que protege o cárter, com os parafusos frouxos — reapertamos e
+            o barulho acabou.
+            <br><br><em>É por isso que a gente analisa antes de falar. Analisar também serve para dizer
+            que o seu carro está bem.</em>`,
+    videos:[ {arq:"diag-09", leg:"Check-list completo do veículo" } ],
+    efeitos:{
+      cab:"O que a cliente levou embora",
+      lista:["Nenhum serviço empurrado",
+             "Barulho resolvido com um reaperto de parafuso",
+             "Um kit de batente e coxim trocados — e só",
+             "A tranquilidade de saber exatamente o estado do carro"]
+    }
+  },
+
+];
+/* ===================== fim da parte editável ============================ */
+
+const alvo = document.getElementById('casos');
+
+CASOS.forEach(c => {
+  const el = document.createElement('article');
+  el.className = 'caso';
+
+  const telas = c.videos.map(v => `
+    <div class="tela">
+      <div class="moldura">
+        <video src="midia/${v.arq}.mp4" poster="midia/poster-${v.arq.slice(-2)}.jpg"
+               controls preload="metadata" playsinline></video>
+        <span class="dur"></span>
+      </div>
+      <p class="leg">${v.leg}</p>
+    </div>`).join('');
+
+  const efeitos = c.efeitos ? `
+    <ul class="efeitos">
+      <li class="cab">${c.efeitos.cab}</li>
+      ${c.efeitos.lista.map(e => `<li>${e}</li>`).join('')}
+    </ul>` : '';
+
+  el.innerHTML = `
+    <div class="telas" style="${c.videos.length === 1 ? 'max-width:180px' : ''}">${telas}</div>
+    <div>
+      <span class="id">${c.id}</span>
+      <h3>${c.titulo}</h3>
+      <div class="rel">${c.relato}</div>
+      ${efeitos}
+    </div>`;
+  alvo.appendChild(el);
+
+  el.querySelectorAll('video').forEach(v => {
+    const badge = v.parentElement.querySelector('.dur');
+    v.addEventListener('loadedmetadata', () => {
+      const m = Math.floor(v.duration / 60), sg = Math.round(v.duration % 60);
+      badge.textContent = `${m}:${String(sg).padStart(2, '0')}`;
+    });
+    v.addEventListener('play', () => {
+      document.querySelectorAll('#casos video').forEach(o => { if (o !== v) o.pause(); });
+    });
+  });
+});
+</script>
+</body>
+</html>
