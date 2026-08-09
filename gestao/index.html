@@ -212,6 +212,11 @@
   .switch.on{background:#1f5c3f}
   .switch::after{content:''; position:absolute; top:3px; left:3px; width:19px; height:19px; border-radius:50%; background:#fff; transition:.15s}
   .switch.on::after{left:22px}
+  .cfg-tabs{display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap}
+  .cfg-tabs button{background:var(--panel); border:1px solid var(--line2); color:var(--muted); padding:9px 15px; border-radius:9px; font-weight:600; font-size:13.5px; cursor:pointer}
+  .cfg-tabs button.on{background:var(--gold); color:#14161A; border-color:var(--gold)}
+  body.sem-valores .valor-tag, body.sem-valores .os-total .v, body.sem-valores .tl .valor{ visibility:hidden; position:relative }
+  body.sem-valores .valor-tag::after, body.sem-valores .os-total .v::after, body.sem-valores .tl .valor::after{ content:'•••'; visibility:visible; position:absolute; right:0; color:var(--muted2) }
 
   /* acordeões e árvores na ficha do veículo */
   details.acc{border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); margin-bottom:12px; overflow:hidden}
@@ -301,21 +306,30 @@
 
   <!-- CONFIG -->
   <section class="screen" data-screen="config">
-    <div class="view-head"><div><h2>Ajustes</h2><p>Mensagem, alertas e backup</p></div></div>
-    <div class="panel"><div class="field"><label>Modelo da mensagem de WhatsApp</label><textarea id="cfgMsg" rows="5"></textarea></div>
-      <div class="hint" style="margin-bottom:0">Variáveis: <b>{cliente}</b>, <b>{veiculo}</b>, <b>{placa}</b>, <b>{servico}</b>, <b>{data}</b>, <b>{km}</b>.</div></div>
-    <div class="panel"><div class="grid2">
-      <div class="field"><label>Antecedência do alerta (dias)</label><input id="cfgJanela" type="number" inputmode="numeric"></div>
-      <div class="field"><label>Rodagem padrão (km/mês)</label><input id="cfgMedia" type="number" inputmode="numeric"></div></div>
-      <div class="form-actions" style="margin-top:6px"><button class="btn gold" onclick="salvarConfig()">Salvar ajustes</button></div></div>
-    <div class="section-label">Backup dos dados</div>
-    <div class="panel"><p style="color:var(--muted); font-size:13px; margin:0 0 12px">Os dados ficam <b style="color:var(--txt)">neste aparelho</b>. Exporte com frequência.</p>
-      <div class="form-actions">
-        <button class="btn" onclick="exportar()">Exportar backup</button>
-        <button class="btn" onclick="document.getElementById('imp').click()">Importar backup</button>
-        <input type="file" id="imp" accept="application/json" style="display:none" onchange="importar(event)">
-        <button class="btn danger" onclick="limparTudo()">Apagar tudo</button></div></div>
-    <div id="usuariosAdmin"></div>
+    <div class="view-head"><div><h2>Configuração</h2><p>Mensagens, backup e usuários</p></div></div>
+    <div class="cfg-tabs" id="cfgTabs"></div>
+
+    <div class="cfg-panel" data-cfg="mensagens">
+      <div class="panel"><div class="field"><label>Modelo da mensagem de WhatsApp ao cliente</label><textarea id="cfgMsg" rows="5"></textarea></div>
+        <div class="hint" style="margin-bottom:0">Variáveis: <b>{cliente}</b>, <b>{veiculo}</b>, <b>{placa}</b>, <b>{servico}</b>, <b>{data}</b>, <b>{km}</b>. O <code>*texto*</code> fica em negrito no WhatsApp.</div></div>
+      <div class="panel"><div class="grid2">
+        <div class="field"><label>Antecedência do alerta (dias)</label><input id="cfgJanela" type="number" inputmode="numeric"></div>
+        <div class="field"><label>Rodagem padrão (km/mês)</label><input id="cfgMedia" type="number" inputmode="numeric"></div></div>
+        <div class="form-actions" style="margin-top:6px"><button class="btn gold" onclick="salvarConfig()">Salvar mensagens</button></div></div>
+    </div>
+
+    <div class="cfg-panel" data-cfg="backup" style="display:none">
+      <div class="panel"><p style="color:var(--muted); font-size:13px; margin:0 0 12px">Cópia de segurança de todos os dados.</p>
+        <div class="form-actions">
+          <button class="btn" onclick="exportar()">Exportar backup</button>
+          <button class="btn" onclick="document.getElementById('imp').click()">Importar backup</button>
+          <input type="file" id="imp" accept="application/json" style="display:none" onchange="importar(event)">
+          <button class="btn danger" onclick="limparTudo()">Apagar tudo</button></div></div>
+    </div>
+
+    <div class="cfg-panel" data-cfg="usuarios" style="display:none">
+      <div id="usuariosAdmin"></div>
+    </div>
   </section>
 
   <!-- DETALHE: CLIENTE -->
@@ -549,7 +563,7 @@ const VIEWS=[
   {id:'veiculos',label:'Veículos',icon:'M5 17h14M6 17l1-6h10l1 6M7 11l1-4h8l1 4M5 17a2 2 0 11-4 0 2 2 0 014 0zm14 0a2 2 0 11-4 0 2 2 0 014 0z'},
   {id:'ordens',label:'Ordens',icon:'M14 6l4 4m-9 9l-6 1 1-6 11-11 5 5-11 11z'},
   {id:'regras',label:'Tabela',icon:'M4 6h16M4 12h16M4 18h16'},
-  {id:'config',label:'Ajustes',icon:'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 13a7.5 7.5 0 000-2l2-1.5-2-3.5-2.4 1a7 7 0 00-1.7-1L14.5 3h-4l-.3 2.5a7 7 0 00-1.7 1l-2.4-1-2 3.5L4.6 11a7.5 7.5 0 000 2l-2 1.5 2 3.5 2.4-1a7 7 0 001.7 1l.3 2.5h4l.3-2.5a7 7 0 001.7-1l2.4 1 2-3.5-2-1.5z'},
+  {id:'config',label:'Config.',icon:'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 13a7.5 7.5 0 000-2l2-1.5-2-3.5-2.4 1a7 7 0 00-1.7-1L14.5 3h-4l-.3 2.5a7 7 0 00-1.7 1l-2.4-1-2 3.5L4.6 11a7.5 7.5 0 000 2l-2 1.5 2 3.5 2.4-1a7 7 0 001.7 1l.3 2.5h4l.3-2.5a7 7 0 001.7-1l2.4 1 2-3.5-2-1.5z'},
 ];
 const TABS=VIEWS.map(v=>v.id);
 let histStack=[{screen:'painel',param:null}];
@@ -909,7 +923,7 @@ function renderOsDet(id){
     <div class="os-total" style="margin-top:12px"><span class="l">Total da ordem</span><span class="v">${moneyFmt(osTotal(o))}</span></div>
     ${naos.length?`<div class="section-label" style="color:var(--amber)">Não realizados (orçado / recusado)</div><div class="rows">${itensNaos}</div>`:''}`;
 }
-function delOS(id){ if(!confirm('Excluir esta ordem de serviço?')) return; state.ordens=state.ordens.filter(o=>o.id!==id); salvar(); back(); toast('OS excluída'); }
+function delOS(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } if(!confirm('Excluir esta ordem de serviço?')) return; state.ordens=state.ordens.filter(o=>o.id!==id); salvar(); back(); toast('OS excluída'); }
 
 /* ==================================================================
    FORM: CLIENTE
@@ -926,7 +940,7 @@ function renderContatos(){ const box=document.getElementById('contatosBox');
 function setContato(id,k,v){ const r=contatoRows.find(x=>x.id===id); if(r) r[k]=v; }
 function addContato(){ if(contatoRows.length>=2) return; contatoRows.push({id:uid(),nome:'',relacao:RELACOES[0],telefone:'',nascimento:''}); renderContatos(); }
 function removeContato(id){ contatoRows=contatoRows.filter(x=>x.id!==id); renderContatos(); }
-function openCliente(id){
+function openCliente(id){ if(!pode('editar')){ toast('Sem permissão para editar'); return; }
   const c=id?getCliente(id):{nome:'',tipo:'Preventiva',telefone1:'',telefone2:'',endereco:'',obs:'',contatos:[],nascimento:'',zap_num:'1'};
   contatoRows=(c.contatos||[]).map(x=>({id:uid(),nome:x.nome||'',relacao:x.relacao||RELACOES[0],telefone:x.telefone||'',nascimento:x.nascimento||''}));
   openModal(`<h3>${id?'Editar cliente':'Novo cliente'}</h3><p class="sub">Dados, contatos autorizados e perfil.</p>
@@ -953,7 +967,7 @@ function saveCliente(id){
   if(id) Object.assign(getCliente(id),dados); else state.clientes.push({id:uid(),...dados,criado:Date.now()});
   salvar(); closeModal(); refreshAtual(); toast('Cliente salvo');
 }
-function delCliente(id){ if(!confirm('Excluir o cliente e todos os veículos/OS dele?')) return;
+function delCliente(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } if(!confirm('Excluir o cliente e todos os veículos/OS dele?')) return;
   const vids=veiculosDe(id).map(v=>v.id); state.ordens=state.ordens.filter(o=>!vids.includes(o.veiculo_id));
   state.veiculos=state.veiculos.filter(v=>v.cliente_id!==id); state.clientes=state.clientes.filter(c=>c.id!==id);
   salvar(); closeModal(); goTab('clientes'); toast('Cliente excluído'); }
@@ -961,7 +975,7 @@ function delCliente(id){ if(!confirm('Excluir o cliente e todos os veículos/OS 
 /* ==================================================================
    FORM: VEÍCULO (+ entrevista na 1ª vez)
 ================================================================== */
-function openVeiculo(id, clienteId){
+function openVeiculo(id, clienteId){ if(!pode('editar')){ toast('Sem permissão para editar'); return; }
   if(!state.clientes.length){ toast('Cadastre um cliente primeiro'); goTab('clientes'); return; }
   const v=id?getVeiculo(id):{cliente_id:clienteId||'',placa:'',modelo:'',ano:'',cor:'',km_atual:'',media_km_mes:''};
   const opts=state.clientes.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(c=>`<option value="${c.id}" ${c.id===v.cliente_id?'selected':''}>${esc(c.nome)}</option>`).join('');
@@ -985,7 +999,7 @@ function saveVeiculo(id){
   else{ const nv={id:uid(),...dados,entrevista:null,criado:Date.now()}; state.veiculos.push(nv); salvar(); closeModal();
     go('veiculo',nv.id); openEntrevista(nv.id,true); toast('Veículo cadastrado'); }
 }
-function delVeiculo(id){ if(!confirm('Excluir o veículo e suas OS?')) return;
+function delVeiculo(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } if(!confirm('Excluir o veículo e suas OS?')) return;
   state.ordens=state.ordens.filter(o=>o.veiculo_id!==id); state.veiculos=state.veiculos.filter(v=>v.id!==id);
   salvar(); closeModal(); goTab('veiculos'); toast('Veículo excluído'); }
 
@@ -1056,7 +1070,7 @@ function setEntFixo(id,k,v){ const r=entFixos.find(x=>x.id===id); if(!r) return;
 function setEntExtra(id,k,v){ const r=entExtras.find(x=>x.id===id); if(!r) return; r[k]=v; if(k==='feito'){ const el=document.querySelector(`.ent-row[data-id="${id}"]`); if(el) el.classList.toggle('on',v); } }
 function addEntExtra(){ entExtras.push({id:uid(),nome:'',feito:false,km:'',meses:''}); renderEntItens(); }
 
-function openEntrevista(vid, primeira){
+function openEntrevista(vid, primeira){ if(!pode('editar')){ toast('Sem permissão para editar'); return; }
   const v=getVeiculo(vid); const e=v.entrevista||{};
   seedEntrevista(v);
   const kmInicial = e.km_atual || v.km_atual || '';
@@ -1164,7 +1178,7 @@ function prevVerificarLinha(vid,o){
     <div class="rate">${btns}</div></div>`;
 }
 let prevFiltro=null;
-function setInspecao(vid,nome,valor){ const v=getVeiculo(vid); v.inspecao||={}; v.inspecao[nome]=valor; salvar(); openPrevencao(vid, prevFiltro); }
+function setInspecao(vid,nome,valor){ if(!pode('editar')){ toast('Sem permissão para editar'); return; } const v=getVeiculo(vid); v.inspecao||={}; v.inspecao[nome]=valor; salvar(); openPrevencao(vid, prevFiltro); }
 function renderPrevencaoResumo(vid){
   const v=getVeiculo(vid); const f=fichaPrevencao(vid);
   return `<div style="font-size:13px; color:var(--muted); margin-bottom:10px">KM atual: <b style="color:var(--txt)">${v.km_atual?nfmt(v.km_atual)+' km':'—'}</b></div>
@@ -1232,7 +1246,7 @@ function calcOsPrevia(){
     linhas.map(({r})=>{ const p=previsao(v,r,km,data); const kmTxt=p.kmPrevisto!=null?nfmt(p.kmPrevisto)+' km':'só por tempo';
       return `<div class="pi"><span>${esc(r.nome)}</span><span><b>${fmtBR(p.dataPrevista)}</b> · ${kmTxt}</span></div>`; }).join('');
 }
-function openOS(id, veiculoFixo){
+function openOS(id, veiculoFixo){ if(!pode('editar')){ toast('Sem permissão para editar'); return; }
   if(!state.veiculos.length){ toast('Cadastre um veículo primeiro'); goTab('veiculos'); return; }
   const o=id?getOS(id):null; osFixoVeiculo = o?o.veiculo_id : (veiculoFixo||null);
   osItens = o?(o.itens||[]).map(i=>({id:uid(),nome:i.nome,valor:i.valor?String(i.valor).replace('.',','):'',feito:i.feito!==false})) : [{id:uid(),nome:'',valor:'',feito:true}];
@@ -1278,7 +1292,7 @@ function saveOS(id){
 function renderRegras(){ document.getElementById('listaRegras').innerHTML=state.regras.map(r=>`<div class="row">
   <div class="main"><div class="t">${esc(r.nome)}</div><div class="s">${[r.km>0?nfmt(r.km)+' km':null,r.meses>0?r.meses+' meses':null].filter(Boolean).join(' ou ')||'—'}</div></div>
   <button class="btn sm ghost" onclick='openRegra("${r.id}")'>Editar</button></div>`).join(''); }
-function openRegra(id){ const r=id?getRegra(id):{nome:'',km:'',meses:''};
+function openRegra(id){ if(!pode('editar')){ toast('Sem permissão para editar'); return; } const r=id?getRegra(id):{nome:'',km:'',meses:''};
   openModal(`<h3>${id?'Editar regra':'Nova regra'}</h3><p class="sub">Intervalo de repetição do serviço.</p>
     <div class="field"><label>Nome do serviço</label><input id="fRNome" value="${esc(r.nome)}" placeholder="Troca de óleo"></div>
     <div class="grid2"><div class="field"><label>Validade em KM (0 = ignora)</label><input id="fRKm" value="${esc(r.km)}" inputmode="numeric" placeholder="10000"></div>
@@ -1290,9 +1304,28 @@ function saveRegra(id){ const nome=val('fRNome').trim(),km=num('fRKm')||0,meses=
   if(!nome){ toast('Informe o nome'); return; } if(km<=0&&meses<=0){ toast('Preencha KM ou meses'); return; }
   if(id) Object.assign(getRegra(id),{nome,km,meses}); else state.regras.push({id:uid(),nome,km,meses});
   salvar(); document.getElementById('regrasList').innerHTML=state.regras.map(r=>`<option value="${esc(r.nome)}">`).join(''); closeModal(); renderRegras(); toast('Regra salva'); }
-function delRegra(id){ if(!confirm('Excluir esta regra?')) return; state.regras=state.regras.filter(r=>r.id!==id); salvar(); closeModal(); renderRegras(); toast('Regra excluída'); }
+function delRegra(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } if(!confirm('Excluir esta regra?')) return; state.regras=state.regras.filter(r=>r.id!==id); salvar(); closeModal(); renderRegras(); toast('Regra excluída'); }
 
-function carregarConfig(){ document.getElementById('cfgMsg').value=state.config.msg; document.getElementById('cfgJanela').value=state.config.janela_dias; document.getElementById('cfgMedia').value=state.config.media_km_mes_padrao; if(typeof renderUsuariosAdmin==='function') renderUsuariosAdmin(); }
+function carregarConfig(){ document.getElementById('cfgMsg').value=state.config.msg; document.getElementById('cfgJanela').value=state.config.janela_dias; document.getElementById('cfgMedia').value=state.config.media_km_mes_padrao; montarCfgTabs(); cfgTab(cfgAtiva); }
+let cfgAtiva='mensagens';
+function montarCfgTabs(){
+  const box=document.getElementById('cfgTabs'); if(!box) return;
+  const abas=[['mensagens','Mensagens'],['backup','Backup']];
+  if(ehAdmin()) abas.push(['usuarios','Usuários']);
+  box.innerHTML=abas.map(([k,r])=>`<button class="${k===cfgAtiva?'on':''}" onclick="cfgTab('${k}')">${r}</button>`).join('');
+}
+function cfgTab(k){
+  if(k==='usuarios'&&!ehAdmin()) k='mensagens';
+  cfgAtiva=k; montarCfgTabs();
+  document.querySelectorAll('.cfg-panel').forEach(p=>p.style.display=p.dataset.cfg===k?'':'none');
+  if(k==='usuarios') renderUsuariosAdmin();
+}
+
+/* ---- Permissões ---- */
+const PERMS=[['editar','Cadastrar e editar'],['excluir','Excluir registros'],['valores','Ver valores (R$)'],['config','Acessar Configuração']];
+function permsPadrao(){ return {editar:true, excluir:false, valores:true, config:false}; }
+function pode(perm){ if(!usuarioAtual) return false; if(usuarioAtual.papel==='admin') return true; const p=usuarioAtual.perms||permsPadrao(); return !!p[perm]; }
+function aplicarPermissoesUI(){ document.body.classList.toggle('sem-valores', !pode('valores')); }
 function salvarConfig(){ state.config.msg=document.getElementById('cfgMsg').value; state.config.janela_dias=num('cfgJanela')||30; state.config.media_km_mes_padrao=num('cfgMedia')||1000; salvar(); toast('Ajustes salvos'); }
 function exportar(){ const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='backup-oficina-'+toISO(hoje())+'.json'; a.click(); toast('Backup exportado'); }
 function importar(ev){ const f=ev.target.files[0]; if(!f) return; const rd=new FileReader();
@@ -1335,10 +1368,28 @@ function authMsg(txt,pref){ const el=document.getElementById((pref||'')+'authMsg
 function verificarAuth(){
   const id=localStorage.getItem(AUTH_KEY);
   const u=id?getUsuario(id):null;
-  if(u && u.status==='ativo'){ usuarioAtual=u; esconderGate(); atualizarHeaderUser(); refreshAtual(); return; }
+  if(u && u.status==='ativo'){ usuarioAtual=u; esconderGate(); atualizarHeaderUser(); aplicarPermissoesUI(); refreshAtual(); checarPendencias(); return; }
   if(u && u.status!=='ativo'){ usuarioAtual=null; atualizarHeaderUser(); mostrarEspera(u); return; }
   usuarioAtual=null; atualizarHeaderUser(); mostrarLogin();
 }
+let pendJaMostrada=false;
+function checarPendencias(){
+  if(!ehAdmin()||pendJaMostrada) return;
+  const pend=state.usuarios.filter(u=>u.status==='pendente');
+  const resets=state.usuarios.filter(u=>u.reset);
+  if(!pend.length && !resets.length) return;
+  pendJaMostrada=true;
+  const linhaP=u=>`<div class="row"><div class="main"><div class="t">${esc(u.nome)} <span class="badge st-pendente">novo cadastro</span></div><div class="s">login: ${esc(u.login||'—')}${u.email?(' · '+esc(u.email)):''}</div></div>
+    <div class="acts"><button class="btn sm green" onclick='pendLiberar("${u.id}")'>Liberar</button><button class="btn sm danger" onclick='pendExcluir("${u.id}")'>Recusar</button></div></div>`;
+  const linhaR=u=>`<div class="row"><div class="main"><div class="t">${esc(u.nome)} <span class="badge st-pendente">pediu nova senha</span></div><div class="s">login: ${esc(u.login||'—')}</div></div>
+    <div class="acts"><button class="btn sm ghost" onclick='adminRedefinirSenha("${u.id}")'>Redefinir senha</button></div></div>`;
+  openModal(`<h3>Pendências para liberar</h3><p class="sub">Cadastros novos e pedidos de senha aguardando você.</p>
+    ${pend.length?`<div class="section-label">Novos cadastros (${pend.length})</div><div class="rows">${pend.map(linhaP).join('')}</div>`:''}
+    ${resets.length?`<div class="section-label">Pedidos de senha (${resets.length})</div><div class="rows">${resets.map(linhaR).join('')}</div>`:''}
+    <div class="form-actions" style="margin-top:14px"><button class="btn gold" onclick="closeModal()">Fechar</button></div>`);
+}
+function pendLiberar(id){ const u=getUsuario(id); if(!u) return; u.status='ativo'; u.perms=u.perms||permsPadrao(); u.atualizado=Date.now(); salvar(); toast(u.nome+' liberado'); pendJaMostrada=false; checarPendencias(); if(document.querySelector('[data-screen="config"].active')) renderUsuariosAdmin(); }
+function pendExcluir(id){ const u=getUsuario(id); if(!u) return; state.usuarios=state.usuarios.filter(x=>x.id!==id); salvar(); toast('Cadastro recusado'); pendJaMostrada=false; checarPendencias(); }
 function mostrarLogin(){
   mostrarGate(`<div class="auth-card">
     <div class="logo">3M</div><h2>Gestão da Oficina</h2><p class="sub">Acesso restrito · Centro Automotivo</p>
@@ -1346,14 +1397,31 @@ function mostrarLogin(){
     <div class="field"><label>Senha</label><input id="authSenha" type="password" autocomplete="current-password" placeholder="sua senha" onkeydown="if(event.key==='Enter')fazerLogin()"></div>
     <div class="auth-msg" id="authMsg"></div>
     <button class="btn gold" onclick="fazerLogin()">Entrar</button>
+    <div class="auth-alt"><a onclick="mostrarReset()">Esqueci minha senha</a></div>
     <div class="auth-alt">Não tem acesso? <a onclick="mostrarCadastro()">Cadastre-se</a></div>
   </div>`);
+}
+function mostrarReset(){
+  mostrarGate(`<div class="auth-card">
+    <div class="logo">3M</div><h2>Esqueci minha senha</h2><p class="sub">Enviaremos seu pedido ao responsável, que vai definir uma nova senha para você.</p>
+    <div class="field"><label>Seu login ou e-mail</label><input id="resLogin" placeholder="login ou e-mail"></div>
+    <div class="auth-msg" id="resauthMsg" style="color:var(--muted)"></div>
+    <button class="btn gold" onclick="fazerReset()">Enviar pedido</button>
+    <div class="auth-alt"><a onclick="mostrarLogin()">Voltar ao login</a></div>
+  </div>`);
+}
+function fazerReset(){
+  const q=(val('resLogin')||'').trim().toLowerCase();
+  const u=state.usuarios.find(x=>(x.login||'').toLowerCase()===q||(x.email||'').toLowerCase()===q);
+  if(u){ u.reset=Date.now(); salvar(); }
+  authMsg('Pedido enviado! Assim que o responsável redefinir, entre com a nova senha.','res');
 }
 function mostrarCadastro(){
   mostrarGate(`<div class="auth-card">
     <div class="logo">3M</div><h2>Criar acesso</h2><p class="sub">Seu cadastro passa por aprovação do responsável</p>
     <div class="field"><label>Seu nome</label><input id="regNome" placeholder="Nome completo"></div>
     <div class="field"><label>Usuário (login)</label><input id="regLogin" placeholder="ex: joao"></div>
+    <div class="field"><label>E-mail</label><input id="regEmail" placeholder="voce@email.com"></div>
     <div class="field"><label>Senha</label><input id="regSenha" type="password" placeholder="crie uma senha"></div>
     <div class="auth-msg" id="regauthMsg"></div>
     <button class="btn gold" onclick="fazerCadastro()">Cadastrar</button>
@@ -1379,7 +1447,7 @@ async function fazerLogin(){
   if(h!==u.senha_hash){ authMsg('Senha incorreta'); return; }
   localStorage.setItem(AUTH_KEY,u.id);
   if(u.status!=='ativo'){ mostrarEspera(u); return; }
-  usuarioAtual=u; esconderGate(); atualizarHeaderUser(); refreshAtual();
+  usuarioAtual=u; esconderGate(); atualizarHeaderUser(); aplicarPermissoesUI(); refreshAtual(); checarPendencias();
 }
 async function fazerCadastro(){
   const nome=val('regNome').trim(), login=val('regLogin').trim(), senha=val('regSenha');
@@ -1387,13 +1455,13 @@ async function fazerCadastro(){
   if(usuarioPorLogin(login)){ authMsg('Esse login já existe','reg'); return; }
   const salt=randSalt(), hash=await hashSenha(senha,salt);
   const primeiro = state.usuarios.length===0;
-  const u={id:uid(),nome,login,senha_hash:hash,salt,status:primeiro?'ativo':'pendente',papel:primeiro?'admin':'operador',criado:Date.now()};
+  const u={id:uid(),nome,login,email:val('regEmail').trim(),senha_hash:hash,salt,status:primeiro?'ativo':'pendente',papel:primeiro?'admin':'operador',perms:permsPadrao(),reset:'',criado:Date.now()};
   state.usuarios.push(u); salvar();
   localStorage.setItem(AUTH_KEY,u.id);
-  if(primeiro){ usuarioAtual=u; esconderGate(); atualizarHeaderUser(); refreshAtual(); toast('Bem-vindo! Você é o administrador.'); }
+  if(primeiro){ usuarioAtual=u; esconderGate(); atualizarHeaderUser(); aplicarPermissoesUI(); refreshAtual(); toast('Bem-vindo! Você é o administrador.'); }
   else { mostrarEspera(u); }
 }
-function fazerLogout(){ localStorage.removeItem(AUTH_KEY); usuarioAtual=null; atualizarHeaderUser(); mostrarLogin(); }
+function fazerLogout(){ localStorage.removeItem(AUTH_KEY); usuarioAtual=null; pendJaMostrada=false; document.body.classList.remove('sem-valores'); atualizarHeaderUser(); mostrarLogin(); }
 function atualizarHeaderUser(){
   const el=document.getElementById('authUser'); if(!el) return;
   if(usuarioAtual){ el.innerHTML=`<b>${esc(usuarioAtual.nome.split(' ')[0])}</b>${usuarioAtual.papel==='admin'?' · admin':''} <a onclick="fazerLogout()" style="color:var(--gold);cursor:pointer;font-weight:600">Sair</a>`; }
@@ -1404,31 +1472,34 @@ function atualizarHeaderUser(){
 function ehAdmin(){ return usuarioAtual && usuarioAtual.papel==='admin'; }
 function renderUsuariosAdmin(){
   const box=document.getElementById('usuariosAdmin'); if(!box) return;
-  if(!ehAdmin()){ box.innerHTML=''; return; }
+  if(!ehAdmin()){ box.innerHTML='<div class="note empty-note">Apenas administradores.</div>'; return; }
   const badge=s=>`<span class="badge st-${s}">${s==='ativo'?'Ativo':s==='pendente'?'Pendente':'Bloqueado'}</span>`;
-  const rows=state.usuarios.slice().sort((a,b)=>(a.status==='pendente'?-1:0)-(b.status==='pendente'?-1:0)||a.nome.localeCompare(b.nome)).map(u=>{
+  const rows=state.usuarios.slice().sort((a,b)=>((a.status==='pendente')?-1:0)-((b.status==='pendente')?-1:0)||a.nome.localeCompare(b.nome)).map(u=>{
     const eu=usuarioAtual&&u.id===usuarioAtual.id;
-    return `<div class="row"><div class="main"><div class="t">${esc(u.nome)} ${badge(u.status)}${u.papel==='admin'?' <span class="badge prev">admin</span>':''}</div>
-      <div class="s">login: ${esc(u.login||'—')}${eu?' · (você)':''}</div></div>
+    return `<div class="row" style="flex-wrap:wrap; gap:8px"><div class="main"><div class="t">${esc(u.nome)} ${badge(u.status)}${u.papel==='admin'?' <span class="badge prev">admin</span>':''}${u.reset?' <span class="badge st-pendente">pediu senha</span>':''}</div>
+      <div class="s">login: ${esc(u.login||'—')}${u.email?(' · '+esc(u.email)):''}${eu?' · (você)':''}</div></div>
       <div class="acts">
-        <button class="switch ${u.status==='ativo'?'on':''}" title="${u.status==='ativo'?'Desativar':'Ativar'}" ${eu?'disabled style="opacity:.4"':''} onclick='adminToggle("${u.id}")'></button>
+        <button class="switch ${u.status==='ativo'?'on':''}" title="${u.status==='ativo'?'Inativar':'Ativar'}" ${eu?'disabled style="opacity:.4"':''} onclick='adminToggle("${u.id}")'></button>
+        <button class="btn sm ghost" ${u.papel==='admin'?'disabled style="opacity:.4"':''} onclick='adminPermissoes("${u.id}")'>Permissões</button>
+        <button class="btn sm ghost" onclick='adminRedefinirSenha("${u.id}")'>${u.reset?'Redefinir ⚠':'Redefinir senha'}</button>
         <button class="btn sm danger" ${eu?'disabled style="opacity:.4"':''} onclick='adminExcluir("${u.id}")'>Excluir</button>
       </div></div>`;
   }).join('');
   box.innerHTML=`<div class="section-label"><span>Usuários (acesso ao sistema)</span><button class="btn sm gold" onclick="adminCadastrar()">+ Cadastrar</button></div>
-    <div class="hint">O botão verde libera (liga) ou bloqueia (desliga) o acesso. Cadastros novos entram como <b>Pendente</b> até você ligar.</div>
+    <div class="hint">Botão verde = liga (ativa) / desliga (inativa). Cadastros novos entram como <b>Pendente</b>. "Permissões" define o que cada usuário pode fazer. "Redefinir senha" cria uma senha nova (não afeta nenhum outro dado).</div>
     <div class="rows">${rows||emptyState('Nenhum usuário','')}</div>`;
 }
 function adminToggle(id){ const u=getUsuario(id); if(!u) return; if(usuarioAtual&&u.id===usuarioAtual.id){ toast('Você não pode alterar o próprio acesso'); return; }
-  u.status = u.status==='ativo'?'bloqueado':'ativo'; u.atualizado=Date.now(); salvar(); renderUsuariosAdmin(); toast(u.status==='ativo'?'Acesso liberado':'Acesso bloqueado'); }
+  u.status = u.status==='ativo'?'bloqueado':'ativo'; u.atualizado=Date.now(); salvar(); renderUsuariosAdmin(); toast(u.status==='ativo'?'Acesso liberado':'Acesso inativado'); }
 function adminExcluir(id){ const u=getUsuario(id); if(!u) return; if(usuarioAtual&&u.id===usuarioAtual.id){ toast('Você não pode se excluir'); return; }
-  if(!confirm('Excluir o acesso de '+u.nome+'?')) return; state.usuarios=state.usuarios.filter(x=>x.id!==id); salvar(); renderUsuariosAdmin(); toast('Usuário excluído'); }
+  if(!confirm('Excluir o acesso de '+u.nome+'? (não afeta clientes, veículos ou ordens)')) return; state.usuarios=state.usuarios.filter(x=>x.id!==id); salvar(); renderUsuariosAdmin(); toast('Usuário excluído'); }
 function adminCadastrar(){
   openModal(`<h3>Cadastrar usuário</h3><p class="sub">Criado já liberado (ativo).</p>
     <div class="field"><label>Nome</label><input id="nuNome" placeholder="Nome"></div>
     <div class="grid2"><div class="field"><label>Login</label><input id="nuLogin" placeholder="ex: maria"></div>
-      <div class="field"><label>Senha</label><input id="nuSenha" type="password" placeholder="senha"></div></div>
-    <div class="field"><label>Papel</label><select id="nuPapel"><option value="operador">Operador</option><option value="admin">Administrador</option></select></div>
+      <div class="field"><label>E-mail</label><input id="nuEmail" placeholder="maria@email.com"></div></div>
+    <div class="grid2"><div class="field"><label>Senha</label><input id="nuSenha" type="password" placeholder="senha"></div>
+      <div class="field"><label>Papel</label><select id="nuPapel"><option value="operador">Operador</option><option value="admin">Administrador</option></select></div></div>
     <div class="form-actions"><button class="btn gold" onclick="salvarNovoUsuario()">Salvar</button><button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
 }
 async function salvarNovoUsuario(){
@@ -1436,8 +1507,27 @@ async function salvarNovoUsuario(){
   if(!nome||!login||!senha){ toast('Preencha nome, login e senha'); return; }
   if(usuarioPorLogin(login)){ toast('Esse login já existe'); return; }
   const salt=randSalt(), hash=await hashSenha(senha,salt);
-  state.usuarios.push({id:uid(),nome,login,senha_hash:hash,salt,status:'ativo',papel:val('nuPapel'),criado:Date.now()});
+  state.usuarios.push({id:uid(),nome,login,email:val('nuEmail').trim(),senha_hash:hash,salt,status:'ativo',papel:val('nuPapel'),perms:permsPadrao(),reset:'',criado:Date.now()});
   salvar(); closeModal(); renderUsuariosAdmin(); toast('Usuário cadastrado');
+}
+function adminPermissoes(id){
+  const u=getUsuario(id); if(!u) return; const p=u.perms||permsPadrao();
+  openModal(`<h3>Permissões — ${esc(u.nome)}</h3><p class="sub">Marque o que este usuário pode fazer.</p>
+    ${PERMS.map(([k,r])=>`<label class="ent-row ${p[k]?'on':''}" style="grid-template-columns:22px 1fr" data-perm="${k}"><input type="checkbox" ${p[k]?'checked':''} onchange="this.closest('.ent-row').classList.toggle('on',this.checked)"><span class="en">${r}</span></label>`).join('')}
+    <div class="form-actions" style="margin-top:12px"><button class="btn gold" onclick='salvarPermissoes("${id}")'>Salvar permissões</button><button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+}
+function salvarPermissoes(id){
+  const u=getUsuario(id); if(!u) return; const p={};
+  document.querySelectorAll('#modal .ent-row[data-perm]').forEach(el=>{ p[el.dataset.perm]=el.querySelector('input').checked; });
+  u.perms=p; u.atualizado=Date.now(); salvar(); closeModal(); renderUsuariosAdmin();
+  if(usuarioAtual&&usuarioAtual.id===id) aplicarPermissoesUI();
+  toast('Permissões salvas');
+}
+async function adminRedefinirSenha(id){
+  const u=getUsuario(id); if(!u) return;
+  const nova=prompt('Nova senha para '+u.nome+':'); if(nova==null||!nova.trim()) return;
+  const salt=randSalt(); u.salt=salt; u.senha_hash=await hashSenha(nova.trim(),salt); u.reset=''; u.atualizado=Date.now();
+  salvar(); renderUsuariosAdmin(); toast('Senha redefinida');
 }
 
 /* boot */

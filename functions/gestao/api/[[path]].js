@@ -9,7 +9,7 @@ const SCHEMA = {
   veiculos: { cols:['id','cliente_id','placa','modelo','ano','cor','km_atual','media_km_mes','entrevista','inspecao','criado','atualizado'], json:['entrevista','inspecao'] },
   ordens:   { cols:['id','veiculo_id','data','km','reclamacao','obs_mecanico','obs_admin','itens','criado','atualizado'], json:['itens'] },
   regras:   { cols:['id','nome','km','meses','ordem'], json:[] },
-  usuarios: { cols:['id','nome','login','senha_hash','salt','status','papel','criado','atualizado'], json:[] },
+  usuarios: { cols:['id','nome','login','senha_hash','salt','status','papel','email','perms','reset','criado','atualizado'], json:['perms'] },
 };
 
 const jsonResp = (o, s = 200) =>
@@ -43,7 +43,7 @@ export async function onRequest(context) {
         veiculos: (vei.results || []).map(r => ({ ...r, entrevista: parse(r.entrevista, null), inspecao: parse(r.inspecao, {}) })),
         ordens:   (ord.results || []).map(r => ({ ...r, itens: parse(r.itens, []) })),
         regras:   (reg.results || []),
-        usuarios: (usu.results || []),
+        usuarios: (usu.results || []).map(r => ({ ...r, perms: parse(r.perms, null) })),
         config,
       });
     }
