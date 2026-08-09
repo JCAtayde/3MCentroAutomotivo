@@ -624,40 +624,67 @@ function saudacaoVariada(nome){ return SAUDACOES[Math.floor(Math.random()*SAUDAC
 function msgLotePrev(vid,status){ const c=getCliente(getVeiculo(vid).cliente_id); const nome=(c?.nome||'').split(' ')[0];
   const tipo=status==='vencida'?'vencidos':status==='proxima'?'proximos':'verificar';
   return saudacaoVariada(nome)+'\n\n'+textoFicha(vid,tipo); }
-let filaZap=[], filaIdx=0, filaStatus=null, filaTimer=null, filaCooldown=0;
+let filaZap=[], filaIdx=0, filaStatus=null, filaTick=null, filaCooldown=0, zapWin=null, filaPausado=false;
+function urlZap(item){ return 'https://web.whatsapp.com/send?phone='+item.num+'&text='+encodeURIComponent(item.msg); }
 function enviarLotePrev(status){
-  const gp=prevencaoGlobal(); const arr=(gp[status]||[]).filter(x=>zapDoCliente(getCliente(x.v.cliente_id)));
+  const gp=prevencaoGlobal();
+  const arr=(gp[status]||[]).map(x=>{ const c=getCliente(x.v.cliente_id); return {v:x.v, num:zapDoCliente(c)}; }).filter(x=>x.num);
   if(!arr.length){ toast('Nenhum cliente com WhatsApp nesta lista'); return; }
-  filaStatus=status; filaIdx=0; filaCooldown=0; clearInterval(filaTimer);
-  filaZap=arr.map(x=>({vid:x.v.id, msg:msgLotePrev(x.v.id,status)}));
-  renderFilaZap();
+  filaStatus=status; filaIdx=0; filaCooldown=0; filaPausado=false; zapWin=null; clearInterval(filaTick);
+  filaZap=arr.map(x=>({vid:x.v.id, num:x.num, msg:msgLotePrev(x.v.id,status)}));
+  telaInicioFila();
+}
+function telaInicioFila(){
+  openModal(`<h3>Envio automático — ${filaZap.length} clientes</h3>
+    <p class="sub">No computador, vou abrir o WhatsApp Web e <b>trocar de conversa sozinho a cada ~10 segundos</b>. Em cada conversa é só conferir e tocar em enviar (▶).</p>
+    <div class="hint">O WhatsApp exige que você toque em enviar em cada conversa — isso nenhum site faz sozinho. Mas a troca de conversa daqui em diante é automática. Deixe a janela do WhatsApp visível ao lado.</div>
+    <div class="form-actions" style="margin-top:14px">
+      <button class="btn green" onclick="iniciarFilaZap()">Iniciar envios</button>
+      <button class="btn ghost" onclick="pararFilaZap()">Cancelar</button></div>`);
+}
+function iniciarFilaZap(){
+  zapWin=window.open(urlZap(filaZap[0]),'zap3m');
+  if(!zapWin){ toast('Permita pop-ups para o envio automático'); return; }
+  filaIdx=0; filaCooldown=10; filaPausado=false; renderFilaZap(); startTickFila();
+}
+function startTickFila(){ clearInterval(filaTick); filaTick=setInterval(()=>{ if(filaPausado) return; filaCooldown--; if(filaCooldown<=0) avancarFila(); else renderFilaZap(); },1000); }
+function avancarFila(){
+  filaIdx++;
+  if(filaIdx>=filaZap.length){ clearInterval(filaTick); renderFilaZap(); return; }
+  const item=filaZap[filaIdx];
+  if(zapWin && !zapWin.closed){ zapWin.location.href=urlZap(item); filaCooldown=10; renderFilaZap(); }
+  else { filaPausado=true; renderFilaZap(); }
 }
 function renderFilaZap(){
   const n=filaZap.length;
-  if(filaIdx>=n){ openModal(`<h3>Envio concluído 🎉</h3><p class="sub">${n} conversa(s) foram abertas no WhatsApp. Confirme se cada mensagem foi enviada.</p><div class="form-actions"><button class="btn gold" onclick="closeModal()">Fechar</button></div>`); filaZap=[]; clearInterval(filaTimer); return; }
+  if(filaIdx>=n){ openModal(`<h3>Envios concluídos 🎉</h3><p class="sub">${n} conversa(s) foram abertas no WhatsApp. Confirme se cada mensagem foi enviada.</p><div class="form-actions"><button class="btn gold" onclick="pararFilaZap()">Fechar</button></div>`); return; }
   const item=filaZap[filaIdx]; const v=getVeiculo(item.vid); const c=getCliente(v.cliente_id);
-  const preview=esc(item.msg).replace(/\n/g,'<br>');
-  const btn = filaCooldown>0
-    ? `<button class="btn" disabled style="opacity:.6">Aguarde ${filaCooldown}s para a próxima…</button>`
-    : `<button class="btn green" onclick="dispararFilaZap()">Abrir WhatsApp de ${esc((c?.nome||'').split(' ')[0]||'cliente')}</button>`;
-  openModal(`<h3>WhatsApp em lote — ${filaIdx+1} de ${n}</h3>
-    <p class="sub">${esc(nomeVeiculo(v))} · ${esc(v.placa||'')} · ${esc(c?.nome||'')}</p>
-    <div class="note" style="max-height:170px; overflow:auto; white-space:normal; text-align:left">${preview}</div>
-    <div class="hint">Toque para abrir, envie no WhatsApp e volte. A próxima libera em ~10s (evita bloqueio por excesso).</div>
-    <div class="form-actions" style="margin-top:12px; flex-wrap:wrap">${btn}
+  const nome=esc((c?.nome||'').split(' ')[0]||'cliente');
+  const linha = filaPausado
+    ? `<button class="btn green" onclick="retomarFilaZap()">Retomar — abrir ${nome}</button>`
+    : `<div class="hint" style="margin:0">Próxima conversa em <b>${filaCooldown}s</b>… ${filaIdx+1<n?'':'(última)'}</div>`;
+  openModal(`<h3>Enviando — ${filaIdx+1} de ${n}</h3>
+    <p class="sub">Agora: <b>${esc(c?.nome||'')}</b> · ${esc(nomeVeiculo(v))} ${esc(v.placa||'')}</p>
+    <div class="hint">Confira no WhatsApp e toque em enviar (▶). ${filaPausado?'A janela foi fechada — clique em Retomar.':'A próxima abre sozinha.'}</div>
+    ${linha}
+    <div class="form-actions" style="margin-top:12px; flex-wrap:wrap">
+      ${filaPausado?'':'<button class="btn ghost" onclick="pausarFilaZap()">Pausar</button>'}
       <button class="btn ghost" onclick="pularFilaZap()">Pular</button>
-      <button class="btn ghost" onclick="pararFilaZap()">Parar</button></div>`);
+      <button class="btn ghost" onclick="pararFilaZap()">Parar tudo</button></div>`);
 }
-function dispararFilaZap(){
-  const item=filaZap[filaIdx]; const c=getCliente(getVeiculo(item.vid).cliente_id); const num=zapDoCliente(c);
-  if(num) window.open('https://wa.me/'+num+'?text='+encodeURIComponent(item.msg),'_blank');
+function pausarFilaZap(){ filaPausado=true; renderFilaZap(); }
+function retomarFilaZap(){ const item=filaZap[filaIdx];
+  if(!zapWin||zapWin.closed){ zapWin=window.open(urlZap(item),'zap3m'); if(!zapWin){ toast('Permita pop-ups'); return; } }
+  else zapWin.location.href=urlZap(item);
+  filaPausado=false; filaCooldown=10; renderFilaZap(); startTickFila(); }
+function pularFilaZap(){
   filaIdx++;
-  if(filaIdx<filaZap.length){ filaCooldown=10; renderFilaZap();
-    clearInterval(filaTimer); filaTimer=setInterval(()=>{ filaCooldown--; if(filaCooldown<=0){ clearInterval(filaTimer); filaCooldown=0; } renderFilaZap(); },1000);
-  } else renderFilaZap();
+  if(filaIdx>=filaZap.length){ clearInterval(filaTick); renderFilaZap(); return; }
+  const item=filaZap[filaIdx];
+  if(zapWin && !zapWin.closed){ zapWin.location.href=urlZap(item); filaCooldown=10; filaPausado=false; renderFilaZap(); startTickFila(); }
+  else { filaPausado=true; renderFilaZap(); }
 }
-function pularFilaZap(){ filaIdx++; filaCooldown=0; clearInterval(filaTimer); renderFilaZap(); }
-function pararFilaZap(){ clearInterval(filaTimer); filaZap=[]; filaCooldown=0; closeModal(); }
+function pararFilaZap(){ clearInterval(filaTick); filaZap=[]; filaIdx=0; filaCooldown=0; filaPausado=false; closeModal(); }
 function renderPainel(){
   const itens=construirRetornos();
   const venc=itens.filter(i=>i.st.tipo==='vencida').length, prox=itens.filter(i=>i.st.tipo==='proxima').length;
