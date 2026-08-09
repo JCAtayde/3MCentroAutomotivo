@@ -141,7 +141,7 @@
   @media(min-width:920px){ .toast{bottom:24px} }
   .section-label{font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted2); font-weight:700; margin:20px 2px 10px; display:flex; align-items:center; justify-content:space-between}
 
-  .contato-row{display:grid; grid-template-columns:1fr 120px 1fr auto; gap:8px; margin-bottom:8px; align-items:center}
+  .contato-row{display:grid; grid-template-columns:1fr 110px 1fr 110px auto; gap:8px; margin-bottom:8px; align-items:center}
   @media(max-width:520px){ .contato-row{grid-template-columns:1fr 1fr} }
   .contato-row input, .contato-row select{padding:9px 10px; font-size:13.5px}
   .rm{background:none; border:1px solid var(--line2); color:var(--red); width:38px; height:40px; border-radius:8px; cursor:pointer; font-size:15px; display:grid; place-items:center; flex:none}
@@ -182,6 +182,7 @@
   .rb.excelente.on{background:var(--green-bg); color:#5fd6a2; border-color:#1f5c3f}
   .km-badge{display:inline-block; font-size:13px; color:var(--muted); background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:7px 12px; margin-bottom:14px}
   .km-badge b{color:var(--gold); font-family:var(--disp); font-size:16px}
+  .ficha-tools{display:flex; gap:8px; flex-wrap:wrap; margin:2px 0 10px}
 
   /* acordeões e árvores na ficha do veículo */
   details.acc{border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); margin-bottom:12px; overflow:hidden}
@@ -347,7 +348,7 @@ const CONFIG_PADRAO={janela_dias:30, media_km_mes_padrao:1000,
 function novoBanco(){ return {clientes:[],veiculos:[],ordens:[],
   regras:REGRAS_PADRAO.map(r=>({id:uid(),nome:r.nome,km:+r.km,meses:+r.meses})), config:{...CONFIG_PADRAO}}; }
 
-function normCliente(c){ c.contatos||=[]; c.tipo||='Preventiva'; c.telefone1||=c.telefone||''; c.telefone2||=''; c.endereco||=''; c.obs||=''; return c; }
+function normCliente(c){ c.contatos||=[]; c.tipo||='Preventiva'; c.telefone1||=c.telefone||''; c.telefone2||=''; c.endereco||=''; c.obs||=''; c.nascimento||=''; c.zap_num||='1'; return c; }
 function normVeiculo(v){ if(v.entrevista===undefined) v.entrevista=null; v.cor||=''; v.inspecao||={}; return v; }
 
 function upgradeV2toV3(v2){
@@ -453,7 +454,7 @@ function osTotal(o){ return (o.itens||[]).filter(i=>i.feito!==false).reduce((s,i
 function osFeitos(o){ return (o.itens||[]).filter(i=>i.feito!==false); }
 function osNaoFeitos(o){ return (o.itens||[]).filter(i=>i.feito===false); }
 function zapNumero(t){ let d=(t||'').replace(/\D/g,''); if(d.startsWith('55')&&d.length>=12) return d; if(d.length===10||d.length===11) return '55'+d; return d; }
-function zapDoCliente(c){ return zapNumero(c?.telefone1)||zapNumero(c?.telefone2); }
+function zapDoCliente(c){ if(!c) return ''; const pref=c.zap_num==='2'?c.telefone2:c.telefone1; return zapNumero(pref)||zapNumero(c.telefone1)||zapNumero(c.telefone2); }
 function chev(){ return '<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'; }
 
 function servicosFlat(){ const out=[]; state.ordens.forEach(o=>(o.itens||[]).forEach(i=>{ if(i.regra_id && i.feito!==false) out.push({veiculo_id:o.veiculo_id,regra_id:i.regra_id,km:o.km,data:o.data}); })); return out; }
@@ -624,15 +625,19 @@ function renderClienteDet(id){
   if(!c){ box.innerHTML=emptyState('Cliente não encontrado',''); return; }
   const badge=(c.tipo==='Corretiva')?'<span class="badge corr">Corretiva</span>':'<span class="badge prev">Preventiva</span>';
   const vs=veiculosDe(c.id);
+  const zapTag=' <span class="badge" style="background:var(--green-bg); color:#5fd6a2; border-color:#1f5c3f">WhatsApp</span>';
+  const tel1=(c.telefone1||'—')+(c.zap_num!=='2'&&c.telefone1?zapTag:'');
+  const tel2=(c.telefone2||'—')+(c.zap_num==='2'&&c.telefone2?zapTag:'');
   const contatos=(c.contatos||[]).length?`<div class="note-label">Contatos autorizados</div>`+
-    (c.contatos||[]).map(ct=>`<div class="kv" style="margin-bottom:6px"><span class="k">${esc(ct.relacao||'Contato')}</span><span class="v">${esc(ct.nome||'—')} ${ct.telefone?('· '+esc(ct.telefone)):''}</span></div>`).join(''):'';
+    (c.contatos||[]).map(ct=>`<div class="kv" style="margin-bottom:6px"><span class="k">${esc(ct.relacao||'Contato')}</span><span class="v">${esc(ct.nome||'—')}${ct.telefone?(' · '+esc(ct.telefone)):''}${ct.nascimento?(' · 🎂 '+esc(ct.nascimento)):''}</span></div>`).join(''):'';
   box.innerHTML=`
     <div class="det-head"><h2>${esc(c.nome)} ${badge}</h2>
       <button class="btn sm ghost" onclick='openCliente("${c.id}")'>Editar ficha</button></div>
     <div class="panel" style="margin-top:8px">
       <div class="kv">
-        <span class="k">WhatsApp</span><span class="v">${esc(c.telefone1||'—')}</span>
-        <span class="k">Telefone 2</span><span class="v">${esc(c.telefone2||'—')}</span>
+        <span class="k">Telefone 1</span><span class="v">${tel1}</span>
+        <span class="k">Telefone 2</span><span class="v">${tel2}</span>
+        <span class="k">Aniversário</span><span class="v">${c.nascimento?('🎂 '+esc(c.nascimento)):'—'}</span>
         <span class="k">Endereço</span><span class="v">${esc(c.endereco||'—')}</span>
       </div>${c.obs?`<div class="note-label">Observações</div><div class="note">${esc(c.obs)}</div>`:''}${contatos}
     </div>
@@ -687,6 +692,11 @@ function renderVeiculoDet(id){
   box.innerHTML=`
     <div class="det-head"><h2>${esc(nomeVeiculo(v))} <span class="plate">${esc(v.placa||'—')}</span></h2>
       <button class="btn sm ghost" onclick='openVeiculo("${v.id}")'>Editar</button></div>
+    <div class="ficha-tools">
+      <button class="btn sm" onclick='imprimirFicha("${v.id}")'>🖨️ Imprimir</button>
+      <button class="btn sm" onclick='baixarFicha("${v.id}")'>⬇️ Baixar</button>
+      <button class="btn sm green" onclick='zapFicha("${v.id}")'>Enviar no WhatsApp</button>
+    </div>
     <div class="panel" style="margin-top:8px"><div class="kv">
       <span class="k">Cliente</span><span class="v link" onclick='go("cliente","${v.cliente_id}")'>${esc(c?.nome||'—')}</span>
       <span class="k">KM atual</span><span class="v">${v.km_atual?nfmt(v.km_atual)+' km':'—'}</span>
@@ -705,6 +715,76 @@ function renderVeiculoDet(id){
       <div class="acc-tree">${arvoreOS(v,'nao')}</div></details>
 
     <div class="form-actions" style="margin-top:6px"><button class="btn gold" onclick='openOS(null,"${v.id}")'>+ Nova ordem de serviço</button></div>`;
+}
+
+/* ==================================================================
+   FICHA COMPLETA: imprimir / baixar / WhatsApp
+================================================================== */
+function fichaCompletaHTML(vid){
+  const v=getVeiculo(vid); const c=getCliente(v.cliente_id); const e=v.entrevista;
+  const f=fichaPrevencao(vid);
+  const linhaPrev=(o,cor)=>`<tr><td>${esc(o.nome)}</td><td style="color:${cor}">${faltaTxt(o)}</td></tr>`;
+  const secPrev=(tit,cor,arr)=>arr.length?`<h3 style="color:${cor}">${tit}</h3><table>${arr.map(o=>linhaPrev(o,cor)).join('')}</table>`:'';
+  const contatos=(c.contatos||[]).map(ct=>`<div>• ${esc(ct.relacao||'Contato')}: ${esc(ct.nome||'')}${ct.telefone?(' — '+esc(ct.telefone)):''}${ct.nascimento?(' — aniv. '+esc(ct.nascimento)):''}</div>`).join('');
+  const entradaItens = e&&e.itens ? e.itens.filter(i=>i.nome).map(i=>{
+    const stMap={}; [['vencida',f.vencidos],['proxima',f.proximos],['emdia',f.emdia],['verificar',f.verificar]].forEach(([t,a])=>(a||[]).forEach(o=>stMap[o.nome]=t));
+    const venc=stMap[i.nome]==='vencida'; const det=[i.km?nfmt(i.km)+' km':null,i.meses?('há '+i.meses+' m'):null].filter(Boolean).join(' · ');
+    const est = venc?'<b style="color:#c1121f">⚠ VENCIDO</b>':(i.feito?'feito':'não feito');
+    return `<tr><td${venc?' style="color:#c1121f"':''}>${esc(i.nome)}</td><td>${est}${det?(' · '+det):''}</td></tr>`;
+  }).join('') : '';
+  const osFeitasHtml=ordensDe(v.id).filter(o=>osFeitos(o).length).map(o=>{
+    const its=osFeitos(o).map(i=>`<div>&nbsp;&nbsp;• ${esc(i.nome)} — ${i.valor?moneyFmt(i.valor):'—'}</div>`).join('');
+    return `<div style="margin:6px 0"><b>${fmtBR(parseISO(o.data))}</b> · ${o.km?nfmt(o.km)+' km':'—'} · total ${moneyFmt(osTotal(o))}${o.reclamacao?('<br><i>Reclamação: '+esc(o.reclamacao)+'</i>'):''}${o.obs_mecanico?('<br><i>Mecânico: '+esc(o.obs_mecanico)+'</i>'):''}${its}</div>`;
+  }).join('');
+  const zapTag=n=>` (${n})`;
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Ficha ${esc(v.placa||'')}</title>
+    <style>
+      *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif; color:#111; margin:24px; font-size:13px}
+      h1{font-size:20px; margin:0 0 2px} h2{font-size:15px; margin:16px 0 6px; border-bottom:2px solid #E8B23A; padding-bottom:3px}
+      h3{font-size:13px; margin:10px 0 4px} table{width:100%; border-collapse:collapse; margin:2px 0}
+      td{padding:4px 6px; border-bottom:1px solid #eee; vertical-align:top} .top{display:flex; justify-content:space-between; align-items:flex-start}
+      .logo{font-weight:bold; font-size:22px; border:2px solid #111; padding:4px 8px; border-radius:6px}
+      .muted{color:#666} .kv b{display:inline-block; min-width:120px; color:#555; font-weight:normal}
+      @media print{ body{margin:10mm} }
+    </style></head><body>
+    <div class="top"><div><h1>Ficha do Veículo</h1><div class="muted">3M Centro Automotivo · Gerada em ${fmtBR(hoje())}</div></div><div class="logo">3M</div></div>
+    <h2>Cliente</h2>
+    <div class="kv"><b>Nome:</b> ${esc(c.nome||'—')} (${esc(c.tipo||'')})</div>
+    <div class="kv"><b>Telefone 1:</b> ${esc(c.telefone1||'—')}${c.zap_num!=='2'&&c.telefone1?' — WhatsApp':''}</div>
+    <div class="kv"><b>Telefone 2:</b> ${esc(c.telefone2||'—')}${c.zap_num==='2'&&c.telefone2?' — WhatsApp':''}</div>
+    <div class="kv"><b>Aniversário:</b> ${esc(c.nascimento||'—')}</div>
+    <div class="kv"><b>Endereço:</b> ${esc(c.endereco||'—')}</div>
+    ${contatos?`<h3>Contatos autorizados</h3>${contatos}`:''}
+    <h2>Veículo</h2>
+    <div class="kv"><b>Modelo:</b> ${esc(nomeVeiculo(v))}</div>
+    <div class="kv"><b>Placa:</b> ${esc(v.placa||'—')}</div>
+    <div class="kv"><b>KM atual:</b> ${v.km_atual?nfmt(v.km_atual)+' km':'—'}</div>
+    <div class="kv"><b>Cor:</b> ${esc(v.cor||'—')}</div>
+    ${entradaItens?`<h2>Ficha de entrada</h2><table>${entradaItens}</table>`:''}
+    ${(f.vencidos.length||f.proximos.length||f.verificar.length)?`<h2>Prevenção</h2>
+      ${secPrev('Vencidos','#c1121f',f.vencidos)}
+      ${secPrev('Próximos','#b06a00',f.proximos)}
+      ${f.verificar.length?`<h3>Inspecionar</h3><table>${f.verificar.map(o=>`<tr><td>${esc(o.nome)}</td><td>${o.situacao?('estado: '+o.situacao):'sem registro'}</td></tr>`).join('')}</table>`:''}`:''}
+    ${osFeitasHtml?`<h2>Serviços realizados</h2>${osFeitasHtml}`:''}
+    </body></html>`;
+}
+function imprimirFicha(vid){
+  const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para imprimir'); return; }
+  w.document.write(fichaCompletaHTML(vid)); w.document.close();
+  w.onload=()=>{ w.focus(); w.print(); };
+  setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 500);
+}
+function baixarFicha(vid){
+  const v=getVeiculo(vid);
+  const blob=new Blob([fichaCompletaHTML(vid)],{type:'text/html;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='ficha-'+((v.placa||'veiculo').replace(/[^\w]/g,''))+'-'+toISO(hoje())+'.html'; a.click();
+  toast('Ficha baixada');
+}
+function zapFicha(vid){
+  const v=getVeiculo(vid); const c=getCliente(v.cliente_id); const n=zapDoCliente(c);
+  if(!n){ toast('Cliente sem WhatsApp'); return; }
+  window.open('https://wa.me/'+n+'?text='+encodeURIComponent(montarTextoPrevencao(vid)),'_blank');
 }
 
 /* ==================================================================
@@ -757,19 +837,22 @@ function renderContatos(){ const box=document.getElementById('contatosBox');
     <input placeholder="Nome" value="${esc(row.nome)}" oninput="setContato('${row.id}','nome',this.value)">
     <select onchange="setContato('${row.id}','relacao',this.value)">${RELACOES.map(r=>`<option ${r===row.relacao?'selected':''}>${r}</option>`).join('')}</select>
     <input placeholder="Telefone" inputmode="tel" value="${esc(row.telefone)}" oninput="setContato('${row.id}','telefone',this.value)">
+    <input placeholder="Aniv. dd/mm" value="${esc(row.nascimento||'')}" oninput="setContato('${row.id}','nascimento',this.value)" style="max-width:110px">
     <button class="rm" onclick="removeContato('${row.id}')">✕</button></div>`).join('');
   document.getElementById('addContatoBtn').style.display=contatoRows.length>=2?'none':'inline-flex'; }
 function setContato(id,k,v){ const r=contatoRows.find(x=>x.id===id); if(r) r[k]=v; }
-function addContato(){ if(contatoRows.length>=2) return; contatoRows.push({id:uid(),nome:'',relacao:RELACOES[0],telefone:''}); renderContatos(); }
+function addContato(){ if(contatoRows.length>=2) return; contatoRows.push({id:uid(),nome:'',relacao:RELACOES[0],telefone:'',nascimento:''}); renderContatos(); }
 function removeContato(id){ contatoRows=contatoRows.filter(x=>x.id!==id); renderContatos(); }
 function openCliente(id){
-  const c=id?getCliente(id):{nome:'',tipo:'Preventiva',telefone1:'',telefone2:'',endereco:'',obs:'',contatos:[]};
-  contatoRows=(c.contatos||[]).map(x=>({id:uid(),nome:x.nome||'',relacao:x.relacao||RELACOES[0],telefone:x.telefone||''}));
+  const c=id?getCliente(id):{nome:'',tipo:'Preventiva',telefone1:'',telefone2:'',endereco:'',obs:'',contatos:[],nascimento:'',zap_num:'1'};
+  contatoRows=(c.contatos||[]).map(x=>({id:uid(),nome:x.nome||'',relacao:x.relacao||RELACOES[0],telefone:x.telefone||'',nascimento:x.nascimento||''}));
   openModal(`<h3>${id?'Editar cliente':'Novo cliente'}</h3><p class="sub">Dados, contatos autorizados e perfil.</p>
     <div class="grid2"><div class="field"><label>Nome</label><input id="fNome" value="${esc(c.nome)}" placeholder="Carlos Souza"></div>
       <div class="field"><label>Perfil</label><select id="fTipo">${TIPOS.map(t=>`<option ${t===c.tipo?'selected':''}>${t}</option>`).join('')}</select></div></div>
-    <div class="grid2"><div class="field"><label>WhatsApp / Telefone 1</label><input id="fTel1" value="${esc(c.telefone1)}" placeholder="62 99999-8888" inputmode="tel"></div>
+    <div class="grid2"><div class="field"><label>Telefone 1</label><input id="fTel1" value="${esc(c.telefone1)}" placeholder="62 99999-8888" inputmode="tel"></div>
       <div class="field"><label>Telefone 2</label><input id="fTel2" value="${esc(c.telefone2)}" placeholder="opcional" inputmode="tel"></div></div>
+    <div class="grid2"><div class="field"><label>Qual é o WhatsApp?</label><select id="fZap"><option value="1" ${c.zap_num!=='2'?'selected':''}>Telefone 1</option><option value="2" ${c.zap_num==='2'?'selected':''}>Telefone 2</option></select></div>
+      <div class="field"><label>Aniversário (dd/mm)</label><input id="fNasc" value="${esc(c.nascimento||'')}" placeholder="25/12" inputmode="numeric"></div></div>
     <div class="field"><label>Endereço</label><input id="fEnd" value="${esc(c.endereco)}" placeholder="Rua, nº, bairro, cidade"></div>
     <div class="field" style="margin-bottom:8px"><label>Contatos autorizados (quem pode buscar/trazer o carro)</label></div>
     <div id="contatosBox"></div>
@@ -782,8 +865,8 @@ function openCliente(id){
 }
 function saveCliente(id){
   const nome=val('fNome').trim(); if(!nome){ toast('Informe o nome'); return; }
-  const dados={nome,tipo:val('fTipo'),telefone1:val('fTel1').trim(),telefone2:val('fTel2').trim(),endereco:val('fEnd').trim(),obs:val('fObs').trim(),
-    contatos:contatoRows.filter(r=>r.nome.trim()||r.telefone.trim()).map(r=>({nome:r.nome.trim(),relacao:r.relacao,telefone:r.telefone.trim()}))};
+  const dados={nome,tipo:val('fTipo'),telefone1:val('fTel1').trim(),telefone2:val('fTel2').trim(),zap_num:val('fZap'),nascimento:val('fNasc').trim(),endereco:val('fEnd').trim(),obs:val('fObs').trim(),
+    contatos:contatoRows.filter(r=>r.nome.trim()||r.telefone.trim()).map(r=>({nome:r.nome.trim(),relacao:r.relacao,telefone:r.telefone.trim(),nascimento:(r.nascimento||'').trim()}))};
   if(id) Object.assign(getCliente(id),dados); else state.clientes.push({id:uid(),...dados,criado:Date.now()});
   salvar(); closeModal(); refreshAtual(); toast('Cliente salvo');
 }
