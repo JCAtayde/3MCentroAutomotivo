@@ -184,6 +184,35 @@
   .km-badge b{color:var(--gold); font-family:var(--disp); font-size:16px}
   .ficha-tools{display:flex; gap:8px; flex-wrap:wrap; margin:2px 0 10px}
 
+  /* ---- Tela de entrada (login) ---- */
+  .auth-gate{position:fixed; inset:0; z-index:300; display:flex; align-items:center; justify-content:center; padding:20px;
+    background:
+      linear-gradient(180deg, rgba(10,11,13,.86), rgba(10,11,13,.96)),
+      radial-gradient(1000px 500px at 80% -10%, #232a34 0%, #0d0f12 60%);
+    background-color:#0d0f12; overflow:auto;}
+  .auth-gate .garage{position:absolute; inset:0; opacity:.10; background-repeat:no-repeat; background-position:center 78%; background-size:min(760px,92%);
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 240' fill='none' stroke='%23E8B23A' stroke-width='3'><rect x='60' y='40' width='520' height='150' rx='6'/><path d='M60 90h520M120 40v50M200 40v50M280 40v50M360 40v50M440 40v50M520 40v50'/><circle cx='180' cy='150' r='26'/><circle cx='300' cy='150' r='26'/><path d='M420 160c0-20 16-36 36-36s36 16 36 36'/><path d='M470 120l40-40 20 20-40 40'/></svg>");}
+  .auth-card{position:relative; z-index:2; width:100%; max-width:400px; background:rgba(22,25,30,.92); border:1px solid var(--line2); border-radius:18px; padding:26px 24px; box-shadow:0 24px 60px rgba(0,0,0,.5); backdrop-filter:blur(6px)}
+  .auth-card .logo{width:56px; height:56px; border-radius:14px; margin:0 auto 12px; background:linear-gradient(145deg,#1e222a,#101318); border:1px solid var(--line2); display:grid; place-items:center; font-family:var(--disp); font-weight:700; font-size:26px; color:var(--gold)}
+  .auth-card h2{font-family:var(--disp); text-align:center; margin:0 0 2px; font-size:22px}
+  .auth-card .sub{text-align:center; color:var(--muted); font-size:13px; margin:0 0 18px}
+  .auth-card .field{margin-bottom:12px}
+  .auth-msg{min-height:18px; font-size:13px; color:var(--red); text-align:center; margin:2px 0 8px}
+  .auth-card .btn{width:100%; justify-content:center; margin-top:4px}
+  .auth-alt{text-align:center; margin-top:14px; font-size:13px; color:var(--muted)}
+  .auth-alt a{color:var(--gold); cursor:pointer; font-weight:600}
+  .auth-espera{text-align:center}
+  .auth-espera .ico{font-size:44px; margin-bottom:8px}
+  .badge.st-ativo{background:var(--green-bg); color:#5fd6a2; border-color:#1f5c3f}
+  .badge.st-pendente{background:var(--amber-bg); color:#ffca6a; border-color:#4a3a17}
+  .badge.st-bloqueado{background:var(--red-bg); color:#ff7b80; border-color:#4a2b2d}
+  #authUser{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted)}
+  #authUser b{color:var(--txt)}
+  .switch{width:44px; height:25px; border-radius:20px; background:#4a2b2d; position:relative; cursor:pointer; border:0; flex:none; transition:.15s}
+  .switch.on{background:#1f5c3f}
+  .switch::after{content:''; position:absolute; top:3px; left:3px; width:19px; height:19px; border-radius:50%; background:#fff; transition:.15s}
+  .switch.on::after{left:22px}
+
   /* acordeões e árvores na ficha do veículo */
   details.acc{border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); margin-bottom:12px; overflow:hidden}
   details.acc>summary{list-style:none; cursor:pointer; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; font-weight:700; font-family:var(--disp); font-size:16px; letter-spacing:.3px}
@@ -227,6 +256,7 @@
   <div class="brand"><div class="logo">3M</div><div><h1>Gestão da Oficina</h1><small>Centro Automotivo</small></div></div>
   <div class="spacer"></div>
   <span id="syncDot" title="Sincronizado" style="width:10px;height:10px;border-radius:50%;background:#6D7480;flex:none;margin-right:4px"></span>
+  <span id="authUser"></span>
   <nav id="topnav"></nav>
 </header>
 
@@ -285,6 +315,7 @@
         <button class="btn" onclick="document.getElementById('imp').click()">Importar backup</button>
         <input type="file" id="imp" accept="application/json" style="display:none" onchange="importar(event)">
         <button class="btn danger" onclick="limparTudo()">Apagar tudo</button></div></div>
+    <div id="usuariosAdmin"></div>
   </section>
 
   <!-- DETALHE: CLIENTE -->
@@ -307,6 +338,7 @@
 <nav class="tabbar" id="tabbar"></nav>
 <datalist id="regrasList"></datalist>
 <div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
+<div id="authGate" class="auth-gate" style="display:none"></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -377,9 +409,9 @@ function apiGet(){ return fetch(API+'/state',{headers:{'accept':'application/jso
 function apiPost(path,body){ return fetch(API+'/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
 function deepCopy(o){ return JSON.parse(JSON.stringify(o)); }
 function cacheSave(){ try{ localStorage.setItem(CACHE_KEY,JSON.stringify(state)); }catch(e){} }
-function cacheLoad(){ try{ const r=localStorage.getItem(CACHE_KEY); if(r){ const d=JSON.parse(r); d.clientes||=[]; d.veiculos||=[]; d.ordens||=[]; d.regras||=[]; d.config={...CONFIG_PADRAO,...(d.config||{})}; return d; } }catch(e){} return null; }
+function cacheLoad(){ try{ const r=localStorage.getItem(CACHE_KEY); if(r){ const d=JSON.parse(r); d.clientes||=[]; d.veiculos||=[]; d.ordens||=[]; d.regras||=[]; d.usuarios||=[]; d.config={...CONFIG_PADRAO,...(d.config||{})}; return d; } }catch(e){} return null; }
 
-let state = cacheLoad() || {clientes:[],veiculos:[],ordens:[],regras:[],config:{...CONFIG_PADRAO}};
+let state = cacheLoad() || {clientes:[],veiculos:[],ordens:[],regras:[],usuarios:[],config:{...CONFIG_PADRAO}};
 let lastSnapshot = deepCopy(state);
 let syncTimer=null, syncing=false, syncPend=false;
 
@@ -398,7 +430,7 @@ async function enviarMudancas(){
   if(syncing){ syncPend=true; return; }
   syncing=true; setSync('sync');
   try{
-    for(const t of ['clientes','veiculos','ordens','regras']){
+    for(const t of ['clientes','veiculos','ordens','regras','usuarios']){
       const d=diffTabela(lastSnapshot[t], state[t]);
       if(d.up.length) await apiPost('upsert',{table:t,rows:d.up});
       if(d.del.length) await apiPost('delete',{table:t,ids:d.del});
@@ -416,9 +448,10 @@ async function sincronizar(){
     state.veiculos=(data.veiculos||[]).map(normVeiculo);
     state.ordens=data.ordens||[];
     state.regras=data.regras||[];
+    state.usuarios=data.usuarios||[];
     state.config={...CONFIG_PADRAO,...(data.config||{})};
     lastSnapshot=deepCopy(state); cacheSave(); setSync('ok');
-    if(typeof refreshAtual==='function') refreshAtual();
+    if(typeof verificarAuth==='function') verificarAuth();
   }catch(e){ setSync('erro'); }
 }
 function setSync(estado){ const el=document.getElementById('syncDot'); if(!el) return;
@@ -1259,7 +1292,7 @@ function saveRegra(id){ const nome=val('fRNome').trim(),km=num('fRKm')||0,meses=
   salvar(); document.getElementById('regrasList').innerHTML=state.regras.map(r=>`<option value="${esc(r.nome)}">`).join(''); closeModal(); renderRegras(); toast('Regra salva'); }
 function delRegra(id){ if(!confirm('Excluir esta regra?')) return; state.regras=state.regras.filter(r=>r.id!==id); salvar(); closeModal(); renderRegras(); toast('Regra excluída'); }
 
-function carregarConfig(){ document.getElementById('cfgMsg').value=state.config.msg; document.getElementById('cfgJanela').value=state.config.janela_dias; document.getElementById('cfgMedia').value=state.config.media_km_mes_padrao; }
+function carregarConfig(){ document.getElementById('cfgMsg').value=state.config.msg; document.getElementById('cfgJanela').value=state.config.janela_dias; document.getElementById('cfgMedia').value=state.config.media_km_mes_padrao; if(typeof renderUsuariosAdmin==='function') renderUsuariosAdmin(); }
 function salvarConfig(){ state.config.msg=document.getElementById('cfgMsg').value; state.config.janela_dias=num('cfgJanela')||30; state.config.media_km_mes_padrao=num('cfgMedia')||1000; salvar(); toast('Ajustes salvos'); }
 function exportar(){ const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='backup-oficina-'+toISO(hoje())+'.json'; a.click(); toast('Backup exportado'); }
 function importar(ev){ const f=ev.target.files[0]; if(!f) return; const rd=new FileReader();
@@ -1268,12 +1301,12 @@ function importar(ev){ const f=ev.target.files[0]; if(!f) return; const rd=new F
     let db; if(d.ordens){ db=d; } else if(d.atendimentos){ db=upgradeV2toV3(d); } else if(d.servicos){ db=upgradeV2toV3(migrarV1toV2shape(d)); } else db={...novoBanco(),...d};
     db.config={...CONFIG_PADRAO,...(db.config||{})}; db.clientes.forEach(normCliente); db.veiculos.forEach(normVeiculo); db.ordens||=[];
     state=db; cacheSave(); montarNav(); goTab('painel'); toast('Enviando backup para a nuvem…');
-    apiPost('replace',{clientes:state.clientes,veiculos:state.veiculos,ordens:state.ordens,regras:state.regras,config:state.config})
+    apiPost('replace',{clientes:state.clientes,veiculos:state.veiculos,ordens:state.ordens,regras:state.regras,usuarios:state.usuarios,config:state.config})
       .then(()=>sincronizar()).then(()=>toast('Backup importado')).catch(()=>toast('Falha ao enviar — verifique a conexão'));
   }catch(e){ toast('Não foi possível ler o arquivo'); } }; rd.readAsText(f); ev.target.value=''; }
 function limparTudo(){ if(!confirm('Apagar TODOS os dados da NUVEM? Sem volta.')) return; if(!confirm('Tem certeza? Exporte um backup antes.')) return;
   state=novoBanco(); cacheSave(); montarNav(); goTab('painel');
-  apiPost('replace',{clientes:[],veiculos:[],ordens:[],regras:state.regras,config:state.config}).then(()=>sincronizar()).then(()=>toast('Dados apagados')).catch(()=>toast('Falha — verifique a conexão')); }
+  apiPost('replace',{clientes:[],veiculos:[],ordens:[],regras:state.regras,usuarios:state.usuarios,config:state.config}).then(()=>sincronizar()).then(()=>toast('Dados apagados')).catch(()=>toast('Falha — verifique a conexão')); }
 
 /* ==================================================================
    UI helpers
@@ -1284,7 +1317,131 @@ function closeModal(){ document.getElementById('overlay').classList.remove('open
 document.getElementById('overlay').addEventListener('click',e=>{ if(e.target.id==='overlay') closeModal(); });
 let toastT; function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2400); }
 
-montarNav(); renderPainel(); sincronizar();
+/* ==================================================================
+   AUTENTICAÇÃO (login / cadastro / aprovação)
+================================================================== */
+const AUTH_KEY='oficina_auth';
+let usuarioAtual=null;
+async function sha256hex(str){ const buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)); return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
+function randSalt(){ const a=new Uint8Array(16); crypto.getRandomValues(a); return [...a].map(b=>b.toString(16).padStart(2,'0')).join(''); }
+async function hashSenha(senha,salt){ return sha256hex((salt||'')+'::'+(senha||'')); }
+function getUsuario(id){ return state.usuarios.find(u=>u.id===id); }
+function usuarioPorLogin(login){ const l=(login||'').trim().toLowerCase(); return state.usuarios.find(u=>(u.login||'').toLowerCase()===l); }
+const gateEl=()=>document.getElementById('authGate');
+function mostrarGate(html){ const g=gateEl(); g.innerHTML=`<div class="garage"></div>`+html; g.style.display='flex'; }
+function esconderGate(){ gateEl().style.display='none'; }
+function authMsg(txt,pref){ const el=document.getElementById((pref||'')+'authMsg'); if(el) el.textContent=txt||''; }
+
+function verificarAuth(){
+  const id=localStorage.getItem(AUTH_KEY);
+  const u=id?getUsuario(id):null;
+  if(u && u.status==='ativo'){ usuarioAtual=u; esconderGate(); atualizarHeaderUser(); refreshAtual(); return; }
+  if(u && u.status!=='ativo'){ usuarioAtual=null; atualizarHeaderUser(); mostrarEspera(u); return; }
+  usuarioAtual=null; atualizarHeaderUser(); mostrarLogin();
+}
+function mostrarLogin(){
+  mostrarGate(`<div class="auth-card">
+    <div class="logo">3M</div><h2>Gestão da Oficina</h2><p class="sub">Acesso restrito · Centro Automotivo</p>
+    <div class="field"><label>Usuário (login)</label><input id="authLogin" autocomplete="username" placeholder="seu login"></div>
+    <div class="field"><label>Senha</label><input id="authSenha" type="password" autocomplete="current-password" placeholder="sua senha" onkeydown="if(event.key==='Enter')fazerLogin()"></div>
+    <div class="auth-msg" id="authMsg"></div>
+    <button class="btn gold" onclick="fazerLogin()">Entrar</button>
+    <div class="auth-alt">Não tem acesso? <a onclick="mostrarCadastro()">Cadastre-se</a></div>
+  </div>`);
+}
+function mostrarCadastro(){
+  mostrarGate(`<div class="auth-card">
+    <div class="logo">3M</div><h2>Criar acesso</h2><p class="sub">Seu cadastro passa por aprovação do responsável</p>
+    <div class="field"><label>Seu nome</label><input id="regNome" placeholder="Nome completo"></div>
+    <div class="field"><label>Usuário (login)</label><input id="regLogin" placeholder="ex: joao"></div>
+    <div class="field"><label>Senha</label><input id="regSenha" type="password" placeholder="crie uma senha"></div>
+    <div class="auth-msg" id="regauthMsg"></div>
+    <button class="btn gold" onclick="fazerCadastro()">Cadastrar</button>
+    <div class="auth-alt">Já tem acesso? <a onclick="mostrarLogin()">Entrar</a></div>
+  </div>`);
+}
+function mostrarEspera(u){
+  const bloqueado = u.status==='bloqueado';
+  mostrarGate(`<div class="auth-card auth-espera">
+    <div class="ico">${bloqueado?'🔒':'⏳'}</div>
+    <h2>${bloqueado?'Acesso bloqueado':'Aguardando liberação'}</h2>
+    <p class="sub">Olá, ${esc(u.nome||'')}. ${bloqueado?'Seu acesso está desativado. Fale com o responsável da oficina.':'Seu cadastro foi enviado! O responsável precisa liberar seu acesso. Assim que liberar, é só entrar.'}</p>
+    <button class="btn gold" onclick="verificarAuth()">Já fui liberado — tentar entrar</button>
+    <div class="auth-alt"><a onclick="fazerLogout()">Sair / trocar de usuário</a></div>
+  </div>`);
+}
+async function fazerLogin(){
+  const login=val('authLogin').trim(), senha=val('authSenha');
+  if(!login||!senha){ authMsg('Preencha usuário e senha'); return; }
+  const u=usuarioPorLogin(login);
+  if(!u){ authMsg('Usuário não encontrado'); return; }
+  const h=await hashSenha(senha,u.salt);
+  if(h!==u.senha_hash){ authMsg('Senha incorreta'); return; }
+  localStorage.setItem(AUTH_KEY,u.id);
+  if(u.status!=='ativo'){ mostrarEspera(u); return; }
+  usuarioAtual=u; esconderGate(); atualizarHeaderUser(); refreshAtual();
+}
+async function fazerCadastro(){
+  const nome=val('regNome').trim(), login=val('regLogin').trim(), senha=val('regSenha');
+  if(!nome||!login||!senha){ authMsg('Preencha nome, login e senha','reg'); return; }
+  if(usuarioPorLogin(login)){ authMsg('Esse login já existe','reg'); return; }
+  const salt=randSalt(), hash=await hashSenha(senha,salt);
+  const primeiro = state.usuarios.length===0;
+  const u={id:uid(),nome,login,senha_hash:hash,salt,status:primeiro?'ativo':'pendente',papel:primeiro?'admin':'operador',criado:Date.now()};
+  state.usuarios.push(u); salvar();
+  localStorage.setItem(AUTH_KEY,u.id);
+  if(primeiro){ usuarioAtual=u; esconderGate(); atualizarHeaderUser(); refreshAtual(); toast('Bem-vindo! Você é o administrador.'); }
+  else { mostrarEspera(u); }
+}
+function fazerLogout(){ localStorage.removeItem(AUTH_KEY); usuarioAtual=null; atualizarHeaderUser(); mostrarLogin(); }
+function atualizarHeaderUser(){
+  const el=document.getElementById('authUser'); if(!el) return;
+  if(usuarioAtual){ el.innerHTML=`<b>${esc(usuarioAtual.nome.split(' ')[0])}</b>${usuarioAtual.papel==='admin'?' · admin':''} <a onclick="fazerLogout()" style="color:var(--gold);cursor:pointer;font-weight:600">Sair</a>`; }
+  else el.innerHTML='';
+}
+
+/* ---- Painel de usuários (só admin, dentro de Ajustes) ---- */
+function ehAdmin(){ return usuarioAtual && usuarioAtual.papel==='admin'; }
+function renderUsuariosAdmin(){
+  const box=document.getElementById('usuariosAdmin'); if(!box) return;
+  if(!ehAdmin()){ box.innerHTML=''; return; }
+  const badge=s=>`<span class="badge st-${s}">${s==='ativo'?'Ativo':s==='pendente'?'Pendente':'Bloqueado'}</span>`;
+  const rows=state.usuarios.slice().sort((a,b)=>(a.status==='pendente'?-1:0)-(b.status==='pendente'?-1:0)||a.nome.localeCompare(b.nome)).map(u=>{
+    const eu=usuarioAtual&&u.id===usuarioAtual.id;
+    return `<div class="row"><div class="main"><div class="t">${esc(u.nome)} ${badge(u.status)}${u.papel==='admin'?' <span class="badge prev">admin</span>':''}</div>
+      <div class="s">login: ${esc(u.login||'—')}${eu?' · (você)':''}</div></div>
+      <div class="acts">
+        <button class="switch ${u.status==='ativo'?'on':''}" title="${u.status==='ativo'?'Desativar':'Ativar'}" ${eu?'disabled style="opacity:.4"':''} onclick='adminToggle("${u.id}")'></button>
+        <button class="btn sm danger" ${eu?'disabled style="opacity:.4"':''} onclick='adminExcluir("${u.id}")'>Excluir</button>
+      </div></div>`;
+  }).join('');
+  box.innerHTML=`<div class="section-label"><span>Usuários (acesso ao sistema)</span><button class="btn sm gold" onclick="adminCadastrar()">+ Cadastrar</button></div>
+    <div class="hint">O botão verde libera (liga) ou bloqueia (desliga) o acesso. Cadastros novos entram como <b>Pendente</b> até você ligar.</div>
+    <div class="rows">${rows||emptyState('Nenhum usuário','')}</div>`;
+}
+function adminToggle(id){ const u=getUsuario(id); if(!u) return; if(usuarioAtual&&u.id===usuarioAtual.id){ toast('Você não pode alterar o próprio acesso'); return; }
+  u.status = u.status==='ativo'?'bloqueado':'ativo'; u.atualizado=Date.now(); salvar(); renderUsuariosAdmin(); toast(u.status==='ativo'?'Acesso liberado':'Acesso bloqueado'); }
+function adminExcluir(id){ const u=getUsuario(id); if(!u) return; if(usuarioAtual&&u.id===usuarioAtual.id){ toast('Você não pode se excluir'); return; }
+  if(!confirm('Excluir o acesso de '+u.nome+'?')) return; state.usuarios=state.usuarios.filter(x=>x.id!==id); salvar(); renderUsuariosAdmin(); toast('Usuário excluído'); }
+function adminCadastrar(){
+  openModal(`<h3>Cadastrar usuário</h3><p class="sub">Criado já liberado (ativo).</p>
+    <div class="field"><label>Nome</label><input id="nuNome" placeholder="Nome"></div>
+    <div class="grid2"><div class="field"><label>Login</label><input id="nuLogin" placeholder="ex: maria"></div>
+      <div class="field"><label>Senha</label><input id="nuSenha" type="password" placeholder="senha"></div></div>
+    <div class="field"><label>Papel</label><select id="nuPapel"><option value="operador">Operador</option><option value="admin">Administrador</option></select></div>
+    <div class="form-actions"><button class="btn gold" onclick="salvarNovoUsuario()">Salvar</button><button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+}
+async function salvarNovoUsuario(){
+  const nome=val('nuNome').trim(), login=val('nuLogin').trim(), senha=val('nuSenha');
+  if(!nome||!login||!senha){ toast('Preencha nome, login e senha'); return; }
+  if(usuarioPorLogin(login)){ toast('Esse login já existe'); return; }
+  const salt=randSalt(), hash=await hashSenha(senha,salt);
+  state.usuarios.push({id:uid(),nome,login,senha_hash:hash,salt,status:'ativo',papel:val('nuPapel'),criado:Date.now()});
+  salvar(); closeModal(); renderUsuariosAdmin(); toast('Usuário cadastrado');
+}
+
+/* boot */
+montarNav(); renderPainel(); verificarAuth(); sincronizar();
 window.addEventListener('focus', ()=>{ if(!syncing) sincronizar(); });
 setInterval(()=>{ if(!syncing && document.visibilityState==='visible') sincronizar(); }, 60000);
 </script>

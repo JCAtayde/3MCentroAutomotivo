@@ -9,6 +9,7 @@ const SCHEMA = {
   veiculos: { cols:['id','cliente_id','placa','modelo','ano','cor','km_atual','media_km_mes','entrevista','inspecao','criado','atualizado'], json:['entrevista','inspecao'] },
   ordens:   { cols:['id','veiculo_id','data','km','reclamacao','obs_mecanico','obs_admin','itens','criado','atualizado'], json:['itens'] },
   regras:   { cols:['id','nome','km','meses','ordem'], json:[] },
+  usuarios: { cols:['id','nome','login','senha_hash','salt','status','papel','criado','atualizado'], json:[] },
 };
 
 const jsonResp = (o, s = 200) =>
@@ -27,12 +28,13 @@ export async function onRequest(context) {
 
   try {
     if (request.method === 'GET' && acao === 'state') {
-      const [cli, vei, ord, reg, cfg] = await Promise.all([
+      const [cli, vei, ord, reg, cfg, usu] = await Promise.all([
         DB.prepare('SELECT * FROM clientes').all(),
         DB.prepare('SELECT * FROM veiculos').all(),
         DB.prepare('SELECT * FROM ordens').all(),
         DB.prepare('SELECT * FROM regras ORDER BY ordem').all(),
         DB.prepare('SELECT * FROM config').all(),
+        DB.prepare('SELECT * FROM usuarios').all(),
       ]);
       const config = {};
       (cfg.results || []).forEach(r => { config[r.chave] = r.valor; });
@@ -41,6 +43,7 @@ export async function onRequest(context) {
         veiculos: (vei.results || []).map(r => ({ ...r, entrevista: parse(r.entrevista, null), inspecao: parse(r.inspecao, {}) })),
         ordens:   (ord.results || []).map(r => ({ ...r, itens: parse(r.itens, []) })),
         regras:   (reg.results || []),
+        usuarios: (usu.results || []),
         config,
       });
     }
@@ -112,5 +115,6 @@ async function replaceAll(DB, body) {
   await upsertRows(DB, 'veiculos', body.veiculos || []);
   await upsertRows(DB, 'ordens',   body.ordens   || []);
   await upsertRows(DB, 'regras',   body.regras   || []);
+  if (body.usuarios) await upsertRows(DB, 'usuarios', body.usuarios);
   if (body.config) await saveConfig(DB, body.config);
 }
