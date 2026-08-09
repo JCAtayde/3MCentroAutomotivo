@@ -215,6 +215,12 @@
   .cfg-tabs{display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap}
   .cfg-tabs button{background:var(--panel); border:1px solid var(--line2); color:var(--muted); padding:9px 15px; border-radius:9px; font-weight:600; font-size:13.5px; cursor:pointer}
   .cfg-tabs button.on{background:var(--gold); color:#14161A; border-color:var(--gold)}
+  .arg-card{background:var(--bg2); border:1px solid var(--line2); border-radius:11px; padding:12px 13px; margin-bottom:10px}
+  .arg-h{font-size:14.5px; margin-bottom:8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+  .arg-b{margin-bottom:8px} .arg-b:last-child{margin-bottom:0}
+  .arg-b p{font-size:13.5px; color:#d7dce3; margin-top:2px}
+  .arg-lbl{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em}
+  .arg-lbl.tec{color:var(--gold)} .arg-lbl.gan{color:var(--green)}
   body.sem-valores .valor-tag, body.sem-valores .os-total .v, body.sem-valores .tl .valor{ visibility:hidden; position:relative }
   body.sem-valores .valor-tag::after, body.sem-valores .os-total .v::after, body.sem-valores .tl .valor::after{ content:'•••'; visibility:visible; position:absolute; right:0; color:var(--muted2) }
 
@@ -312,6 +318,8 @@
     <div class="cfg-panel" data-cfg="mensagens">
       <div class="panel"><div class="field"><label>Modelo da mensagem de WhatsApp ao cliente</label><textarea id="cfgMsg" rows="5"></textarea></div>
         <div class="hint" style="margin-bottom:0">Variáveis: <b>{cliente}</b>, <b>{veiculo}</b>, <b>{placa}</b>, <b>{servico}</b>, <b>{data}</b>, <b>{km}</b>. O <code>*texto*</code> fica em negrito no WhatsApp.</div></div>
+      <div class="panel"><div class="field"><label>Link "Importância da manutenção" (enviado ao cliente)</label><input id="cfgLink" placeholder="https://3mcentroautomotivo.com.br/manutencao"></div>
+        <div class="hint" style="margin-bottom:0">Esse link entra nas mensagens de prevenção. É uma página pública que explica cada item, os riscos de adiar e o impacto financeiro.</div></div>
       <div class="panel"><div class="grid2">
         <div class="field"><label>Antecedência do alerta (dias)</label><input id="cfgJanela" type="number" inputmode="numeric"></div>
         <div class="field"><label>Rodagem padrão (km/mês)</label><input id="cfgMedia" type="number" inputmode="numeric"></div></div>
@@ -389,6 +397,7 @@ const REGRAS_PADRAO=[
   {nome:'Óleo da caixa de câmbio (manual)',km:60000,meses:60},{nome:'Rodízio de pneus',km:10000,meses:12},
 ];
 const CONFIG_PADRAO={janela_dias:30, media_km_mes_padrao:1000,
+  link_manutencao:'https://3mcentroautomotivo.com.br/manutencao',
   msg:'Olá {cliente}! Aqui é da 3M Centro Automotivo. 🔧\n\nPassando para lembrar que o seu *{veiculo}* (placa {placa}) está chegando na revisão de *{servico}*, prevista para *{data}* ou ao atingir *{km} km*.\n\nPodemos agendar um horário?'};
 
 function novoBanco(){ return {clientes:[],veiculos:[],ordens:[],
@@ -913,6 +922,7 @@ function textoFicha(vid,tipo,osId){
   else if(tipo==='proximos'){ t+='\n🟡 *Próximos:*\n'+(f.proximos.map(o=>`• ${o.nome} (${faltaTxt(o)})`).join('\n')||'—'); }
   else if(tipo==='verificar'){ t+='\n🔎 *Inspecionar:*\n'+(f.verificar.map(o=>`• ${o.nome}${o.situacao?(' — '+o.situacao):''}`).join('\n')||'—'); }
   else if(tipo==='os'){ const o=getOS(osId); if(o){ t+=`\nOS ${fmtBR(parseISO(o.data))} · ${o.km?nfmt(o.km)+' km':''}\n`; if(o.reclamacao) t+=`Reclamação: ${o.reclamacao}\n`; t+=osFeitos(o).map(i=>`• ${i.nome} — ${i.valor?moneyFmt(i.valor):'—'}`).join('\n'); t+=`\nTotal: ${moneyFmt(osTotal(o))}`; } }
+  if(tipo==='vencidos'||tipo==='proximos'||tipo==='verificar'||tipo==='entrada') t+='\n'+linkManutencaoTxt();
   return t.trim();
 }
 function imprimirFicha(vid,tipo,osId){
@@ -1264,7 +1274,44 @@ function montarTextoPrevencao(vid){
   if(f.vencidos.length){ t+=`\n🔴 *Vencidos (recomendado trocar):*\n`+f.vencidos.map(o=>`• ${o.nome} (${faltaTxt(o)})`).join('\n')+'\n'; }
   if(f.proximos.length){ t+=`\n🟡 *Próximos (avaliar / agendar):*\n`+f.proximos.map(o=>`• ${o.nome} (${faltaTxt(o)})`).join('\n')+'\n'; }
   if(f.verificar.length){ t+=`\n🔎 *Inspecionar:*\n`+f.verificar.map(o=>`• ${o.nome}${o.situacao?(' — estado: '+o.situacao):''}`).join('\n')+'\n'; }
-  return t.trim();
+  return (t+linkManutencaoTxt()).trim();
+}
+function linkManutencaoTxt(){ const l=(state.config.link_manutencao||'').trim(); return l?`\n📄 Entenda a importância de cada item e os riscos de adiar:\n${l}\n`:''; }
+
+/* ---- Argumentos internos (uso da equipe): técnico + palavras-gancho ---- */
+const ARGUMENTOS={
+ 'Troca de Óleo e Filtros':{tec:'Óleo lubrifica, resfria e limpa; perde aditivos e satura de fuligem, e o filtro entope abrindo o by-pass (circula óleo sujo).',gancho:'É o "sangue" do motor. A troca é baratíssima perto de retificar um motor. Pergunte "faz quanto tempo/km?" — se passou, é prioridade.'},
+ 'Óleo de Câmbio':{tec:'Lubrifica engrenagens; no automático comanda embreagens e pressão. Degrada com o calor.',gancho:'O câmbio é uma das peças mais caras do carro. Trocar o óleo é seguro e barato; reformar câmbio automático assusta no orçamento.'},
+ 'Óleo de Direção':{tec:'Fluido hidráulico que protege bomba e caixa de direção; contamina e perde viscosidade.',gancho:'Volante pesado ou barulho ao esterçar já é sinal. Trocar o fluido evita trocar a bomba, que é cara.'},
+ 'Líquido de Arrefecimento':{tec:'Controla a temperatura e evita corrosão/fervura; o aditivo tem validade.',gancho:'É o que segura o superaquecimento. Um cabeçote queimado custa muitas vezes o valor do aditivo.'},
+ "Bomba D'água":{tec:'Circula o líquido de arrefecimento; rolamento e vedação têm vida útil e costuma sair junto com a correia.',gancho:'Já que vamos abrir para a correia, trocar a bomba junto evita abrir tudo de novo depois — economia de mão de obra.'},
+ 'Válvula Termostática':{tec:'Regula a temperatura de trabalho; travada fechada superaquece, travada aberta esfria demais e aumenta consumo.',gancho:'Peça barata que mexe no consumo todo mês e protege o motor da temperatura errada.'},
+ 'Kit Correia Dentada':{tec:'Sincroniza virabrequim e comando; em motor interferente, a ruptura amassa válvulas na hora.',gancho:'É a peça que "não avisa": se romper, quebra o motor por dentro. Preventiva agora é fração do conserto. Nº 1 para não adiar.'},
+ 'Kit Correia Auxiliar':{tec:'Aciona alternador, direção e A/C; resseca e pode romper, às vezes atingindo a correia dentada.',gancho:'Barata. Se romper na estrada, é reboque e carro parado. Melhor trocar no prazo.'},
+ 'Velas de Ignição':{tec:'Geram a faísca; o eletrodo desgasta, a folga aumenta e a queima falha.',gancho:'Carro engasgando e bebendo mais? Velas. Baratas — e a queima ruim ainda mata catalisador e bobina, que são caros.'},
+ 'Limpeza de Bicos':{tec:'Injetores acumulam verniz/carbono e alteram a vazão e o formato do spray.',gancho:'Marcha oscilando e consumo alto. A limpeza é barata e evita trocar bico, melhorando o carro na hora.'},
+ 'Limpeza TBI e Sensores':{tec:'Corpo de borboleta e sensores sujos bagunçam a marcha lenta e a mistura ar/combustível.',gancho:'Aquele "apagão" na lenta e a luz de injeção. Limpeza resolve barato antes de trocar sensor.'},
+ 'Discos e Pastilhas':{tec:'Atrito de frenagem; a pastilha tem limite de espessura e, no fim, o metal ataca o disco.',gancho:'É segurança — freio é inegociável. Trocar a pastilha no ponto evita comprar o disco também. "O senhor não vai querer descobrir isso numa freada de emergência."'},
+ 'Lonas e Cubo de Freios':{tec:'Freio traseiro a tambor; lona gasta reduz a eficiência e ataca o tambor.',gancho:'Freio de mão fraco é sinal. A lona é barata; deixar gastar leva o tambor junto.'},
+ 'Fluido de Freio':{tec:'Higroscópico: absorve umidade, baixa o ponto de fervura e corrói ABS/pinças. Troca por tempo (~2 anos).',gancho:'Pedal que "afunda" numa freada forte é fluido velho fervendo. Troca barata a cada 2 anos que protege a vida e o ABS (caríssimo).'},
+};
+function abrirArgumentos(vid, filtro, voltarStatus){
+  const v=getVeiculo(vid); const c=getCliente(v.cliente_id); const f=fichaPrevencao(vid);
+  const mostra=t=>!filtro||filtro===t;
+  let itens=[];
+  if(mostra('vencida')) itens=itens.concat(f.vencidos.map(o=>({o,tag:'Vencido',cor:'#E5675C'})));
+  if(mostra('proxima')) itens=itens.concat(f.proximos.map(o=>({o,tag:'Próximo',cor:'#E8B23A'})));
+  if(mostra('verificar')) itens=itens.concat(f.verificar.map(o=>({o,tag:'Inspecionar',cor:'#9AA3AF'})));
+  const cards = itens.length ? itens.map(({o,tag,cor})=>{
+    const a=ARGUMENTOS[o.nome]||{tec:'Item de manutenção preventiva — recomende conforme o estado e o intervalo do fabricante.',gancho:'Reforce que manutenção no prazo evita quebras e custos bem maiores lá na frente.'};
+    return `<div class="arg-card"><div class="arg-h"><b>${esc(o.nome)}</b> <span class="badge" style="border-color:${cor};color:${cor}">${tag}</span></div>
+      <div class="arg-b"><span class="arg-lbl tec">Técnico</span><p>${esc(a.tec)}</p></div>
+      <div class="arg-b"><span class="arg-lbl gan">Como convencer</span><p>${esc(a.gancho)}</p></div></div>`;
+  }).join('') : '<div class="note empty-note">Nada pendente para argumentar aqui. 🎉</div>';
+  openModal(`<h3>💡 Argumentos — uso interno</h3><p class="sub">${esc(nomeVeiculo(v))} · ${esc(c?.nome||'')} — como explicar a importância e fechar o serviço.</p>
+    <button class="btn sm ghost" style="margin-bottom:12px" onclick='openPrevencao("${vid}",${filtro?`"${filtro}"`:'null'},${voltarStatus?`"${voltarStatus}"`:'null'})'>← Voltar</button>
+    ${cards}
+    <div class="form-actions" style="margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`);
 }
 function openPrevencao(vid, filtro, voltarStatus){
   prevFiltro=filtro||null; prevVoltar=voltarStatus||null;
@@ -1281,6 +1328,7 @@ function openPrevencao(vid, filtro, voltarStatus){
   openModal(`<h3>Ficha de Prevenção${rotulo}</h3><p class="sub">${esc(nomeVeiculo(v))} · ${esc(v.placa||'')} · ${esc(c?.nome||'')}</p>
     ${prevVoltar?`<button class="btn sm ghost" style="margin-bottom:10px" onclick='abrirPrevGlobal("${prevVoltar}")'>← Voltar para a lista</button>`:''}
     <div class="km-badge">KM atual: <b>${v.km_atual?nfmt(v.km_atual)+' km':'—'}</b></div>
+    <button class="btn" style="width:100%; justify-content:center; margin:8px 0 4px" onclick='abrirArgumentos("${vid}",${filtro?`"${filtro}"`:'null'},${prevVoltar?`"${prevVoltar}"`:'null'})'>💡 Como explicar ao cliente (uso interno)</button>
     ${filtro?`<button class="btn sm ghost" style="margin-bottom:12px" onclick='openPrevencao("${vid}",null,${prevVoltar?`"${prevVoltar}"`:'null'})'>ver tudo deste veículo</button>`:''}
     ${corpo||`<div class="note empty-note">Nada nesta categoria.</div>`}
     <div class="form-actions" style="margin-top:16px">
@@ -1377,7 +1425,7 @@ function saveRegra(id){ const nome=val('fRNome').trim(),km=num('fRKm')||0,meses=
   salvar(); document.getElementById('regrasList').innerHTML=state.regras.map(r=>`<option value="${esc(r.nome)}">`).join(''); closeModal(); renderRegras(); toast('Regra salva'); }
 function delRegra(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } if(!confirm('Excluir esta regra?')) return; state.regras=state.regras.filter(r=>r.id!==id); salvar(); closeModal(); renderRegras(); toast('Regra excluída'); }
 
-function carregarConfig(){ document.getElementById('cfgMsg').value=state.config.msg; document.getElementById('cfgJanela').value=state.config.janela_dias; document.getElementById('cfgMedia').value=state.config.media_km_mes_padrao; montarCfgTabs(); cfgTab(cfgAtiva); }
+function carregarConfig(){ document.getElementById('cfgMsg').value=state.config.msg; document.getElementById('cfgJanela').value=state.config.janela_dias; document.getElementById('cfgMedia').value=state.config.media_km_mes_padrao; const l=document.getElementById('cfgLink'); if(l) l.value=state.config.link_manutencao||''; montarCfgTabs(); cfgTab(cfgAtiva); }
 let cfgAtiva='mensagens';
 function montarCfgTabs(){
   const box=document.getElementById('cfgTabs'); if(!box) return;
@@ -1397,7 +1445,7 @@ const PERMS=[['editar','Cadastrar e editar'],['excluir','Excluir registros'],['v
 function permsPadrao(){ return {editar:true, excluir:false, valores:true, config:false}; }
 function pode(perm){ if(!usuarioAtual) return false; if(usuarioAtual.papel==='admin') return true; const p=usuarioAtual.perms||permsPadrao(); return !!p[perm]; }
 function aplicarPermissoesUI(){ document.body.classList.toggle('sem-valores', !pode('valores')); }
-function salvarConfig(){ state.config.msg=document.getElementById('cfgMsg').value; state.config.janela_dias=num('cfgJanela')||30; state.config.media_km_mes_padrao=num('cfgMedia')||1000; salvar(); toast('Ajustes salvos'); }
+function salvarConfig(){ state.config.msg=document.getElementById('cfgMsg').value; state.config.janela_dias=num('cfgJanela')||30; state.config.media_km_mes_padrao=num('cfgMedia')||1000; const l=document.getElementById('cfgLink'); if(l) state.config.link_manutencao=l.value.trim(); salvar(); toast('Ajustes salvos'); }
 function exportar(){ const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='backup-oficina-'+toISO(hoje())+'.json'; a.click(); toast('Backup exportado'); }
 function importar(ev){ const f=ev.target.files[0]; if(!f) return; const rd=new FileReader();
   rd.onload=()=>{ try{ const d=JSON.parse(rd.result); if(!d.clientes||!d.veiculos){ toast('Arquivo inválido'); return; }
