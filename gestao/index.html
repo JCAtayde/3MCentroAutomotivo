@@ -607,14 +607,57 @@ function abrirPrevGlobal(status){
   if(!lista.length){ toast('Nada nesta categoria'); return; }
   if(lista.length===1){ openPrevencao(lista[0].v.id, status); return; }
   const rows=lista.sort((a,b)=>b.n-a.n).map(({v,n})=>{ const c=getCliente(v.cliente_id);
-    return `<div class="row click" onclick='openPrevencao("${v.id}","${status}")'>
+    return `<div class="row click" onclick='openPrevencao("${v.id}","${status}","${status}")'>
       <div class="main"><div class="t">${esc(nomeVeiculo(v))} <span class="plate">${esc(v.placa||'—')}</span></div>
       <div class="s">${esc(c?.nome||'—')} · ${n} item(ns)</div></div>${chev()}</div>`; }).join('');
   const titulo=status==='vencida'?'Vencidos':status==='proxima'?'Próximos':'Verificar';
-  openModal(`<h3>${titulo} — escolha o veículo</h3><p class="sub">${lista.length} veículos com itens nesta categoria.</p>
+  const comZap=lista.filter(({v})=>zapDoCliente(getCliente(v.cliente_id))).length;
+  openModal(`<h3>${titulo} — ${lista.length} veículos</h3><p class="sub">Toque num veículo para ver os itens, ou envie no WhatsApp para todos.</p>
+    ${comZap?`<button class="btn green" style="width:100%; justify-content:center; margin-bottom:12px" onclick='enviarLotePrev("${status}")'>Enviar no WhatsApp para todos (${comZap})</button>`:''}
     <div class="rows">${rows}</div>
     <div class="form-actions" style="margin-top:14px"><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`);
 }
+/* ---- Envio em lote pausado, com saudação variada (anti-spam) ---- */
+const SAUDACOES=[ n=>`Olá ${n}! 😊`, n=>`Oi ${n}, tudo bem?`, n=>`Olá, ${n}! Espero que esteja bem.`, n=>`${cumprimentoHora()}, ${n}!`, n=>`Oi ${n}! 👋`, n=>`Olá ${n}, aqui é da 3M Centro Automotivo.` ];
+function cumprimentoHora(){ const h=new Date().getHours(); return h<12?'Bom dia':h<18?'Boa tarde':'Boa noite'; }
+function saudacaoVariada(nome){ return SAUDACOES[Math.floor(Math.random()*SAUDACOES.length)](nome||'tudo bem'); }
+function msgLotePrev(vid,status){ const c=getCliente(getVeiculo(vid).cliente_id); const nome=(c?.nome||'').split(' ')[0];
+  const tipo=status==='vencida'?'vencidos':status==='proxima'?'proximos':'verificar';
+  return saudacaoVariada(nome)+'\n\n'+textoFicha(vid,tipo); }
+let filaZap=[], filaIdx=0, filaStatus=null, filaTimer=null, filaCooldown=0;
+function enviarLotePrev(status){
+  const gp=prevencaoGlobal(); const arr=(gp[status]||[]).filter(x=>zapDoCliente(getCliente(x.v.cliente_id)));
+  if(!arr.length){ toast('Nenhum cliente com WhatsApp nesta lista'); return; }
+  filaStatus=status; filaIdx=0; filaCooldown=0; clearInterval(filaTimer);
+  filaZap=arr.map(x=>({vid:x.v.id, msg:msgLotePrev(x.v.id,status)}));
+  renderFilaZap();
+}
+function renderFilaZap(){
+  const n=filaZap.length;
+  if(filaIdx>=n){ openModal(`<h3>Envio concluído 🎉</h3><p class="sub">${n} conversa(s) foram abertas no WhatsApp. Confirme se cada mensagem foi enviada.</p><div class="form-actions"><button class="btn gold" onclick="closeModal()">Fechar</button></div>`); filaZap=[]; clearInterval(filaTimer); return; }
+  const item=filaZap[filaIdx]; const v=getVeiculo(item.vid); const c=getCliente(v.cliente_id);
+  const preview=esc(item.msg).replace(/\n/g,'<br>');
+  const btn = filaCooldown>0
+    ? `<button class="btn" disabled style="opacity:.6">Aguarde ${filaCooldown}s para a próxima…</button>`
+    : `<button class="btn green" onclick="dispararFilaZap()">Abrir WhatsApp de ${esc((c?.nome||'').split(' ')[0]||'cliente')}</button>`;
+  openModal(`<h3>WhatsApp em lote — ${filaIdx+1} de ${n}</h3>
+    <p class="sub">${esc(nomeVeiculo(v))} · ${esc(v.placa||'')} · ${esc(c?.nome||'')}</p>
+    <div class="note" style="max-height:170px; overflow:auto; white-space:normal; text-align:left">${preview}</div>
+    <div class="hint">Toque para abrir, envie no WhatsApp e volte. A próxima libera em ~10s (evita bloqueio por excesso).</div>
+    <div class="form-actions" style="margin-top:12px; flex-wrap:wrap">${btn}
+      <button class="btn ghost" onclick="pularFilaZap()">Pular</button>
+      <button class="btn ghost" onclick="pararFilaZap()">Parar</button></div>`);
+}
+function dispararFilaZap(){
+  const item=filaZap[filaIdx]; const c=getCliente(getVeiculo(item.vid).cliente_id); const num=zapDoCliente(c);
+  if(num) window.open('https://wa.me/'+num+'?text='+encodeURIComponent(item.msg),'_blank');
+  filaIdx++;
+  if(filaIdx<filaZap.length){ filaCooldown=10; renderFilaZap();
+    clearInterval(filaTimer); filaTimer=setInterval(()=>{ filaCooldown--; if(filaCooldown<=0){ clearInterval(filaTimer); filaCooldown=0; } renderFilaZap(); },1000);
+  } else renderFilaZap();
+}
+function pularFilaZap(){ filaIdx++; filaCooldown=0; clearInterval(filaTimer); renderFilaZap(); }
+function pararFilaZap(){ clearInterval(filaTimer); filaZap=[]; filaCooldown=0; closeModal(); }
 function renderPainel(){
   const itens=construirRetornos();
   const venc=itens.filter(i=>i.st.tipo==='vencida').length, prox=itens.filter(i=>i.st.tipo==='proxima').length;
@@ -1177,8 +1220,8 @@ function prevVerificarLinha(vid,o){
     <div class="s">${o.situacao?('Estado: '+o.situacao):'Sem registro — mecânico avalia'}</div></div>
     <div class="rate">${btns}</div></div>`;
 }
-let prevFiltro=null;
-function setInspecao(vid,nome,valor){ if(!pode('editar')){ toast('Sem permissão para editar'); return; } const v=getVeiculo(vid); v.inspecao||={}; v.inspecao[nome]=valor; salvar(); openPrevencao(vid, prevFiltro); }
+let prevFiltro=null, prevVoltar=null;
+function setInspecao(vid,nome,valor){ if(!pode('editar')){ toast('Sem permissão para editar'); return; } const v=getVeiculo(vid); v.inspecao||={}; v.inspecao[nome]=valor; salvar(); openPrevencao(vid, prevFiltro, prevVoltar); }
 function renderPrevencaoResumo(vid){
   const v=getVeiculo(vid); const f=fichaPrevencao(vid);
   return `<div style="font-size:13px; color:var(--muted); margin-bottom:10px">KM atual: <b style="color:var(--txt)">${v.km_atual?nfmt(v.km_atual)+' km':'—'}</b></div>
@@ -1196,8 +1239,8 @@ function montarTextoPrevencao(vid){
   if(f.verificar.length){ t+=`\n🔎 *Inspecionar:*\n`+f.verificar.map(o=>`• ${o.nome}${o.situacao?(' — estado: '+o.situacao):''}`).join('\n')+'\n'; }
   return t.trim();
 }
-function openPrevencao(vid, filtro){
-  prevFiltro=filtro||null;
+function openPrevencao(vid, filtro, voltarStatus){
+  prevFiltro=filtro||null; prevVoltar=voltarStatus||null;
   const v=getVeiculo(vid); const c=getCliente(v.cliente_id); const f=fichaPrevencao(vid);
   const secao=(titulo,cor,arr)=>arr.length?`<div class="section-label" style="color:${cor}">${titulo} (${arr.length})</div><div class="rows">${arr.map(prevLinha).join('')}</div>`:'';
   const secaoVer=f.verificar.length?`<div class="section-label" style="color:var(--muted)">🔎 Inspecionar — mecânico avalia (${f.verificar.length})</div><div class="rows">${f.verificar.map(o=>prevVerificarLinha(vid,o)).join('')}</div>`:'';
@@ -1209,8 +1252,9 @@ function openPrevencao(vid, filtro){
   const zap=zapDoCliente(c);
   const rotulo=filtro==='vencida'?' · Vencidos':filtro==='proxima'?' · Próximos':filtro==='verificar'?' · Verificar':'';
   openModal(`<h3>Ficha de Prevenção${rotulo}</h3><p class="sub">${esc(nomeVeiculo(v))} · ${esc(v.placa||'')} · ${esc(c?.nome||'')}</p>
+    ${prevVoltar?`<button class="btn sm ghost" style="margin-bottom:10px" onclick='abrirPrevGlobal("${prevVoltar}")'>← Voltar para a lista</button>`:''}
     <div class="km-badge">KM atual: <b>${v.km_atual?nfmt(v.km_atual)+' km':'—'}</b></div>
-    ${filtro?`<button class="btn sm ghost" style="margin-bottom:12px" onclick='openPrevencao("${vid}")'>← ver tudo</button>`:''}
+    ${filtro?`<button class="btn sm ghost" style="margin-bottom:12px" onclick='openPrevencao("${vid}",null,${prevVoltar?`"${prevVoltar}"`:'null'})'>ver tudo deste veículo</button>`:''}
     ${corpo||`<div class="note empty-note">Nada nesta categoria.</div>`}
     <div class="form-actions" style="margin-top:16px">
       ${zap?`<button class="btn green" onclick='window.open("https://wa.me/${zap}?text="+encodeURIComponent(montarTextoPrevencao("${vid}")),"_blank")'>Enviar ao cliente</button>`:''}
