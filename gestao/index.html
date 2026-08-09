@@ -693,9 +693,9 @@ function renderVeiculoDet(id){
     <div class="det-head"><h2>${esc(nomeVeiculo(v))} <span class="plate">${esc(v.placa||'—')}</span></h2>
       <button class="btn sm ghost" onclick='openVeiculo("${v.id}")'>Editar</button></div>
     <div class="ficha-tools">
-      <button class="btn sm" onclick='imprimirFicha("${v.id}")'>🖨️ Imprimir</button>
-      <button class="btn sm" onclick='baixarFicha("${v.id}")'>⬇️ Baixar</button>
-      <button class="btn sm green" onclick='zapFicha("${v.id}")'>Enviar no WhatsApp</button>
+      <button class="btn sm" onclick='escolherFicha("${v.id}","imprimir")'>🖨️ Imprimir</button>
+      <button class="btn sm" onclick='escolherFicha("${v.id}","baixar")'>⬇️ Baixar</button>
+      <button class="btn sm green" onclick='escolherFicha("${v.id}","zap")'>Enviar no WhatsApp</button>
     </div>
     <div class="panel" style="margin-top:8px"><div class="kv">
       <span class="k">Cliente</span><span class="v link" onclick='go("cliente","${v.cliente_id}")'>${esc(c?.nome||'—')}</span>
@@ -718,37 +718,22 @@ function renderVeiculoDet(id){
 }
 
 /* ==================================================================
-   FICHA COMPLETA: imprimir / baixar / WhatsApp
+   FICHAS: escolher seção → imprimir / baixar / WhatsApp
+   Cabeçalho (cliente + carro) sempre incluído.
 ================================================================== */
-function fichaCompletaHTML(vid){
-  const v=getVeiculo(vid); const c=getCliente(v.cliente_id); const e=v.entrevista;
-  const f=fichaPrevencao(vid);
-  const linhaPrev=(o,cor)=>`<tr><td>${esc(o.nome)}</td><td style="color:${cor}">${faltaTxt(o)}</td></tr>`;
-  const secPrev=(tit,cor,arr)=>arr.length?`<h3 style="color:${cor}">${tit}</h3><table>${arr.map(o=>linhaPrev(o,cor)).join('')}</table>`:'';
+const FICHA_CSS=`*{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif; color:#111; margin:24px; font-size:13px}
+  h1{font-size:20px; margin:0 0 2px} h2{font-size:15px; margin:16px 0 6px; border-bottom:2px solid #E8B23A; padding-bottom:3px}
+  h3{font-size:13px; margin:10px 0 4px} table{width:100%; border-collapse:collapse; margin:2px 0}
+  td{padding:4px 6px; border-bottom:1px solid #eee; vertical-align:top}
+  .top{display:flex; justify-content:space-between; align-items:flex-start}
+  .logo{font-weight:bold; font-size:22px; border:2px solid #111; padding:4px 8px; border-radius:6px}
+  .muted{color:#666} .kv b{display:inline-block; min-width:120px; color:#555; font-weight:normal}
+  @media print{ body{margin:10mm} }`;
+const FICHA_TITULOS={entrada:'Ficha de Entrada', vencidos:'Prevenção — Vencidos', proximos:'Prevenção — Próximos', verificar:'Prevenção — Inspecionar', os:'Ordem de Serviço'};
+
+function cabecalhoFichaHTML(v,c){
   const contatos=(c.contatos||[]).map(ct=>`<div>• ${esc(ct.relacao||'Contato')}: ${esc(ct.nome||'')}${ct.telefone?(' — '+esc(ct.telefone)):''}${ct.nascimento?(' — aniv. '+esc(ct.nascimento)):''}</div>`).join('');
-  const entradaItens = e&&e.itens ? e.itens.filter(i=>i.nome).map(i=>{
-    const stMap={}; [['vencida',f.vencidos],['proxima',f.proximos],['emdia',f.emdia],['verificar',f.verificar]].forEach(([t,a])=>(a||[]).forEach(o=>stMap[o.nome]=t));
-    const venc=stMap[i.nome]==='vencida'; const det=[i.km?nfmt(i.km)+' km':null,i.meses?('há '+i.meses+' m'):null].filter(Boolean).join(' · ');
-    const est = venc?'<b style="color:#c1121f">⚠ VENCIDO</b>':(i.feito?'feito':'não feito');
-    return `<tr><td${venc?' style="color:#c1121f"':''}>${esc(i.nome)}</td><td>${est}${det?(' · '+det):''}</td></tr>`;
-  }).join('') : '';
-  const osFeitasHtml=ordensDe(v.id).filter(o=>osFeitos(o).length).map(o=>{
-    const its=osFeitos(o).map(i=>`<div>&nbsp;&nbsp;• ${esc(i.nome)} — ${i.valor?moneyFmt(i.valor):'—'}</div>`).join('');
-    return `<div style="margin:6px 0"><b>${fmtBR(parseISO(o.data))}</b> · ${o.km?nfmt(o.km)+' km':'—'} · total ${moneyFmt(osTotal(o))}${o.reclamacao?('<br><i>Reclamação: '+esc(o.reclamacao)+'</i>'):''}${o.obs_mecanico?('<br><i>Mecânico: '+esc(o.obs_mecanico)+'</i>'):''}${its}</div>`;
-  }).join('');
-  const zapTag=n=>` (${n})`;
-  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Ficha ${esc(v.placa||'')}</title>
-    <style>
-      *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif; color:#111; margin:24px; font-size:13px}
-      h1{font-size:20px; margin:0 0 2px} h2{font-size:15px; margin:16px 0 6px; border-bottom:2px solid #E8B23A; padding-bottom:3px}
-      h3{font-size:13px; margin:10px 0 4px} table{width:100%; border-collapse:collapse; margin:2px 0}
-      td{padding:4px 6px; border-bottom:1px solid #eee; vertical-align:top} .top{display:flex; justify-content:space-between; align-items:flex-start}
-      .logo{font-weight:bold; font-size:22px; border:2px solid #111; padding:4px 8px; border-radius:6px}
-      .muted{color:#666} .kv b{display:inline-block; min-width:120px; color:#555; font-weight:normal}
-      @media print{ body{margin:10mm} }
-    </style></head><body>
-    <div class="top"><div><h1>Ficha do Veículo</h1><div class="muted">3M Centro Automotivo · Gerada em ${fmtBR(hoje())}</div></div><div class="logo">3M</div></div>
-    <h2>Cliente</h2>
+  return `<h2>Cliente</h2>
     <div class="kv"><b>Nome:</b> ${esc(c.nome||'—')} (${esc(c.tipo||'')})</div>
     <div class="kv"><b>Telefone 1:</b> ${esc(c.telefone1||'—')}${c.zap_num!=='2'&&c.telefone1?' — WhatsApp':''}</div>
     <div class="kv"><b>Telefone 2:</b> ${esc(c.telefone2||'—')}${c.zap_num==='2'&&c.telefone2?' — WhatsApp':''}</div>
@@ -759,32 +744,97 @@ function fichaCompletaHTML(vid){
     <div class="kv"><b>Modelo:</b> ${esc(nomeVeiculo(v))}</div>
     <div class="kv"><b>Placa:</b> ${esc(v.placa||'—')}</div>
     <div class="kv"><b>KM atual:</b> ${v.km_atual?nfmt(v.km_atual)+' km':'—'}</div>
-    <div class="kv"><b>Cor:</b> ${esc(v.cor||'—')}</div>
-    ${entradaItens?`<h2>Ficha de entrada</h2><table>${entradaItens}</table>`:''}
-    ${(f.vencidos.length||f.proximos.length||f.verificar.length)?`<h2>Prevenção</h2>
-      ${secPrev('Vencidos','#c1121f',f.vencidos)}
-      ${secPrev('Próximos','#b06a00',f.proximos)}
-      ${f.verificar.length?`<h3>Inspecionar</h3><table>${f.verificar.map(o=>`<tr><td>${esc(o.nome)}</td><td>${o.situacao?('estado: '+o.situacao):'sem registro'}</td></tr>`).join('')}</table>`:''}`:''}
-    ${osFeitasHtml?`<h2>Serviços realizados</h2>${osFeitasHtml}`:''}
+    <div class="kv"><b>Cor:</b> ${esc(v.cor||'—')}</div>`;
+}
+function secaoFichaHTML(vid,tipo,osId){
+  const v=getVeiculo(vid); const f=fichaPrevencao(vid);
+  if(tipo==='entrada'){
+    const e=v.entrevista; if(!e||!e.itens) return '<h2>Ficha de entrada</h2><p class="muted">Não preenchida.</p>';
+    const stMap={}; [['vencida',f.vencidos],['proxima',f.proximos],['emdia',f.emdia],['verificar',f.verificar]].forEach(([t,a])=>(a||[]).forEach(o=>stMap[o.nome]=t));
+    const linhas=e.itens.filter(i=>i.nome).map(i=>{ const venc=stMap[i.nome]==='vencida'; const det=[i.km?nfmt(i.km)+' km':null,i.meses?('há '+i.meses+' m'):null].filter(Boolean).join(' · ');
+      const est=venc?'<b style="color:#c1121f">⚠ VENCIDO</b>':(i.feito?'feito':'não feito');
+      return `<tr><td${venc?' style="color:#c1121f"':''}>${esc(i.nome)}</td><td>${est}${det?(' · '+det):''}</td></tr>`; }).join('');
+    return `<h2>Ficha de entrada</h2><div class="muted">KM na entrada: ${e.km_atual?nfmt(e.km_atual)+' km':'—'} · Dono há ${esc(e.dono_tempo||'—')} · ${esc(e.brief||'')}</div><table>${linhas}</table>`;
+  }
+  if(tipo==='vencidos'||tipo==='proximos'||tipo==='verificar'){
+    const arr = tipo==='vencidos'?f.vencidos : tipo==='proximos'?f.proximos : f.verificar;
+    const cor = tipo==='vencidos'?'#c1121f' : tipo==='proximos'?'#b06a00' : '#333';
+    if(!arr.length) return `<h2>${FICHA_TITULOS[tipo]}</h2><p class="muted">Nada nesta categoria.</p>`;
+    const linhas = tipo==='verificar'
+      ? arr.map(o=>`<tr><td>${esc(o.nome)}</td><td>${o.situacao?('estado: '+o.situacao):'sem registro — inspecionar'}</td></tr>`).join('')
+      : arr.map(o=>`<tr><td style="color:${cor}">${esc(o.nome)}</td><td style="color:${cor}">${faltaTxt(o)}</td></tr>`).join('');
+    return `<h2 style="color:${cor}">${FICHA_TITULOS[tipo]}</h2><table>${linhas}</table>`;
+  }
+  if(tipo==='os'){
+    const o=getOS(osId); if(!o) return '<p class="muted">OS não encontrada.</p>';
+    const feitos=osFeitos(o).map(i=>`<tr><td>${esc(i.nome)}</td><td>${i.valor?moneyFmt(i.valor):'—'}</td></tr>`).join('');
+    const naos=osNaoFeitos(o).map(i=>`<tr><td>${esc(i.nome)}</td><td>${i.valor?('orçado '+moneyFmt(i.valor)):'—'}</td></tr>`).join('');
+    return `<h2>Ordem de Serviço — ${fmtBR(parseISO(o.data))}</h2>
+      <div class="kv"><b>KM na entrada:</b> ${o.km?nfmt(o.km)+' km':'—'}</div>
+      ${o.reclamacao?`<h3>Reclamação do cliente</h3><div>${esc(o.reclamacao)}</div>`:''}
+      ${o.obs_mecanico?`<h3>Observação do mecânico</h3><div>${esc(o.obs_mecanico)}</div>`:''}
+      ${o.obs_admin?`<h3>Observação da administração</h3><div>${esc(o.obs_admin)}</div>`:''}
+      <h3>Serviços realizados</h3><table>${feitos||'<tr><td class="muted">—</td><td></td></tr>'}</table>
+      <div class="kv" style="margin-top:6px"><b>Total:</b> ${moneyFmt(osTotal(o))}</div>
+      ${naos?`<h3>Não realizados</h3><table>${naos}</table>`:''}`;
+  }
+  return '';
+}
+function fichaHTML(vid,tipo,osId){
+  const v=getVeiculo(vid); const c=getCliente(v.cliente_id);
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${FICHA_TITULOS[tipo]||'Ficha'} ${esc(v.placa||'')}</title><style>${FICHA_CSS}</style></head><body>
+    <div class="top"><div><h1>${FICHA_TITULOS[tipo]||'Ficha'}</h1><div class="muted">3M Centro Automotivo · Gerada em ${fmtBR(hoje())}</div></div><div class="logo">3M</div></div>
+    ${cabecalhoFichaHTML(v,c)}
+    ${secaoFichaHTML(vid,tipo,osId)}
     </body></html>`;
 }
-function imprimirFicha(vid){
+function textoFicha(vid,tipo,osId){
+  const v=getVeiculo(vid); const c=getCliente(v.cliente_id); const f=fichaPrevencao(vid);
+  let t=`*3M Centro Automotivo — ${FICHA_TITULOS[tipo]||'Ficha'}*\n${nomeVeiculo(v)} · Placa ${v.placa||'—'}\nCliente: ${c.nome||'—'}\nKM atual: ${v.km_atual?nfmt(v.km_atual)+' km':'—'}\n`;
+  if(tipo==='entrada'){ const e=v.entrevista; if(e&&e.itens){ t+='\n'+e.itens.filter(i=>i.nome).map(i=>`• ${i.nome}: ${i.feito?'feito':'não feito'}${i.km?(' ('+nfmt(i.km)+' km)'):''}`).join('\n'); } }
+  else if(tipo==='vencidos'){ t+='\n🔴 *Vencidos:*\n'+(f.vencidos.map(o=>`• ${o.nome} (${faltaTxt(o)})`).join('\n')||'—'); }
+  else if(tipo==='proximos'){ t+='\n🟡 *Próximos:*\n'+(f.proximos.map(o=>`• ${o.nome} (${faltaTxt(o)})`).join('\n')||'—'); }
+  else if(tipo==='verificar'){ t+='\n🔎 *Inspecionar:*\n'+(f.verificar.map(o=>`• ${o.nome}${o.situacao?(' — '+o.situacao):''}`).join('\n')||'—'); }
+  else if(tipo==='os'){ const o=getOS(osId); if(o){ t+=`\nOS ${fmtBR(parseISO(o.data))} · ${o.km?nfmt(o.km)+' km':''}\n`; if(o.reclamacao) t+=`Reclamação: ${o.reclamacao}\n`; t+=osFeitos(o).map(i=>`• ${i.nome} — ${i.valor?moneyFmt(i.valor):'—'}`).join('\n'); t+=`\nTotal: ${moneyFmt(osTotal(o))}`; } }
+  return t.trim();
+}
+function imprimirFicha(vid,tipo,osId){
   const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para imprimir'); return; }
-  w.document.write(fichaCompletaHTML(vid)); w.document.close();
-  w.onload=()=>{ w.focus(); w.print(); };
-  setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 500);
+  w.document.write(fichaHTML(vid,tipo,osId)); w.document.close();
+  w.onload=()=>{ w.focus(); w.print(); }; setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 500);
 }
-function baixarFicha(vid){
+function baixarFicha(vid,tipo,osId){
   const v=getVeiculo(vid);
-  const blob=new Blob([fichaCompletaHTML(vid)],{type:'text/html;charset=utf-8'});
+  const blob=new Blob([fichaHTML(vid,tipo,osId)],{type:'text/html;charset=utf-8'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download='ficha-'+((v.placa||'veiculo').replace(/[^\w]/g,''))+'-'+toISO(hoje())+'.html'; a.click();
-  toast('Ficha baixada');
+  a.download='ficha-'+tipo+'-'+((v.placa||'veiculo').replace(/[^\w]/g,''))+'-'+toISO(hoje())+'.html'; a.click(); toast('Ficha baixada');
 }
-function zapFicha(vid){
+function zapFicha(vid,tipo,osId){
   const v=getVeiculo(vid); const c=getCliente(v.cliente_id); const n=zapDoCliente(c);
   if(!n){ toast('Cliente sem WhatsApp'); return; }
-  window.open('https://wa.me/'+n+'?text='+encodeURIComponent(montarTextoPrevencao(vid)),'_blank');
+  window.open('https://wa.me/'+n+'?text='+encodeURIComponent(textoFicha(vid,tipo,osId)),'_blank');
+}
+function fazerFicha(vid,acao,tipo,osId){
+  closeModal();
+  if(acao==='imprimir') imprimirFicha(vid,tipo,osId);
+  else if(acao==='baixar') baixarFicha(vid,tipo,osId);
+  else zapFicha(vid,tipo,osId);
+}
+function escolherFicha(vid,acao){
+  const v=getVeiculo(vid); const os=ordensDe(v.id);
+  const verbo=acao==='imprimir'?'Imprimir':acao==='baixar'?'Baixar':'Enviar';
+  const opt=(tipo,rot)=>`<div class="row click" onclick='fazerFicha("${vid}","${acao}","${tipo}")'><div class="main"><div class="t">${rot}</div></div>${chev()}</div>`;
+  const osRows=os.length?`<div class="section-label">Ordem de serviço específica</div>`+os.map(o=>`<div class="row click" onclick='fazerFicha("${vid}","${acao}","os","${o.id}")'>
+      <div class="main"><div class="t">${fmtBR(parseISO(o.data))} · ${o.km?nfmt(o.km)+' km':'—'}</div><div class="s">${(o.itens||[]).length} serviço(s) · total ${moneyFmt(osTotal(o))}</div></div>${chev()}</div>`).join(''):'';
+  openModal(`<h3>${verbo} — o que você quer?</h3><p class="sub">Sempre vem o cabeçalho do cliente e do carro.</p>
+    <div class="rows">
+      ${opt('entrada','Ficha de entrada')}
+      ${opt('vencidos','Prevenção · Vencidos')}
+      ${opt('proximos','Prevenção · Próximos')}
+      ${opt('verificar','Prevenção · Inspecionar')}
+    </div>
+    ${osRows}
+    <div class="form-actions" style="margin-top:14px"><button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
 }
 
 /* ==================================================================
