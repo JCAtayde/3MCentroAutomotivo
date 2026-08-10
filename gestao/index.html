@@ -757,8 +757,9 @@ function renderClientes(){
   if(!state.clientes.length){ box.innerHTML=emptyState('Nenhum cliente','Toque em “Novo”.'); return; }
   if(!lista.length){ box.innerHTML=emptyState('Nada encontrado','Tente outro termo.'); return; }
   box.innerHTML=lista.map(c=>{ const badge=(c.tipo==='Corretiva')?'<span class="badge corr">Corretiva</span>':'<span class="badge prev">Preventiva</span>';
+    const site=(c.obs||'').startsWith('Pré-cadastro pelo site')?' <span class="badge" style="border-color:#3E7BB6;color:#7db4e6">🌐 site</span>':'';
     return `<div class="row click" onclick='go("cliente","${c.id}")'>
-      <div class="main"><div class="t">${esc(c.nome)} ${badge}</div>
+      <div class="main"><div class="t">${esc(c.nome)} ${badge}${site}</div>
         <div class="s">${esc(c.telefone1||'sem WhatsApp')} · ${veiculosDe(c.id).length} veículo(s)</div></div>${chev()}</div>`; }).join('');
 }
 
