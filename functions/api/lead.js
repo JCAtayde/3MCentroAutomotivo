@@ -5,6 +5,8 @@
  */
 const CORS = { 'access-control-allow-origin':'*', 'access-control-allow-methods':'POST,OPTIONS', 'access-control-allow-headers':'content-type' };
 const json = (o, s=200) => new Response(JSON.stringify(o), { status:s, headers:{ 'content-type':'application/json; charset=utf-8', ...CORS } });
+const MIN = ['de','da','do','das','dos','e','com','para','por','em','no','na','ao','a','o','as','os'];
+function tc(s){ return String(s||'').trim().replace(/\s+/g,' ').split(' ').map((w,i)=>{ if(!w) return w; const lw=w.toLowerCase(); if(i>0 && MIN.includes(lw)) return lw; return w.charAt(0).toUpperCase()+w.slice(1); }).join(' '); }
 
 export async function onRequestOptions(){ return new Response(null, { headers: CORS }); }
 
@@ -18,7 +20,7 @@ export async function onRequestPost(context){
   // Honeypot anti-robô: se veio preenchido, finge sucesso e descarta.
   if((body.website||'').trim()) return json({ ok:true });
 
-  const nome = (body.nome||'').trim().slice(0,120);
+  const nome = tc((body.nome||'').trim().slice(0,120));
   const telefone = (body.telefone||'').replace(/[^\d]/g,'').slice(0,13);
   const email = (body.email||'').trim().slice(0,120);
   if(!nome) return json({ error:'Informe seu nome.' }, 400);
@@ -27,7 +29,7 @@ export async function onRequestPost(context){
   let carros = Array.isArray(body.carros) ? body.carros : [];
   carros = carros.map(c => ({
     placa:(c.placa||'').trim().toUpperCase().replace(/\s+/g,'').slice(0,10),
-    modelo:(c.modelo||'').trim().slice(0,60),
+    modelo:tc((c.modelo||'').trim().slice(0,60)),
     ano:(c.ano==null?'':String(c.ano)).trim().slice(0,8),
     cambio:(c.cambio||'').trim().slice(0,20),
     km: parseInt(String(c.km==null?'':c.km).replace(/\D/g,'')) || null,

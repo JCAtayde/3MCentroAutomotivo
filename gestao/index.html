@@ -532,6 +532,8 @@ function addMeses(d,n){ const x=new Date(d); const dia=x.getDate(); x.setMonth(x
 function diasEntre(a,b){ return Math.round((parseISO(b)-parseISO(a))/86400000); }
 function nfmt(n){ return Number(n).toLocaleString('pt-BR'); }
 function esc(s){ return (s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function tc(s){ const min=['de','da','do','das','dos','e','com','para','por','em','no','na','nos','nas','ao','aos','a','o','as','os','à','às'];
+  return String(s||'').trim().replace(/\s+/g,' ').split(' ').map((w,i)=>{ if(!w) return w; const lw=w.toLowerCase(); if(i>0 && min.includes(lw)) return lw; return w.charAt(0).toUpperCase()+w.slice(1); }).join(' '); }
 function val(id){ return document.getElementById(id).value; }
 function num(id){ const v=document.getElementById(id).value.replace(/\D/g,''); return v?Number(v):''; }
 function moneyParse(s){ if(s==null||s==='') return 0; s=(''+s).replace(/[^\d,.-]/g,''); if(s.includes(',')) s=s.replace(/\./g,'').replace(',','.'); return parseFloat(s)||0; }
@@ -1122,8 +1124,8 @@ function openCliente(id){ if(!pode('editar')){ toast('Sem permissão para editar
 }
 function saveCliente(id){
   const nome=val('fNome').trim(); if(!nome){ toast('Informe o nome'); return; }
-  const dados={nome,tipo:val('fTipo'),telefone1:val('fTel1').trim(),telefone2:val('fTel2').trim(),zap_num:val('fZap'),nascimento:val('fNasc').trim(),endereco:val('fEnd').trim(),obs:val('fObs').trim(),
-    contatos:contatoRows.filter(r=>r.nome.trim()||r.telefone.trim()).map(r=>({nome:r.nome.trim(),relacao:r.relacao,telefone:r.telefone.trim(),nascimento:(r.nascimento||'').trim()}))};
+  const dados={nome:tc(nome),tipo:val('fTipo'),telefone1:val('fTel1').trim(),telefone2:val('fTel2').trim(),zap_num:val('fZap'),nascimento:val('fNasc').trim(),endereco:tc(val('fEnd').trim()),obs:val('fObs').trim(),
+    contatos:contatoRows.filter(r=>r.nome.trim()||r.telefone.trim()).map(r=>({nome:tc(r.nome.trim()),relacao:r.relacao,telefone:r.telefone.trim(),nascimento:(r.nascimento||'').trim()}))};
   if(id) Object.assign(getCliente(id),dados); else state.clientes.push({id:uid(),...dados,criado:Date.now()});
   salvar(); closeModal(); refreshAtual(); toast('Cliente salvo');
 }
@@ -1153,7 +1155,7 @@ function openVeiculo(id, clienteId){ if(!pode('editar')){ toast('Sem permissão 
       <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
 }
 function saveVeiculo(id){
-  const dados={cliente_id:val('fCli'),placa:val('fPlaca').trim().toUpperCase(),modelo:val('fModelo').trim(),ano:val('fAno').trim(),cor:val('fCor').trim(),cambio:val('fCambio'),km_atual:num('fKm'),media_km_mes:num('fMedia')};
+  const dados={cliente_id:val('fCli'),placa:val('fPlaca').trim().toUpperCase(),modelo:tc(val('fModelo').trim()),ano:val('fAno').trim(),cor:tc(val('fCor').trim()),cambio:val('fCambio'),km_atual:num('fKm'),media_km_mes:num('fMedia')};
   if(!dados.cliente_id){ toast('Escolha o cliente'); return; }
   if(!dados.modelo&&!dados.placa){ toast('Informe placa ou modelo'); return; }
   if(id){ Object.assign(getVeiculo(id),dados); autoResolveLead(dados.cliente_id,dados.placa); salvar(); closeModal(); refreshAtual(); toast('Veículo salvo'); }
@@ -1502,7 +1504,7 @@ function saveOS(id){
   const vid=osFixoVeiculo||val('osVeiculo'); const km=num('osKm'); const data=val('osData');
   if(!vid){ toast('Escolha o veículo'); return; }
   if(!data){ toast('Informe a data'); return; }
-  const itens=osItens.filter(i=>(i.nome||'').trim()).map(i=>{ const r=regraPorNome(i.nome); return {id:uid(),nome:i.nome.trim(),valor:moneyParse(i.valor),regra_id:r?r.id:null,feito:i.feito!==false}; });
+  const itens=osItens.filter(i=>(i.nome||'').trim()).map(i=>{ const nome=tc(i.nome.trim()); const r=regraPorNome(nome); return {id:uid(),nome,valor:moneyParse(i.valor),regra_id:r?r.id:null,feito:i.feito!==false}; });
   if(!itens.length){ toast('Lance ao menos um serviço'); return; }
   const dados={veiculo_id:vid,data,km:km||0,reclamacao:val('osRec').trim(),obs_mecanico:val('osMec').trim(),obs_admin:val('osAdm').trim(),itens};
   if(id){ Object.assign(getOS(id),dados); } else { state.ordens.push({id:uid(),...dados,criado:Date.now()}); }
@@ -1524,7 +1526,7 @@ function openRegra(id){ if(!pode('editar')){ toast('Sem permissão para editar')
     <div class="form-actions"><button class="btn gold" onclick='saveRegra(${id?`"${id}"`:'null'})'>Salvar</button>
       ${id?`<button class="btn danger" onclick='delRegra("${id}")'>Excluir</button>`:''}
       <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`); }
-function saveRegra(id){ const nome=val('fRNome').trim(),km=num('fRKm')||0,meses=num('fRMes')||0;
+function saveRegra(id){ const nome=tc(val('fRNome').trim()),km=num('fRKm')||0,meses=num('fRMes')||0;
   if(!nome){ toast('Informe o nome'); return; } if(km<=0&&meses<=0){ toast('Preencha KM ou meses'); return; }
   if(id) Object.assign(getRegra(id),{nome,km,meses}); else state.regras.push({id:uid(),nome,km,meses});
   salvar(); document.getElementById('regrasList').innerHTML=state.regras.map(r=>`<option value="${esc(r.nome)}">`).join(''); closeModal(); renderRegras(); toast('Regra salva'); }
