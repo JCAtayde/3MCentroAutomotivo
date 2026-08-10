@@ -146,10 +146,16 @@
   .contato-row input, .contato-row select{padding:9px 10px; font-size:13.5px}
   .rm{background:none; border:1px solid var(--line2); color:var(--red); width:38px; height:40px; border-radius:8px; cursor:pointer; font-size:15px; display:grid; place-items:center; flex:none}
 
-  .os-row{display:grid; grid-template-columns:36px 1fr 110px auto; gap:8px; margin-bottom:8px; align-items:start}
+  .os-row{display:grid; grid-template-columns:1fr 54px 96px auto; gap:8px; margin-bottom:8px; align-items:start}
+  .os-qtd{text-align:center}
   .os-serv{display:flex; flex-direction:column; gap:6px; min-width:0}
   .os-serv .os-sel{width:100%}
   .os-val{align-self:center}
+  .os-status-bar{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:10px; padding:10px 12px; background:var(--panel); border:1px solid var(--line2); border-radius:11px}
+  .seg{display:flex; gap:6px; margin-bottom:12px; overflow:auto}
+  .seg button{flex:1; white-space:nowrap; padding:8px 10px; border-radius:9px; border:1px solid var(--line2); background:var(--panel); color:var(--txt); font-size:13px; font-weight:600; cursor:pointer}
+  .seg button.on{background:var(--gold); color:#14161A; border-color:var(--gold)}
+  .seg-n{display:inline-block; min-width:17px; padding:0 5px; border-radius:20px; background:rgba(0,0,0,.18); font-size:11px}
   .os-row input{padding:10px 11px; font-size:14px}
   .os-total{display:flex; justify-content:space-between; align-items:center; margin-top:6px; padding:12px 14px; background:var(--panel2); border:1px solid var(--line); border-radius:var(--radius-s)}
   .os-total .l{color:var(--muted); font-size:13px; font-weight:600}
@@ -264,8 +270,13 @@
   .tl-link:hover{text-decoration:underline}
 
   /* toggle feito/não feito no formulário da OS */
-  .os-row{grid-template-columns:36px 1fr 120px auto}
   .os-row .feito-tog{align-self:start}
+  .mdo-row{display:grid; grid-template-columns:1fr 110px auto; gap:8px; margin-bottom:8px; align-items:start}
+  .mdo-row .os-serv{gap:6px}
+  .fin-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:15px}
+  .fin-kv{display:flex;justify-content:space-between;font-size:13.5px;padding:3px 0}
+  .fin-kv.green,.os-total .l.green,.os-total .v.green{color:var(--green)}
+  #financeiroBox details summary{cursor:pointer;color:var(--muted);font-size:13px;list-style:revert}
   .os-row.naofeito input{opacity:.55}
   .feito-tog{width:36px; height:40px; border-radius:8px; border:1px solid var(--line2); cursor:pointer; font-size:15px; font-weight:700; flex:none}
   .feito-tog.on{background:var(--green-bg); color:#5fd6a2; border-color:#1f5c3f}
@@ -318,7 +329,8 @@
   <section class="screen" data-screen="ordens">
     <div class="view-head"><div><h2>Ordens de Serviço</h2><p>Atendimentos recentes</p></div>
       <button class="btn gold" onclick="openOS()">+ Nova OS</button></div>
-    <div class="field" style="margin-bottom:12px"><input id="buscaOS" placeholder="🔎 Buscar por cliente ou placa" oninput="renderOrdens()"></div>
+    <div class="field" style="margin-bottom:8px"><input id="buscaOS" placeholder="🔎 Buscar por cliente ou placa" oninput="renderOrdens()"></div>
+    <div class="seg" id="osFiltro"></div>
     <div class="rows" id="listaOrdens"></div>
   </section>
 
@@ -357,6 +369,12 @@
 
     <div class="cfg-panel" data-cfg="usuarios" style="display:none">
       <div id="usuariosAdmin"></div>
+    </div>
+    <div class="cfg-panel" data-cfg="mecanicos" style="display:none">
+      <div id="mecanicosBox"></div>
+    </div>
+    <div class="cfg-panel" data-cfg="financeiro" style="display:none">
+      <div id="financeiroBox"></div>
     </div>
   </section>
 
@@ -467,9 +485,9 @@ function apiGet(){ return fetch(API+'/state',{headers:{'accept':'application/jso
 function apiPost(path,body){ return fetch(API+'/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
 function deepCopy(o){ return JSON.parse(JSON.stringify(o)); }
 function cacheSave(){ try{ localStorage.setItem(CACHE_KEY,JSON.stringify(state)); }catch(e){} }
-function cacheLoad(){ try{ const r=localStorage.getItem(CACHE_KEY); if(r){ const d=JSON.parse(r); d.clientes||=[]; d.veiculos||=[]; d.ordens||=[]; d.regras||=[]; d.usuarios||=[]; d.config={...CONFIG_PADRAO,...(d.config||{})}; return d; } }catch(e){} return null; }
+function cacheLoad(){ try{ const r=localStorage.getItem(CACHE_KEY); if(r){ const d=JSON.parse(r); d.clientes||=[]; d.veiculos||=[]; d.ordens||=[]; d.regras||=[]; d.usuarios||=[]; d.mecanicos||=[]; d.config={...CONFIG_PADRAO,...(d.config||{})}; return d; } }catch(e){} return null; }
 
-let state = cacheLoad() || {clientes:[],veiculos:[],ordens:[],regras:[],usuarios:[],config:{...CONFIG_PADRAO}};
+let state = cacheLoad() || {clientes:[],veiculos:[],ordens:[],regras:[],usuarios:[],mecanicos:[],config:{...CONFIG_PADRAO}};
 let lastSnapshot = deepCopy(state);
 let syncTimer=null, syncing=false, syncPend=false;
 
@@ -488,7 +506,7 @@ async function enviarMudancas(){
   if(syncing){ syncPend=true; return; }
   syncing=true; setSync('sync');
   try{
-    for(const t of ['clientes','veiculos','ordens','regras','usuarios']){
+    for(const t of ['clientes','veiculos','ordens','regras','usuarios','mecanicos']){
       const d=diffTabela(lastSnapshot[t], state[t]);
       if(d.up.length) await apiPost('upsert',{table:t,rows:d.up});
       if(d.del.length) await apiPost('delete',{table:t,ids:d.del});
@@ -508,6 +526,7 @@ async function sincronizar(){
     state.regras=data.regras||[];
     if(!state.regras.length) state.regras=REGRAS_PADRAO.map(r=>({...r}));
     state.usuarios=data.usuarios||[];
+    state.mecanicos=data.mecanicos||[];
     state.config={...CONFIG_PADRAO,...(data.config||{})};
     lastSnapshot=deepCopy(state); cacheSave(); setSync('ok');
     if(typeof atualizarRegrasList==='function') atualizarRegrasList();
@@ -546,14 +565,15 @@ function getOS(id){ return state.ordens.find(o=>o.id===id); }
 function veiculosDe(cid){ return state.veiculos.filter(v=>v.cliente_id===cid); }
 function ordensDe(vid){ return state.ordens.filter(o=>o.veiculo_id===vid).sort((a,b)=>b.data.localeCompare(a.data)); }
 function nomeVeiculo(v){ return (v.modelo||'Veículo')+(v.ano?(' '+v.ano):''); }
-function osTotal(o){ return (o.itens||[]).filter(i=>i.feito!==false).reduce((s,i)=>s+(Number(i.valor)||0),0); }
-function osFeitos(o){ return (o.itens||[]).filter(i=>i.feito!==false); }
-function osNaoFeitos(o){ return (o.itens||[]).filter(i=>i.feito===false); }
+function pecasTotal(o){ return (o.itens||[]).reduce((s,i)=>s+(Number(i.valor)||0)*(Number(i.qtde)||1),0); }
+function osMdoTotal(o){ return (o.maodeobra||[]).reduce((s,m)=>s+(Number(m.valor)||0),0); }
+function osTotal(o){ return pecasTotal(o)+osMdoTotal(o); }
+function osStatus(o){ return o.status||'aguardando'; }
 function zapNumero(t){ let d=(t||'').replace(/\D/g,''); if(d.startsWith('55')&&d.length>=12) return d; if(d.length===10||d.length===11) return '55'+d; return d; }
 function zapDoCliente(c){ if(!c) return ''; const pref=c.zap_num==='2'?c.telefone2:c.telefone1; return zapNumero(pref)||zapNumero(c.telefone1)||zapNumero(c.telefone2); }
 function chev(){ return '<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'; }
 
-function servicosFlat(){ const out=[]; state.ordens.forEach(o=>(o.itens||[]).forEach(i=>{ if(i.regra_id && i.feito!==false) out.push({veiculo_id:o.veiculo_id,regra_id:i.regra_id,km:o.km,data:o.data}); })); return out; }
+function servicosFlat(){ const out=[]; state.ordens.forEach(o=>{ if(osStatus(o)!=='aprovado') return; (o.itens||[]).forEach(i=>{ if(i.regra_id) out.push({veiculo_id:o.veiculo_id,regra_id:i.regra_id,km:o.km,data:o.data}); }); }); return out; }
 
 /* ==================================================================
    PREVISÃO
@@ -872,15 +892,15 @@ function renderVeiculos(){
 
 /* VEÍCULO detalhe */
 function arvoreOS(v, tipo){
-  // tipo: 'feito' | 'nao'
-  const os=ordensDe(v.id).filter(o=> tipo==='feito' ? osFeitos(o).length : osNaoFeitos(o).length);
-  if(!os.length) return `<div class="note empty-note" style="margin:0 16px 14px">${tipo==='feito'?'Nenhum serviço realizado registrado.':'Nada em aberto — tudo o que foi orçado foi realizado.'}</div>`;
+  // tipo: 'feito' (aprovadas/executadas) | 'nao' (rejeitadas/orçamento) | 'aguardando'
+  const alvo = tipo==='feito'?'aprovado' : tipo==='nao'?'rejeitado' : 'aguardando';
+  const os=ordensDe(v.id).filter(o=>osStatus(o)===alvo);
+  if(!os.length) return `<div class="note empty-note" style="margin:0 16px 14px">${tipo==='feito'?'Nenhum serviço executado ainda.':tipo==='nao'?'Nenhum orçamento recusado.':'Nada aguardando aprovação.'}</div>`;
   return os.map(o=>{
-    const itens = tipo==='feito' ? osFeitos(o) : osNaoFeitos(o);
-    const linhas = itens.map(i=>`<div class="tl"><span>${esc(i.nome)}</span><span class="valor">${i.valor?moneyFmt(i.valor):(tipo==='nao'?'orçamento —':'')}</span></div>`).join('');
-    const dirTot = tipo==='feito'?moneyFmt(osTotal(o)):(itens.reduce((s,i)=>s+(Number(i.valor)||0),0)?('orç. '+moneyFmt(itens.reduce((s,i)=>s+(Number(i.valor)||0),0))):'');
-    return `<details class="tree"><summary><span class="td">${fmtBR(parseISO(o.data))}</span><span class="tk">${o.km?nfmt(o.km)+' km':'—'}${dirTot?(' · '+dirTot):''}</span><span class="arrow">${chevSvg()}</span></summary>
-      <div class="tree-body">${linhas}<div class="tl-link" onclick='go("os","${o.id}")'>ver ordem completa →</div></div></details>`;
+    const linhas = (o.itens||[]).map(i=>`<div class="tl"><span>${esc(i.nome)}${(Number(i.qtde)||1)>1?(' ×'+(Number(i.qtde)||1)):''}</span><span class="valor">${i.valor?moneyFmt((Number(i.valor)||0)*(Number(i.qtde)||1)):''}</span></div>`).join('');
+    const mdo = osMdoTotal(o)?`<div class="tl"><span>Mão de obra</span><span class="valor">${moneyFmt(osMdoTotal(o))}</span></div>`:'';
+    return `<details class="tree"><summary><span class="td">${fmtBR(parseISO(o.data))}</span><span class="tk">${o.km?nfmt(o.km)+' km':'—'} · ${moneyFmt(osTotal(o))}</span><span class="arrow">${chevSvg()}</span></summary>
+      <div class="tree-body">${linhas}${mdo}<div class="tl-link" onclick='go("os","${o.id}")'>ver ordem completa →</div></div></details>`;
   }).join('');
 }
 function chevSvg(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>'; }
@@ -888,8 +908,9 @@ function renderVeiculoDet(id){
   const v=getVeiculo(id); const box=document.getElementById('veiculoDet');
   if(!v){ box.innerHTML=emptyState('Veículo não encontrado',''); return; }
   const c=getCliente(v.cliente_id); const os=ordensDe(v.id); const e=v.entrevista;
-  const nFeito=os.filter(o=>osFeitos(o).length).length;
-  const nNao=os.filter(o=>osNaoFeitos(o).length).length;
+  const nFeito=os.filter(o=>osStatus(o)==='aprovado').length;
+  const nNao=os.filter(o=>osStatus(o)==='rejeitado').length;
+  const nAg=os.filter(o=>osStatus(o)==='aguardando').length;
   const entHtml=e?renderEntrevistaResumo(v):`<div class="note empty-note">Ficha de entrada ainda não preenchida.</div>`;
   box.innerHTML=`
     <div class="det-head"><h2>${esc(nomeVeiculo(v))} <span class="plate">${esc(v.placa||'—')}</span></h2>
@@ -911,10 +932,13 @@ function renderVeiculoDet(id){
       <div class="acc-body">${entHtml}
         <div class="form-actions" style="margin-top:12px"><button class="btn sm ${e?'ghost':'gold'}" onclick='openEntrevista("${v.id}",${e?'false':'true'})'>${e?'Editar ficha':'Preencher ficha'}</button></div></div></details>
 
-    <details class="acc"><summary><span>Serviços realizados (${nFeito})</span><span class="arrow">${chevSvg()}</span></summary>
+    <details class="acc"><summary><span>Serviços executados (${nFeito})</span><span class="arrow">${chevSvg()}</span></summary>
       <div class="acc-tree">${arvoreOS(v,'feito')}</div></details>
 
-    <details class="acc"><summary><span>Ordens não realizadas (${nNao})</span><span class="arrow">${chevSvg()}</span></summary>
+    ${nAg?`<details class="acc"><summary><span style="color:var(--amber)">Aguardando aprovação (${nAg})</span><span class="arrow">${chevSvg()}</span></summary>
+      <div class="acc-tree">${arvoreOS(v,'aguardando')}</div></details>`:''}
+
+    <details class="acc"><summary><span>Orçamentos não aprovados (${nNao})</span><span class="arrow">${chevSvg()}</span></summary>
       <div class="acc-tree">${arvoreOS(v,'nao')}</div></details>
 
     <div class="form-actions" style="margin-top:6px"><button class="btn gold" onclick='openOS(null,"${v.id}")'>+ Nova ordem de serviço</button></div>`;
@@ -971,16 +995,20 @@ function secaoFichaHTML(vid,tipo,osId){
   }
   if(tipo==='os'){
     const o=getOS(osId); if(!o) return '<p class="muted">OS não encontrada.</p>';
-    const feitos=osFeitos(o).map(i=>`<tr><td>${esc(i.nome)}</td><td>${i.valor?moneyFmt(i.valor):'—'}</td></tr>`).join('');
-    const naos=osNaoFeitos(o).map(i=>`<tr><td>${esc(i.nome)}</td><td>${i.valor?('orçado '+moneyFmt(i.valor)):'—'}</td></tr>`).join('');
+    const st=osStatus(o); const stTxt=st==='aprovado'?'APROVADA (executada)':st==='rejeitado'?'ORÇAMENTO NÃO APROVADO':'AGUARDANDO APROVAÇÃO';
+    const pecas=(o.itens||[]).map(i=>{ const q=Number(i.qtde)||1; const sub=(Number(i.valor)||0)*q;
+      return `<tr><td>${esc(i.nome)}</td><td style="text-align:center">${q}</td><td style="text-align:right">${i.valor?moneyFmt(i.valor):'—'}</td><td style="text-align:right">${moneyFmt(sub)}</td></tr>`; }).join('');
+    const mo=(o.maodeobra||[]).map(m=>{ const mec=(state.mecanicos||[]).find(x=>x.id===m.mecanico_id); return `<tr><td>${esc(m.desc||'Mão de obra')}${mec?(' — '+esc(mec.nome)):''}</td><td style="text-align:right">${moneyFmt(m.valor)}</td></tr>`; }).join('');
     return `<h2>Ordem de Serviço — ${fmtBR(parseISO(o.data))}</h2>
+      <div class="kv"><b>Situação:</b> ${stTxt}</div>
       <div class="kv"><b>KM na entrada:</b> ${o.km?nfmt(o.km)+' km':'—'}</div>
       ${o.reclamacao?`<h3>Reclamação do cliente</h3><div>${esc(o.reclamacao)}</div>`:''}
       ${o.obs_mecanico?`<h3>Observação do mecânico</h3><div>${esc(o.obs_mecanico)}</div>`:''}
-      ${o.obs_admin?`<h3>Observação da administração</h3><div>${esc(o.obs_admin)}</div>`:''}
-      <h3>Serviços realizados</h3><table>${feitos||'<tr><td class="muted">—</td><td></td></tr>'}</table>
-      <div class="kv" style="margin-top:6px"><b>Total:</b> ${moneyFmt(osTotal(o))}</div>
-      ${naos?`<h3>Não realizados</h3><table>${naos}</table>`:''}`;
+      ${pecas?`<h3>Peças</h3><table><tr><td><b>Item</b></td><td style="text-align:center"><b>Qtd</b></td><td style="text-align:right"><b>Unit.</b></td><td style="text-align:right"><b>Subtotal</b></td></tr>${pecas}</table>`:''}
+      ${mo?`<h3>Mão de obra</h3><table>${mo}</table>`:''}
+      <div class="kv" style="margin-top:8px"><b>Valor peças:</b> ${moneyFmt(pecasTotal(o))}</div>
+      <div class="kv"><b>Valor mão de obra:</b> ${moneyFmt(osMdoTotal(o))}</div>
+      <div class="kv"><b>VALOR TOTAL:</b> ${moneyFmt(osTotal(o))}</div>`;
   }
   return '';
 }
@@ -999,7 +1027,10 @@ function textoFicha(vid,tipo,osId){
   else if(tipo==='vencidos'){ t+='\n🔴 *Vencidos:*\n'+(f.vencidos.map(o=>`• ${o.nome} (${faltaTxt(o)})`).join('\n')||'—'); }
   else if(tipo==='proximos'){ t+='\n🟡 *Próximos:*\n'+(f.proximos.map(o=>`• ${o.nome} (${faltaTxt(o)})`).join('\n')||'—'); }
   else if(tipo==='verificar'){ t+='\n🔎 *Inspecionar:*\n'+(f.verificar.map(o=>`• ${o.nome}${o.situacao?(' — '+o.situacao):''}`).join('\n')||'—'); }
-  else if(tipo==='os'){ const o=getOS(osId); if(o){ t+=`\nOS ${fmtBR(parseISO(o.data))} · ${o.km?nfmt(o.km)+' km':''}\n`; if(o.reclamacao) t+=`Reclamação: ${o.reclamacao}\n`; t+=osFeitos(o).map(i=>`• ${i.nome} — ${i.valor?moneyFmt(i.valor):'—'}`).join('\n'); t+=`\nTotal: ${moneyFmt(osTotal(o))}`; } }
+  else if(tipo==='os'){ const o=getOS(osId); if(o){ t+=`\nOS ${fmtBR(parseISO(o.data))} · ${o.km?nfmt(o.km)+' km':''}\n`; if(o.reclamacao) t+=`Reclamação: ${o.reclamacao}\n`;
+    if((o.itens||[]).length){ t+='\n*Peças:*\n'+o.itens.map(i=>{ const q=Number(i.qtde)||1; return `• ${i.nome}${q>1?(' ×'+q):''} — ${moneyFmt((Number(i.valor)||0)*q)}`; }).join('\n'); }
+    if((o.maodeobra||[]).length){ t+='\n\n*Mão de obra:*\n'+o.maodeobra.map(m=>`• ${m.desc||'Serviço'} — ${moneyFmt(m.valor)}`).join('\n'); }
+    t+=`\n\nPeças: ${moneyFmt(pecasTotal(o))}\nMão de obra: ${moneyFmt(osMdoTotal(o))}\n*Total: ${moneyFmt(osTotal(o))}*`; } }
   if(tipo==='vencidos'||tipo==='proximos'||tipo==='verificar'||tipo==='entrada') t+='\n'+linkManutencaoTxt();
   return t.trim();
 }
@@ -1045,18 +1076,23 @@ function escolherFicha(vid,acao){
 /* ==================================================================
    ORDENS (lista global)
 ================================================================== */
+let osFiltroStatus='aguardando';
+function setOsFiltro(s){ osFiltroStatus=s; renderOrdens(); }
 function renderOrdens(){
   const box=document.getElementById('listaOrdens');
   const q=((document.getElementById('buscaOS')||{}).value||'').trim().toLowerCase();
-  let lista=state.ordens.slice().sort((a,b)=>b.data.localeCompare(a.data));
+  const segBox=document.getElementById('osFiltro');
+  const cont={aguardando:0,aprovado:0,rejeitado:0}; state.ordens.forEach(o=>{ const s=osStatus(o); if(cont[s]!=null) cont[s]++; });
+  if(segBox){ const abas=[['aguardando','Aguardando',cont.aguardando],['aprovado','Executados',cont.aprovado],['rejeitado','Orçamentos',cont.rejeitado]];
+    segBox.innerHTML=abas.map(([k,r,n])=>`<button class="${k===osFiltroStatus?'on':''}" onclick="setOsFiltro('${k}')">${r}${n?` <span class="seg-n">${n}</span>`:''}</button>`).join(''); }
+  let lista=state.ordens.filter(o=>osStatus(o)===osFiltroStatus).sort((a,b)=>b.data.localeCompare(a.data));
   if(q){ lista=lista.filter(o=>{ const v=getVeiculo(o.veiculo_id); if(!v) return false; const c=getCliente(v.cliente_id);
     return ((c&&c.nome||'').toLowerCase().includes(q)) || ((v.placa||'').toLowerCase().includes(q)) || ((v.modelo||'').toLowerCase().includes(q)); }); }
-  else { lista=lista.slice(0,40); }
-  if(!lista.length){ box.innerHTML=emptyState(q?'Nada encontrado':'Nenhuma ordem de serviço', q?'Tente outro nome ou placa.':'Toque em “Nova OS”.'); return; }
+  if(!lista.length){ box.innerHTML=emptyState(q?'Nada encontrado':'Nenhuma ordem aqui', q?'Tente outro nome ou placa.':(osFiltroStatus==='aguardando'?'Toque em “Nova OS”.':'')); return; }
   box.innerHTML=lista.map(o=>{ const v=getVeiculo(o.veiculo_id); if(!v) return ''; const c=getCliente(v.cliente_id);
     return `<div class="row click" onclick='go("os","${o.id}")'>
       <div class="main"><div class="t">${esc(c?.nome||'—')} <span class="plate">${esc(v.placa||'—')}</span></div>
-        <div class="s">${fmtBR(parseISO(o.data))} · ${esc(nomeVeiculo(v))} · ${(o.itens||[]).length} serviço(s)</div></div>
+        <div class="s">${fmtBR(parseISO(o.data))} · ${esc(nomeVeiculo(v))} · ${(o.itens||[]).length} item(ns)</div></div>
       <div class="acts"><span class="valor-tag">${moneyFmt(osTotal(o))}</span>${chev()}</div></div>`; }).join('');
 }
 
@@ -1065,14 +1101,23 @@ function renderOsDet(id){
   const o=getOS(id); const box=document.getElementById('osDet');
   if(!o){ box.innerHTML=emptyState('Ordem não encontrada',''); return; }
   const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
-  const feitos=osFeitos(o), naos=osNaoFeitos(o);
-  const linhaItem=i=>`<div class="row"><div class="main"><div class="t">${esc(i.nome)}${i.regra_id&&i.feito!==false?' <span class="badge prev">gera retorno</span>':''}</div></div>
-    <span class="valor-tag">${i.valor?moneyFmt(i.valor):'—'}</span></div>`;
-  const itensFeitos=feitos.map(linhaItem).join('');
-  const itensNaos=naos.map(linhaItem).join('');
+  const st=osStatus(o);
+  const stBadge = st==='aprovado'?'<span class="badge st-ativo">Aprovada (executada)</span>'
+    : st==='rejeitado'?'<span class="badge st-bloqueado">Orçamento não aprovado</span>'
+    : '<span class="badge" style="border-color:var(--amber);color:var(--amber)">Aguardando aprovação</span>';
+  const linhaPeca=i=>{ const q=Number(i.qtde)||1; const sub=(Number(i.valor)||0)*q;
+    return `<div class="row"><div class="main"><div class="t">${esc(i.nome)}${i.regra_id?' <span class="badge prev">gera retorno</span>':''}</div>
+      <div class="s">${q} × ${i.valor?moneyFmt(i.valor):'—'}</div></div><span class="valor-tag">${moneyFmt(sub)}</span></div>`; };
+  const acaoStatus = st==='aprovado'
+    ? `<button class="btn sm ghost" onclick='mudarStatusOS("${o.id}","rejeitado")'>Mudar para rejeitado</button>`
+    : st==='rejeitado'
+    ? `<button class="btn sm green" onclick='mudarStatusOS("${o.id}","aprovado")'>Aprovar (executar)</button>`
+    : `<button class="btn sm green" onclick='mudarStatusOS("${o.id}","aprovado")'>✓ Aprovado pelo cliente</button>
+       <button class="btn sm danger" onclick='mudarStatusOS("${o.id}","rejeitado")'>✕ Rejeitado</button>`;
   box.innerHTML=`
     <div class="det-head"><h2>OS · ${fmtBR(parseISO(o.data))}</h2>
       <div class="acts"><button class="btn sm ghost" onclick='openOS("${o.id}")'>Editar</button><button class="btn sm danger" onclick='delOS("${o.id}")'>Excluir</button></div></div>
+    <div class="os-status-bar">${stBadge}<div class="acts">${acaoStatus}</div></div>
     <div class="panel" style="margin-top:8px"><div class="kv">
       <span class="k">Cliente</span><span class="v link" onclick='go("cliente","${c?.id}")'>${esc(c?.nome||'—')}</span>
       <span class="k">Veículo</span><span class="v link" onclick='go("veiculo","${v?.id}")'>${esc(v?nomeVeiculo(v):'—')} · ${esc(v?.placa||'')}</span>
@@ -1080,11 +1125,17 @@ function renderOsDet(id){
     <div class="note-label">Reclamação do cliente</div><div class="note ${o.reclamacao?'':'empty-note'}">${o.reclamacao?esc(o.reclamacao):'—'}</div>
     <div class="note-label">Observação do mecânico</div><div class="note ${o.obs_mecanico?'':'empty-note'}">${o.obs_mecanico?esc(o.obs_mecanico):'—'}</div>
     <div class="note-label">Observação da administração</div><div class="note ${o.obs_admin?'':'empty-note'}">${o.obs_admin?esc(o.obs_admin):'—'}</div>
-    <div class="section-label">Serviços realizados</div>
-    <div class="rows">${itensFeitos||emptyState('Nenhum serviço realizado','')}</div>
-    <div class="os-total" style="margin-top:12px"><span class="l">Total da ordem</span><span class="v">${moneyFmt(osTotal(o))}</span></div>
-    ${naos.length?`<div class="section-label" style="color:var(--amber)">Não realizados (orçado / recusado)</div><div class="rows">${itensNaos}</div>`:''}`;
+    ${(o.itens||[]).length?`<div class="section-label">Peças / produtos</div><div class="rows">${o.itens.map(linhaPeca).join('')}</div>`:''}
+    ${(o.maodeobra&&o.maodeobra.length)?`<div class="section-label">Mão de obra</div><div class="rows">${o.maodeobra.map(m=>{ const mec=(state.mecanicos||[]).find(x=>x.id===m.mecanico_id);
+      return `<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div><div class="s">${mec?('👨‍🔧 '+esc(mec.nome)):'<span style=\"color:var(--amber)\">sem mecânico</span>'}</div></div><span class="valor-tag">${moneyFmt(m.valor)}</span></div>`; }).join('')}</div>`:''}
+    <div class="os-total" style="margin-top:12px"><span class="l">Valor de peças</span><span class="v">${moneyFmt(pecasTotal(o))}</span></div>
+    <div class="os-total"><span class="l">Valor de mão de obra</span><span class="v">${moneyFmt(osMdoTotal(o))}</span></div>
+    <div class="os-total" style="border-top:1px solid var(--line2);margin-top:2px;padding-top:8px"><span class="l"><b>Valor total</b></span><span class="v"><b>${moneyFmt(osTotal(o))}</b></span></div>`;
 }
+function mudarStatusOS(id,novo){ const o=getOS(id); if(!o) return;
+  if(novo==='aprovado' && !confirm('Marcar como APROVADA pelo cliente? Vira serviço executado e passa a gerar os retornos de revisão.')) return;
+  if(novo==='rejeitado' && !confirm('Marcar como orçamento REJEITADO? Não conta como serviço executado nem gera retornos.')) return;
+  o.status=novo; o.atualizado=Date.now(); salvar(); renderOsDet(id); toast(novo==='aprovado'?'OS aprovada ✓':'OS marcada como orçamento'); }
 function delOS(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } if(!confirm('Excluir esta ordem de serviço?')) return; state.ordens=state.ordens.filter(o=>o.id!==id); salvar(); back(); toast('OS excluída'); }
 
 /* ==================================================================
@@ -1299,7 +1350,7 @@ function ultimaTrocaPrev(v, prevNome){
   const cands=[];
   const e=v.entrevista;
   if(e&&e.itens){ const it=e.itens.find(i=>i.nome===prevNome); if(it&&it.feito&&(it.km||it.data_feito)) cands.push({km:it.km||null,data:it.data_feito||null,origem:'Entrada'}); }
-  ordensDe(v.id).forEach(o=>(o.itens||[]).forEach(i=>{ if(i.feito!==false && prevNomeDeServico(i.nome)===prevNome) cands.push({km:o.km||null,data:o.data||null,origem:'OS'}); }));
+  ordensDe(v.id).forEach(o=>{ if(osStatus(o)!=='aprovado') return; (o.itens||[]).forEach(i=>{ if(prevNomeDeServico(i.nome)===prevNome) cands.push({km:o.km||null,data:o.data||null,origem:'OS'}); }); });
   if(!cands.length) return null;
   cands.sort((a,b)=>{ if(a.data&&b.data) return b.data.localeCompare(a.data); if(a.data) return -1; if(b.data) return 1; return (b.km||0)-(a.km||0); });
   return cands[0];
@@ -1441,31 +1492,33 @@ function renderOsItens(){ const box=document.getElementById('osItensBox');
   const opcoes=state.regras.map(r=>`<option value="${esc(r.nome)}">${esc(r.nome)}</option>`).join('');
   box.innerHTML=osItens.map(row=>{
     const known=state.regras.some(r=>r.nome===row.nome);
-    return `<div class="os-row ${row.feito===false?'naofeito':''}">
-    <button class="feito-tog ${row.feito===false?'off':'on'}" onclick="toggleFeito('${row.id}')" title="${row.feito===false?'Não realizado':'Realizado'}">${row.feito===false?'✕':'✓'}</button>
+    return `<div class="os-row">
     <div class="os-serv">
-      <select class="os-sel" onchange="selServico('${row.id}',this.value)"><option value="">Escolher serviço…</option>${opcoes}<option value="__manter__" ${(!known&&row.nome)?'selected':''} ${(!known&&row.nome)?'':'hidden'}>${esc(row.nome||'')}</option></select>
-      <input list="regrasList" placeholder="ou digite o serviço" value="${esc(row.nome)}" oninput="setOsItem('${row.id}','nome',this.value); marcarSelect(this)">
+      <select class="os-sel" onchange="selServico('${row.id}',this.value)"><option value="">Escolher peça/serviço…</option>${opcoes}<option value="__manter__" ${(!known&&row.nome)?'selected':''} ${(!known&&row.nome)?'':'hidden'}>${esc(row.nome||'')}</option></select>
+      <input list="regrasList" placeholder="ou digite a peça/serviço" value="${esc(row.nome)}" oninput="setOsItem('${row.id}','nome',this.value); marcarSelect(this)">
     </div>
-    <input class="os-val" inputmode="decimal" placeholder="0,00" value="${esc(row.valor)}" oninput="setOsItem('${row.id}','valor',this.value)">
+    <input class="os-qtd" inputmode="numeric" title="Quantidade" placeholder="Qtd" value="${esc(row.qtde||'1')}" oninput="setOsItem('${row.id}','qtde',this.value)">
+    <input class="os-val" inputmode="decimal" placeholder="Unit. 0,00" value="${esc(row.valor)}" oninput="setOsItem('${row.id}','valor',this.value)">
     <button class="rm" onclick="removeOsItem('${row.id}')">✕</button></div>`;
   }).join('');
-  // reflete o valor atual em cada select
   box.querySelectorAll('.os-row').forEach((rowEl,i)=>{ const nome=osItens[i].nome; const sel=rowEl.querySelector('.os-sel');
     if(sel){ const opt=[...sel.options].find(o=>o.value===nome); sel.value = opt?nome:(nome?'__manter__':''); } });
   atualizaTotal(); calcOsPrevia(); }
 function selServico(id,v){ if(v==='__manter__'||v==='') return; const r=osItens.find(x=>x.id===id); if(r){ r.nome=v; renderOsItens(); } }
 function marcarSelect(inp){ const sel=inp.parentElement.querySelector('.os-sel'); if(!sel) return; const opt=[...sel.options].find(o=>o.value===inp.value&&o.value); sel.value=opt?inp.value:''; }
-function setOsItem(id,k,v){ const r=osItens.find(x=>x.id===id); if(r) r[k]=v; if(k==='valor') atualizaTotal(); else calcOsPrevia(); }
-function toggleFeito(id){ const r=osItens.find(x=>x.id===id); if(r){ r.feito = r.feito===false ? true : false; } renderOsItens(); }
-function addOsItem(){ osItens.push({id:uid(),nome:'',valor:'',feito:true}); renderOsItens(); }
+function setOsItem(id,k,v){ const r=osItens.find(x=>x.id===id); if(r) r[k]=v; if(k==='valor'||k==='qtde') atualizaTotal(); else calcOsPrevia(); }
+function addOsItem(){ osItens.push({id:uid(),nome:'',qtde:'1',valor:''}); renderOsItens(); }
 function removeOsItem(id){ osItens=osItens.filter(x=>x.id!==id); renderOsItens(); }
-function atualizaTotal(){ const t=osItens.filter(i=>i.feito!==false).reduce((s,i)=>s+moneyParse(i.valor),0); const el=document.getElementById('osTotal'); if(el) el.textContent=moneyFmt(t); }
+function atualizaTotal(){ const pecas=osItens.reduce((s,i)=>s+moneyParse(i.valor)*(parseInt(i.qtde)||1),0);
+  const mdo=(osMdo||[]).reduce((s,m)=>s+moneyParse(m.valor),0);
+  const e1=document.getElementById('osTotal'); if(e1) e1.textContent=moneyFmt(pecas);
+  const e2=document.getElementById('osTotalMdo'); if(e2) e2.textContent=moneyFmt(mdo);
+  const e3=document.getElementById('osTotalGeral'); if(e3) e3.innerHTML='<b>'+moneyFmt(pecas+mdo)+'</b>'; }
 function regraPorNome(nome){ const n=(nome||'').trim().toLowerCase(); return state.regras.find(r=>r.nome.toLowerCase()===n); }
 function calcOsPrevia(){
   const vid=osFixoVeiculo||val('osVeiculo'); const km=num('osKm'); const data=val('osData'); const box=document.getElementById('osPrevia');
   if(!box) return; const v=vid?getVeiculo(vid):null;
-  const linhas=osItens.filter(i=>i.feito!==false).map(i=>({r:regraPorNome(i.nome)})).filter(x=>x.r);
+  const linhas=osItens.map(i=>({r:regraPorNome(i.nome)})).filter(x=>x.r);
   if(!v||!km||!data||!linhas.length){ box.style.display='none'; box.innerHTML=''; return; }
   box.style.display='block';
   box.innerHTML=`<div style="padding:6px 12px 4px; font-size:11px; color:var(--muted2); text-transform:uppercase; letter-spacing:.5px; font-weight:700">Retornos que serão gerados</div>`+
@@ -1475,7 +1528,8 @@ function calcOsPrevia(){
 function openOS(id, veiculoFixo){ if(!pode('editar')){ toast('Sem permissão para editar'); return; }
   if(!state.veiculos.length){ toast('Cadastre um veículo primeiro'); goTab('veiculos'); return; }
   const o=id?getOS(id):null; osFixoVeiculo = o?o.veiculo_id : (veiculoFixo||null);
-  osItens = o?(o.itens||[]).map(i=>({id:uid(),nome:i.nome,valor:i.valor?String(i.valor).replace('.',','):'',feito:i.feito!==false})) : [{id:uid(),nome:'',valor:'',feito:true}];
+  osItens = o?(o.itens||[]).map(i=>({id:uid(),nome:i.nome,qtde:i.qtde?String(i.qtde):'1',valor:i.valor?String(i.valor).replace('.',','):''})) : [{id:uid(),nome:'',qtde:'1',valor:''}];
+  osMdo = o?(o.maodeobra||[]).map(m=>({id:uid(),desc:m.desc||'',mecanico_id:m.mecanico_id||'',valor:m.valor?String(m.valor).replace('.',','):''})) : [];
   let veiculoCampo;
   if(osFixoVeiculo){ const v=getVeiculo(osFixoVeiculo); const c=getCliente(v.cliente_id);
     veiculoCampo=`<div class="field"><label>Veículo</label><div class="note">${esc((c?.nome||'')+' — '+nomeVeiculo(v)+' ('+(v.placa||'')+')')}</div><input type="hidden" id="osVeiculo" value="${osFixoVeiculo}"></div>`;
@@ -1490,23 +1544,52 @@ function openOS(id, veiculoFixo){ if(!pode('editar')){ toast('Sem permissão par
     <div class="field"><label>Reclamação do cliente</label><textarea id="osRec" rows="2" placeholder="O que o cliente relatou / motivo da vinda">${o?esc(o.reclamacao):''}</textarea></div>
     <div class="field"><label>Observação do mecânico (laudo)</label><textarea id="osMec" rows="2" placeholder="Diagnóstico e outros problemas encontrados">${o?esc(o.obs_mecanico):''}</textarea></div>
     <div class="field"><label>Observação da administração</label><textarea id="osAdm" rows="2" placeholder="Anotações internas sobre o veículo/cliente">${o?esc(o.obs_admin):''}</textarea></div>
-    <div class="field" style="margin-bottom:8px"><label>Serviços — toque no ✓ para marcar como não realizado</label></div>
+    <div class="field" style="margin-bottom:8px"><label>Peças / produtos — informe quantidade e valor unitário</label></div>
     <div id="osItensBox"></div>
-    <button class="btn sm ghost" onclick="addOsItem()">+ Adicionar serviço</button>
-    <div class="os-total"><span class="l">Total (só realizados)</span><span class="v" id="osTotal">R$ 0,00</span></div>
+    <button class="btn sm ghost" onclick="addOsItem()">+ Adicionar peça</button>
+    <div class="os-total"><span class="l">Valor de peças</span><span class="v" id="osTotal">R$ 0,00</span></div>
+
+    <div class="field" style="margin:16px 0 6px"><label>Mão de obra (com mecânico responsável)</label></div>
+    <div id="osMdoBox"></div>
+    <button class="btn sm ghost" onclick="addOsMdo()">+ Adicionar mão de obra</button>
+    <div class="os-total"><span class="l">Valor de mão de obra</span><span class="v" id="osTotalMdo">R$ 0,00</span></div>
+    <div class="os-total" style="border-top:1px solid var(--line2); margin-top:2px; padding-top:8px"><span class="l"><b>Valor total</b></span><span class="v" id="osTotalGeral"><b>R$ 0,00</b></span></div>
+
     <div class="prev-list" id="osPrevia"></div>
-    <div class="hint" style="margin:12px 0 0">O ✓ verde = realizado (entra no total e gera retorno). O ✕ = não realizado / orçado (fica na lista de "não realizadas", sem entrar no total). Serviços com nome da Tabela de Revisões geram o retorno automático.</div>
+    <div class="hint" style="margin:12px 0 0">A ordem nasce <b>Aguardando aprovação</b>. Depois, na tela da OS, você marca <b>Aprovado</b> (vira serviço executado e gera os retornos) ou <b>Rejeitado</b> (fica como orçamento não aprovado). Peças com nome da Tabela de Revisões geram o retorno automático quando a OS é aprovada.</div>
     <div class="form-actions" style="margin-top:14px"><button class="btn green" onclick='saveOS(${id?`"${id}"`:'null'})'>Salvar ordem</button>
       <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
-  renderOsItens();
+  renderOsItens(); renderOsMdo();
 }
+let osMdo=[];
+function mecanicosAtivos(){ return (state.mecanicos||[]).filter(m=>m.ativo!==0 && m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome)); }
+function renderOsMdo(){ const box=document.getElementById('osMdoBox'); if(!box) return;
+  const mecs=mecanicosAtivos();
+  if(!osMdo.length){ box.innerHTML=`<div class="hint" style="margin:0 0 6px">Nenhuma mão de obra lançada.${mecs.length?'':' <b>Cadastre mecânicos</b> em Configuração → Mecânicos para poder atribuir.'}</div>`; atualizaTotal(); return; }
+  const opts=mecs.map(m=>`<option value="${m.id}">${esc(m.nome)}</option>`).join('');
+  box.innerHTML=osMdo.map(row=>`<div class="mdo-row">
+    <div class="os-serv">
+      <input placeholder="Descrição da mão de obra (opcional)" value="${esc(row.desc)}" oninput="setOsMdo('${row.id}','desc',this.value)">
+      <select onchange="setOsMdo('${row.id}','mecanico_id',this.value)"><option value="">Mecânico responsável…</option>${opts}</select>
+    </div>
+    <input class="os-val" inputmode="decimal" placeholder="M.O. R$" value="${esc(row.valor)}" oninput="setOsMdo('${row.id}','valor',this.value)">
+    <button class="rm" onclick="removeOsMdo('${row.id}')">✕</button></div>`).join('');
+  osMdo.forEach(row=>{ const sels=box.querySelectorAll('select'); }); // placeholder
+  box.querySelectorAll('.mdo-row').forEach((el,i)=>{ const sel=el.querySelector('select'); if(sel) sel.value=osMdo[i].mecanico_id||''; });
+  atualizaTotal();
+}
+function setOsMdo(id,k,v){ const r=osMdo.find(x=>x.id===id); if(r) r[k]=v; if(k==='valor') atualizaTotal(); }
+function addOsMdo(){ if(!mecanicosAtivos().length){ toast('Cadastre mecânicos em Configuração → Mecânicos'); } osMdo.push({id:uid(),desc:'',mecanico_id:'',valor:''}); renderOsMdo(); }
+function removeOsMdo(id){ osMdo=osMdo.filter(x=>x.id!==id); renderOsMdo(); }
 function saveOS(id){
   const vid=osFixoVeiculo||val('osVeiculo'); const km=num('osKm'); const data=val('osData');
   if(!vid){ toast('Escolha o veículo'); return; }
   if(!data){ toast('Informe a data'); return; }
-  const itens=osItens.filter(i=>(i.nome||'').trim()).map(i=>{ const nome=tc(i.nome.trim()); const r=regraPorNome(nome); return {id:uid(),nome,valor:moneyParse(i.valor),regra_id:r?r.id:null,feito:i.feito!==false}; });
-  if(!itens.length){ toast('Lance ao menos um serviço'); return; }
-  const dados={veiculo_id:vid,data,km:km||0,reclamacao:val('osRec').trim(),obs_mecanico:val('osMec').trim(),obs_admin:val('osAdm').trim(),itens};
+  const itens=osItens.filter(i=>(i.nome||'').trim()).map(i=>{ const nome=tc(i.nome.trim()); const r=regraPorNome(nome); return {id:uid(),nome,qtde:parseInt(i.qtde)||1,valor:moneyParse(i.valor),regra_id:r?r.id:null}; });
+  if(!itens.length){ toast('Lance ao menos uma peça/serviço'); return; }
+  const maodeobra=osMdo.filter(m=>moneyParse(m.valor)>0).map(m=>({id:uid(),desc:tc((m.desc||'').trim()),mecanico_id:m.mecanico_id||'',valor:moneyParse(m.valor)}));
+  const antigo=id?getOS(id):null;
+  const dados={veiculo_id:vid,data,km:km||0,reclamacao:val('osRec').trim(),obs_mecanico:val('osMec').trim(),obs_admin:val('osAdm').trim(),itens,maodeobra,status:antigo?osStatus(antigo):'aguardando'};
   if(id){ Object.assign(getOS(id),dados); } else { state.ordens.push({id:uid(),...dados,criado:Date.now()}); }
   const v=getVeiculo(vid); if(km&&(!v.km_atual||km>Number(v.km_atual))) v.km_atual=km;
   salvar(); closeModal(); refreshAtual(); toast('Ordem salva ✓');
@@ -1537,14 +1620,16 @@ let cfgAtiva='mensagens';
 function montarCfgTabs(){
   const box=document.getElementById('cfgTabs'); if(!box) return;
   const abas=[['mensagens','Mensagens'],['backup','Backup']];
-  if(ehAdmin()) abas.push(['usuarios','Usuários']);
+  if(ehAdmin()) abas.push(['usuarios','Usuários'],['mecanicos','Mecânicos'],['financeiro','Financeiro']);
   box.innerHTML=abas.map(([k,r])=>`<button class="${k===cfgAtiva?'on':''}" onclick="cfgTab('${k}')">${r}</button>`).join('');
 }
 function cfgTab(k){
-  if(k==='usuarios'&&!ehAdmin()) k='mensagens';
+  if((k==='usuarios'||k==='mecanicos'||k==='financeiro')&&!ehAdmin()) k='mensagens';
   cfgAtiva=k; montarCfgTabs();
   document.querySelectorAll('.cfg-panel').forEach(p=>p.style.display=p.dataset.cfg===k?'':'none');
   if(k==='usuarios') renderUsuariosAdmin();
+  if(k==='mecanicos') renderMecanicos();
+  if(k==='financeiro') renderFinanceiro();
 }
 
 /* ---- Permissões ---- */
@@ -1560,12 +1645,12 @@ function importar(ev){ const f=ev.target.files[0]; if(!f) return; const rd=new F
     let db; if(d.ordens){ db=d; } else if(d.atendimentos){ db=upgradeV2toV3(d); } else if(d.servicos){ db=upgradeV2toV3(migrarV1toV2shape(d)); } else db={...novoBanco(),...d};
     db.config={...CONFIG_PADRAO,...(db.config||{})}; db.clientes.forEach(normCliente); db.veiculos.forEach(normVeiculo); db.ordens||=[];
     state=db; cacheSave(); montarNav(); goTab('painel'); toast('Enviando backup para a nuvem…');
-    apiPost('replace',{clientes:state.clientes,veiculos:state.veiculos,ordens:state.ordens,regras:state.regras,usuarios:state.usuarios,config:state.config})
+    apiPost('replace',{clientes:state.clientes,veiculos:state.veiculos,ordens:state.ordens,regras:state.regras,usuarios:state.usuarios,mecanicos:state.mecanicos,config:state.config})
       .then(()=>sincronizar()).then(()=>toast('Backup importado')).catch(()=>toast('Falha ao enviar — verifique a conexão'));
   }catch(e){ toast('Não foi possível ler o arquivo'); } }; rd.readAsText(f); ev.target.value=''; }
 function limparTudo(){ if(!confirm('Apagar TODOS os dados da NUVEM? Sem volta.')) return; if(!confirm('Tem certeza? Exporte um backup antes.')) return;
   state=novoBanco(); cacheSave(); montarNav(); goTab('painel');
-  apiPost('replace',{clientes:[],veiculos:[],ordens:[],regras:state.regras,usuarios:state.usuarios,config:state.config}).then(()=>sincronizar()).then(()=>toast('Dados apagados')).catch(()=>toast('Falha — verifique a conexão')); }
+  apiPost('replace',{clientes:[],veiculos:[],ordens:[],regras:state.regras,usuarios:state.usuarios,mecanicos:state.mecanicos,config:state.config}).then(()=>sincronizar()).then(()=>toast('Dados apagados')).catch(()=>toast('Falha — verifique a conexão')); }
 
 /* ==================================================================
    UI helpers
@@ -1575,6 +1660,84 @@ function openModal(html){ document.getElementById('modal').innerHTML=html; docum
 function closeModal(){ document.getElementById('overlay').classList.remove('open'); }
 document.getElementById('overlay').addEventListener('click',e=>{ if(e.target.id==='overlay') closeModal(); });
 let toastT; function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2400); }
+
+/* ==================================================================
+   MECÂNICOS + RELATÓRIO FINANCEIRO DE MÃO DE OBRA
+================================================================== */
+function renderMecanicos(){
+  const box=document.getElementById('mecanicosBox'); if(!box) return;
+  if(!ehAdmin()){ box.innerHTML='<div class="note empty-note">Apenas administradores.</div>'; return; }
+  const rows=(state.mecanicos||[]).slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(m=>{
+    const on=m.ativo!==0&&m.ativo!==false;
+    return `<div class="row"><div class="main"><div class="t">${esc(m.nome)} ${on?'':'<span class="badge st-bloqueado">inativo</span>'}</div>
+      <div class="s">Recebe ${m.percentual!=null?m.percentual:50}% da mão de obra</div></div>
+      <div class="acts"><button class="switch ${on?'on':''}" title="${on?'Inativar':'Ativar'}" onclick='toggleMecanico("${m.id}")'></button>
+        <button class="btn sm ghost" onclick='editMecanico("${m.id}")'>Editar</button></div></div>`;
+  }).join('');
+  box.innerHTML=`<div class="section-label"><span>Mecânicos</span><button class="btn sm gold" onclick="editMecanico(null)">+ Cadastrar</button></div>
+    <div class="hint">Cada mecânico recebe uma porcentagem da mão de obra (padrão 50%). Eles aparecem no lançamento da OS e no relatório financeiro.</div>
+    <div class="rows">${rows||emptyState('Nenhum mecânico cadastrado','')}</div>`;
+}
+function editMecanico(id){ const m=id?(state.mecanicos.find(x=>x.id===id)||{}):{nome:'',percentual:50};
+  openModal(`<h3>${id?'Editar mecânico':'Novo mecânico'}</h3>
+    <div class="field"><label>Nome</label><input id="mNome" value="${esc(m.nome||'')}" placeholder="Nome do mecânico"></div>
+    <div class="field"><label>% da mão de obra que ele recebe</label><input id="mPerc" inputmode="numeric" value="${m.percentual!=null?m.percentual:50}" placeholder="50"></div>
+    <div class="form-actions"><button class="btn gold" onclick='salvarMecanico(${id?`"${id}"`:'null'})'>Salvar</button>
+      ${id?`<button class="btn danger" onclick='excluirMecanico("${id}")'>Excluir</button>`:''}
+      <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+}
+function salvarMecanico(id){ const nome=tc(val('mNome').trim()); if(!nome){ toast('Informe o nome'); return; }
+  const perc=Math.max(0,Math.min(100,num('mPerc')||50));
+  if(id){ Object.assign(state.mecanicos.find(x=>x.id===id),{nome,percentual:perc,atualizado:Date.now()}); }
+  else state.mecanicos.push({id:uid(),nome,percentual:perc,ativo:1,criado:Date.now()});
+  salvar(); closeModal(); renderMecanicos(); toast('Mecânico salvo'); }
+function toggleMecanico(id){ const m=state.mecanicos.find(x=>x.id===id); if(!m) return; m.ativo=(m.ativo!==0&&m.ativo!==false)?0:1; m.atualizado=Date.now(); salvar(); renderMecanicos(); }
+function excluirMecanico(id){ if(!confirm('Excluir este mecânico? As OS antigas mantêm o registro do serviço.')) return; state.mecanicos=state.mecanicos.filter(x=>x.id!==id); salvar(); closeModal(); renderMecanicos(); }
+
+let finDe='',finAte='',finMec='',finStatus='aprovado';
+function renderFinanceiro(){
+  const box=document.getElementById('financeiroBox'); if(!box) return;
+  if(!ehAdmin()){ box.innerHTML='<div class="note empty-note">Apenas administradores.</div>'; return; }
+  const mecs=(state.mecanicos||[]).slice().sort((a,b)=>a.nome.localeCompare(b.nome));
+  if(!finAte) finAte=toISO(hoje());
+  box.innerHTML=`<div class="section-label">Relatório de mão de obra</div>
+    <div class="grid2"><div class="field"><label>De</label><input id="finDe" type="date" value="${finDe||''}"></div>
+      <div class="field"><label>Até</label><input id="finAte" type="date" value="${finAte||''}"></div></div>
+    <div class="grid2"><div class="field"><label>Mecânico</label><select id="finMec"><option value="">Todos os mecânicos</option>${mecs.map(m=>`<option value="${m.id}" ${finMec===m.id?'selected':''}>${esc(m.nome)}</option>`).join('')}</select></div>
+      <div class="field"><label>Situação</label><select id="finStatus">
+        <option value="aprovado" ${finStatus==='aprovado'?'selected':''}>Aprovados (executados)</option>
+        <option value="rejeitado" ${finStatus==='rejeitado'?'selected':''}>Não aprovados (orçamento)</option>
+        <option value="ambos" ${finStatus==='ambos'?'selected':''}>Ambos</option></select></div></div>
+    <div class="form-actions" style="margin-bottom:12px"><button class="btn gold" onclick="gerarFinanceiro()">Gerar relatório</button></div>
+    <div id="finResultado"></div>`;
+  if(finDe||finMec) gerarFinanceiro();
+}
+function gerarFinanceiro(){
+  finDe=val('finDe')||''; finAte=val('finAte')||''; finMec=val('finMec')||''; finStatus=val('finStatus')||'aprovado';
+  const de=finDe||'0000-00-00', ate=finAte||'9999-99-99';
+  const porMec={};
+  state.ordens.forEach(o=>{ if(!o.data||o.data<de||o.data>ate) return;
+    const st=osStatus(o); if(finStatus!=='ambos' && st!==finStatus) return; if(finStatus==='ambos' && st==='aguardando') return;
+    (o.maodeobra||[]).forEach(m=>{ if(finMec && m.mecanico_id!==finMec) return;
+      const mec=(state.mecanicos||[]).find(x=>x.id===m.mecanico_id); const key=m.mecanico_id||'__sem__';
+      porMec[key]=porMec[key]||{nome:mec?mec.nome:'Sem mecânico definido',perc:mec?(mec.percentual!=null?mec.percentual:50):50,total:0,itens:[]};
+      porMec[key].total+=Number(m.valor)||0; porMec[key].itens.push({o,m}); }); });
+  const box=document.getElementById('finResultado'); const keys=Object.keys(porMec);
+  const rotulo=finStatus==='aprovado'?'aprovada (executada)':finStatus==='rejeitado'?'de orçamento (não aprovada)':'(aprovada + orçamento)';
+  if(!keys.length){ box.innerHTML=`<div class="note empty-note">Nenhuma mão de obra ${rotulo} nesse período.</div>`; return; }
+  let totalGeral=0, totalReceber=0;
+  const blocos=keys.sort((a,b)=>porMec[b].total-porMec[a].total).map(k=>{ const g=porMec[k]; const receber=g.total*g.perc/100; totalGeral+=g.total; totalReceber+=receber;
+    const det=g.itens.sort((a,b)=>a.o.data.localeCompare(b.o.data)).map(({o,m})=>{ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
+      return `<div class="row click" onclick='go("os","${o.id}")'><div class="main"><div class="t">${esc(m.desc||'Mão de obra')} <span class="valor-tag">${moneyFmt(m.valor)}</span></div>
+        <div class="s">${fmtBR(parseISO(o.data))} · ${esc(c?.nome||'')} · ${esc(v?nomeVeiculo(v):'')} ${esc(v?.placa||'')}</div></div></div>`; }).join('');
+    return `<div class="panel" style="margin-bottom:10px"><div class="fin-h"><b>👨‍🔧 ${esc(g.nome)}</b><span class="badge prev">${g.perc}%</span></div>
+      <div class="fin-kv"><span>Mão de obra total</span><b>${moneyFmt(g.total)}</b></div>
+      <div class="fin-kv green"><span>A receber (${g.perc}%)</span><b>${moneyFmt(receber)}</b></div>
+      <details style="margin-top:8px"><summary>Ver ${g.itens.length} lançamento(s)</summary><div class="rows" style="margin-top:8px">${det}</div></details></div>`;
+  }).join('');
+  box.innerHTML=blocos+`<div class="os-total" style="border-top:1px solid var(--line2);margin-top:6px;padding-top:10px"><span class="l"><b>Total de mão de obra no período</b></span><span class="v"><b>${moneyFmt(totalGeral)}</b></span></div>
+    <div class="os-total"><span class="l green"><b>Total a pagar aos mecânicos</b></span><span class="v green"><b>${moneyFmt(totalReceber)}</b></span></div>`;
+}
 
 /* ==================================================================
    AUTENTICAÇÃO (login / cadastro / aprovação)

@@ -7,8 +7,9 @@
 const SCHEMA = {
   clientes: { cols:['id','nome','tipo','telefone1','telefone2','endereco','obs','contatos','nascimento','zap_num','lead','criado','atualizado'], json:['contatos'] },
   veiculos: { cols:['id','cliente_id','placa','modelo','ano','cor','km_atual','media_km_mes','entrevista','inspecao','cambio','criado','atualizado'], json:['entrevista','inspecao'] },
-  ordens:   { cols:['id','veiculo_id','data','km','reclamacao','obs_mecanico','obs_admin','itens','criado','atualizado'], json:['itens'] },
+  ordens:   { cols:['id','veiculo_id','data','km','reclamacao','obs_mecanico','obs_admin','itens','maodeobra','status','criado','atualizado'], json:['itens','maodeobra'] },
   regras:   { cols:['id','nome','km','meses','ordem'], json:[] },
+  mecanicos:{ cols:['id','nome','percentual','ativo','criado','atualizado'], json:[] },
   usuarios: { cols:['id','nome','login','senha_hash','salt','status','papel','email','perms','reset','criado','atualizado'], json:['perms'] },
 };
 
@@ -28,22 +29,24 @@ export async function onRequest(context) {
 
   try {
     if (request.method === 'GET' && acao === 'state') {
-      const [cli, vei, ord, reg, cfg, usu] = await Promise.all([
+      const [cli, vei, ord, reg, cfg, usu, mec] = await Promise.all([
         DB.prepare('SELECT * FROM clientes').all(),
         DB.prepare('SELECT * FROM veiculos').all(),
         DB.prepare('SELECT * FROM ordens').all(),
         DB.prepare('SELECT * FROM regras ORDER BY ordem').all(),
         DB.prepare('SELECT * FROM config').all(),
         DB.prepare('SELECT * FROM usuarios').all(),
+        DB.prepare('SELECT * FROM mecanicos').all(),
       ]);
       const config = {};
       (cfg.results || []).forEach(r => { config[r.chave] = r.valor; });
       return jsonResp({
         clientes: (cli.results || []).map(r => ({ ...r, contatos: parse(r.contatos, []) })),
         veiculos: (vei.results || []).map(r => ({ ...r, entrevista: parse(r.entrevista, null), inspecao: parse(r.inspecao, {}) })),
-        ordens:   (ord.results || []).map(r => ({ ...r, itens: parse(r.itens, []) })),
+        ordens:   (ord.results || []).map(r => ({ ...r, itens: parse(r.itens, []), maodeobra: parse(r.maodeobra, []) })),
         regras:   (reg.results || []),
         usuarios: (usu.results || []).map(r => ({ ...r, perms: parse(r.perms, null) })),
+        mecanicos:(mec.results || []),
         config,
       });
     }
@@ -116,5 +119,6 @@ async function replaceAll(DB, body) {
   await upsertRows(DB, 'ordens',   body.ordens   || []);
   await upsertRows(DB, 'regras',   body.regras   || []);
   if (body.usuarios) await upsertRows(DB, 'usuarios', body.usuarios);
+  if (body.mecanicos) await upsertRows(DB, 'mecanicos', body.mecanicos);
   if (body.config) await saveConfig(DB, body.config);
 }
