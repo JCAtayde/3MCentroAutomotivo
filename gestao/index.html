@@ -146,7 +146,10 @@
   .contato-row input, .contato-row select{padding:9px 10px; font-size:13.5px}
   .rm{background:none; border:1px solid var(--line2); color:var(--red); width:38px; height:40px; border-radius:8px; cursor:pointer; font-size:15px; display:grid; place-items:center; flex:none}
 
-  .os-row{display:grid; grid-template-columns:1fr 130px auto; gap:8px; margin-bottom:8px; align-items:center}
+  .os-row{display:grid; grid-template-columns:36px 1fr 110px auto; gap:8px; margin-bottom:8px; align-items:start}
+  .os-serv{display:flex; flex-direction:column; gap:6px; min-width:0}
+  .os-serv .os-sel{width:100%}
+  .os-val{align-self:center}
   .os-row input{padding:10px 11px; font-size:14px}
   .os-total{display:flex; justify-content:space-between; align-items:center; margin-top:6px; padding:12px 14px; background:var(--panel2); border:1px solid var(--line); border-radius:var(--radius-s)}
   .os-total .l{color:var(--muted); font-size:13px; font-weight:600}
@@ -262,6 +265,7 @@
 
   /* toggle feito/não feito no formulário da OS */
   .os-row{grid-template-columns:36px 1fr 120px auto}
+  .os-row .feito-tog{align-self:start}
   .os-row.naofeito input{opacity:.55}
   .feito-tog{width:36px; height:40px; border-radius:8px; border:1px solid var(--line2); cursor:pointer; font-size:15px; font-weight:700; flex:none}
   .feito-tog.on{background:var(--green-bg); color:#5fd6a2; border-color:#1f5c3f}
@@ -415,17 +419,17 @@ const ENTREVISTA_ITENS=[
 ];
 const ENTREVISTA_EXTRAS=6;
 const REGRAS_PADRAO=[
-  {nome:'Troca de óleo e filtros',km:10000,meses:12},{nome:'Filtro de combustível',km:10000,meses:12},
-  {nome:'Filtro de ar do motor',km:20000,meses:24},{nome:'Filtro do ar-condicionado (cabine)',km:15000,meses:12},
-  {nome:'Velas de ignição',km:50000,meses:24},{nome:'Kit correia dentada',km:50000,meses:60},
-  {nome:"Bomba d'água",km:50000,meses:60},{nome:'Líquido de arrefecimento',km:40000,meses:24},
-  {nome:'Fluido de freio',km:0,meses:24},{nome:'Pastilhas de freio',km:30000,meses:0},
-  {nome:'Discos de freio',km:60000,meses:0},{nome:'Lonas e tambor (traseiro)',km:80000,meses:36},
-  {nome:'Amortecedores',km:60000,meses:0},{nome:'Kit batente/coifa',km:60000,meses:0},
-  {nome:'Bucha da bandeja',km:30000,meses:0},{nome:'Pivôs e terminais',km:60000,meses:0},
-  {nome:'Bieletas',km:60000,meses:0},{nome:'Óleo de câmbio',km:60000,meses:60},
-  {nome:'Óleo de direção',km:60000,meses:48},{nome:'Rodízio de pneus',km:10000,meses:12},
-  {nome:'Alinhamento e balanceamento',km:10000,meses:6},
+  {id:'r01',nome:'Troca de óleo e filtros',km:10000,meses:12},{id:'r02',nome:'Filtro de combustível',km:10000,meses:12},
+  {id:'r03',nome:'Filtro de ar do motor',km:20000,meses:24},{id:'r04',nome:'Filtro do ar-condicionado (cabine)',km:15000,meses:12},
+  {id:'r05',nome:'Velas de ignição',km:50000,meses:24},{id:'r06',nome:'Kit correia dentada',km:50000,meses:60},
+  {id:'r07',nome:"Bomba d'água",km:50000,meses:60},{id:'r08',nome:'Líquido de arrefecimento',km:40000,meses:24},
+  {id:'r09',nome:'Fluido de freio',km:0,meses:24},{id:'r10',nome:'Pastilhas de freio',km:30000,meses:0},
+  {id:'r11',nome:'Discos de freio',km:60000,meses:0},{id:'r12',nome:'Lonas e tambor (traseiro)',km:80000,meses:36},
+  {id:'r13',nome:'Amortecedores',km:60000,meses:0},{id:'r14',nome:'Kit batente/coifa',km:60000,meses:0},
+  {id:'r15',nome:'Bucha da bandeja',km:30000,meses:0},{id:'r16',nome:'Pivôs e terminais',km:60000,meses:0},
+  {id:'r17',nome:'Bieletas',km:60000,meses:0},{id:'r18',nome:'Óleo de câmbio',km:60000,meses:60},
+  {id:'r19',nome:'Óleo de direção',km:60000,meses:48},{id:'r20',nome:'Rodízio de pneus',km:10000,meses:12},
+  {id:'r21',nome:'Alinhamento e balanceamento',km:10000,meses:6},
 ];
 const CONFIG_PADRAO={janela_dias:30, media_km_mes_padrao:1000,
   link_manutencao:'https://3mcentroautomotivo.com.br/manutencao',
@@ -502,9 +506,11 @@ async function sincronizar(){
     state.veiculos=(data.veiculos||[]).map(normVeiculo);
     state.ordens=data.ordens||[];
     state.regras=data.regras||[];
+    if(!state.regras.length) state.regras=REGRAS_PADRAO.map(r=>({...r}));
     state.usuarios=data.usuarios||[];
     state.config={...CONFIG_PADRAO,...(data.config||{})};
     lastSnapshot=deepCopy(state); cacheSave(); setSync('ok');
+    if(typeof atualizarRegrasList==='function') atualizarRegrasList();
     if(typeof atualizarLeadBadge==='function') atualizarLeadBadge();
     if(typeof verificarAuth==='function') verificarAuth();
   }catch(e){ setSync('erro'); }
@@ -628,8 +634,11 @@ function montarNav(){
     t.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="'+v.icon+'"/></svg><span>'+v.label+'</span>';
     if(!i)t.classList.add('active'); t.onclick=()=>goTab(v.id); tab.appendChild(t);
   });
+  garantirRegras();
   document.getElementById('regrasList').innerHTML=state.regras.map(r=>`<option value="${esc(r.nome)}">`).join('');
 }
+function garantirRegras(){ if(!state.regras || !state.regras.length){ state.regras=REGRAS_PADRAO.map(r=>({...r})); if(typeof lastSnapshot!=='undefined'&&lastSnapshot) lastSnapshot.regras=state.regras.map(r=>({...r})); cacheSave(); } }
+function atualizarRegrasList(){ const dl=document.getElementById('regrasList'); if(dl) dl.innerHTML=state.regras.map(r=>`<option value="${esc(r.nome)}">`).join(''); }
 
 /* ==================================================================
    PAINEL
@@ -1427,12 +1436,24 @@ function copiarTexto(t){ if(navigator.clipboard&&navigator.clipboard.writeText){
 ================================================================== */
 let osItens=[], osFixoVeiculo=null;
 function renderOsItens(){ const box=document.getElementById('osItensBox');
-  box.innerHTML=osItens.map(row=>`<div class="os-row ${row.feito===false?'naofeito':''}">
+  const opcoes=state.regras.map(r=>`<option value="${esc(r.nome)}">${esc(r.nome)}</option>`).join('');
+  box.innerHTML=osItens.map(row=>{
+    const known=state.regras.some(r=>r.nome===row.nome);
+    return `<div class="os-row ${row.feito===false?'naofeito':''}">
     <button class="feito-tog ${row.feito===false?'off':'on'}" onclick="toggleFeito('${row.id}')" title="${row.feito===false?'Não realizado':'Realizado'}">${row.feito===false?'✕':'✓'}</button>
-    <input list="regrasList" placeholder="Serviço" value="${esc(row.nome)}" oninput="setOsItem('${row.id}','nome',this.value)">
-    <input inputmode="decimal" placeholder="0,00" value="${esc(row.valor)}" oninput="setOsItem('${row.id}','valor',this.value)">
-    <button class="rm" onclick="removeOsItem('${row.id}')">✕</button></div>`).join('');
+    <div class="os-serv">
+      <select class="os-sel" onchange="selServico('${row.id}',this.value)"><option value="">Escolher serviço…</option>${opcoes}<option value="__manter__" ${(!known&&row.nome)?'selected':''} ${(!known&&row.nome)?'':'hidden'}>${esc(row.nome||'')}</option></select>
+      <input list="regrasList" placeholder="ou digite o serviço" value="${esc(row.nome)}" oninput="setOsItem('${row.id}','nome',this.value); marcarSelect(this)">
+    </div>
+    <input class="os-val" inputmode="decimal" placeholder="0,00" value="${esc(row.valor)}" oninput="setOsItem('${row.id}','valor',this.value)">
+    <button class="rm" onclick="removeOsItem('${row.id}')">✕</button></div>`;
+  }).join('');
+  // reflete o valor atual em cada select
+  box.querySelectorAll('.os-row').forEach((rowEl,i)=>{ const nome=osItens[i].nome; const sel=rowEl.querySelector('.os-sel');
+    if(sel){ const opt=[...sel.options].find(o=>o.value===nome); sel.value = opt?nome:(nome?'__manter__':''); } });
   atualizaTotal(); calcOsPrevia(); }
+function selServico(id,v){ if(v==='__manter__'||v==='') return; const r=osItens.find(x=>x.id===id); if(r){ r.nome=v; renderOsItens(); } }
+function marcarSelect(inp){ const sel=inp.parentElement.querySelector('.os-sel'); if(!sel) return; const opt=[...sel.options].find(o=>o.value===inp.value&&o.value); sel.value=opt?inp.value:''; }
 function setOsItem(id,k,v){ const r=osItens.find(x=>x.id===id); if(r) r[k]=v; if(k==='valor') atualizaTotal(); else calcOsPrevia(); }
 function toggleFeito(id){ const r=osItens.find(x=>x.id===id); if(r){ r.feito = r.feito===false ? true : false; } renderOsItens(); }
 function addOsItem(){ osItens.push({id:uid(),nome:'',valor:'',feito:true}); renderOsItens(); }
