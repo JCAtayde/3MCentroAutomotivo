@@ -6,7 +6,7 @@
 
 const SCHEMA = {
   clientes: { cols:['id','nome','tipo','telefone1','telefone2','endereco','obs','contatos','nascimento','zap_num','criado','atualizado'], json:['contatos'] },
-  veiculos: { cols:['id','cliente_id','placa','modelo','ano','cor','km_atual','media_km_mes','entrevista','inspecao','criado','atualizado'], json:['entrevista','inspecao'] },
+  veiculos: { cols:['id','cliente_id','placa','modelo','ano','cor','km_atual','media_km_mes','entrevista','inspecao','cambio','criado','atualizado'], json:['entrevista','inspecao'] },
   ordens:   { cols:['id','veiculo_id','data','km','reclamacao','obs_mecanico','obs_admin','itens','criado','atualizado'], json:['itens'] },
   regras:   { cols:['id','nome','km','meses','ordem'], json:[] },
   usuarios: { cols:['id','nome','login','senha_hash','salt','status','papel','email','perms','reset','criado','atualizado'], json:['perms'] },

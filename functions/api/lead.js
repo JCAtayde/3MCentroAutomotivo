@@ -29,9 +29,9 @@ export async function onRequestPost(context){
     placa:(c.placa||'').trim().toUpperCase().replace(/\s+/g,'').slice(0,10),
     modelo:(c.modelo||'').trim().slice(0,60),
     ano:(c.ano==null?'':String(c.ano)).trim().slice(0,8),
+    cambio:(c.cambio||'').trim().slice(0,20),
     km: parseInt(String(c.km==null?'':c.km).replace(/\D/g,'')) || null,
-  })).filter(c => c.placa.length >= 6);
-  if(!carros.length) return json({ error:'Cadastre pelo menos um carro com placa.' }, 400);
+  })).filter(c => c.modelo || c.ano || c.cambio || c.placa);
   if(carros.length > 6) carros = carros.slice(0,6);
 
   const now = Date.now();
@@ -43,8 +43,8 @@ export async function onRequestPost(context){
   ).bind(cid, nome, 'Preventiva', telefone, '', '', obs, '[]', '', '1', now, now));
   for(const c of carros){
     stmts.push(DB.prepare(
-      'INSERT INTO veiculos (id,cliente_id,placa,modelo,ano,cor,km_atual,media_km_mes,entrevista,inspecao,criado,atualizado) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
-    ).bind(crypto.randomUUID(), cid, c.placa, c.modelo, c.ano, '', c.km, null, null, '{}', now, now));
+      'INSERT INTO veiculos (id,cliente_id,placa,modelo,ano,cor,km_atual,media_km_mes,entrevista,inspecao,cambio,criado,atualizado) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    ).bind(crypto.randomUUID(), cid, c.placa, c.modelo, c.ano, '', c.km, null, null, '{}', c.cambio, now, now));
   }
   try { await DB.batch(stmts); }
   catch(e){ return json({ error:'Não foi possível salvar agora. Tente novamente.' }, 500); }

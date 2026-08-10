@@ -421,7 +421,7 @@ function novoBanco(){ return {clientes:[],veiculos:[],ordens:[],
   regras:REGRAS_PADRAO.map(r=>({id:uid(),nome:r.nome,km:+r.km,meses:+r.meses})), config:{...CONFIG_PADRAO}}; }
 
 function normCliente(c){ c.contatos||=[]; c.tipo||='Preventiva'; c.telefone1||=c.telefone||''; c.telefone2||=''; c.endereco||=''; c.obs||=''; c.nascimento||=''; c.zap_num||='1'; return c; }
-function normVeiculo(v){ if(v.entrevista===undefined) v.entrevista=null; v.cor||=''; v.inspecao||={}; return v; }
+function normVeiculo(v){ if(v.entrevista===undefined) v.entrevista=null; v.cor||=''; v.inspecao||={}; v.cambio||=''; return v; }
 
 function upgradeV2toV3(v2){
   const db=novoBanco();
@@ -844,6 +844,7 @@ function renderVeiculoDet(id){
     <div class="panel" style="margin-top:8px"><div class="kv">
       <span class="k">Cliente</span><span class="v link" onclick='go("cliente","${v.cliente_id}")'>${esc(c?.nome||'—')}</span>
       <span class="k">KM atual</span><span class="v">${v.km_atual?nfmt(v.km_atual)+' km':'—'}</span>
+      <span class="k">Câmbio</span><span class="v">${esc(v.cambio||'—')}</span>
       <span class="k">Cor / Ano</span><span class="v">${esc(v.cor||'—')} ${v.ano?('· '+esc(v.ano)):''}</span></div></div>
 
     ${e?`<div class="section-label"><span>Prevenção (cruzamento automático)</span></div><div class="panel">${renderPrevencaoResumo(v.id)}</div>`:''}
@@ -888,6 +889,7 @@ function cabecalhoFichaHTML(v,c){
     <div class="kv"><b>Modelo:</b> ${esc(nomeVeiculo(v))}</div>
     <div class="kv"><b>Placa:</b> ${esc(v.placa||'—')}</div>
     <div class="kv"><b>KM atual:</b> ${v.km_atual?nfmt(v.km_atual)+' km':'—'}</div>
+    <div class="kv"><b>Câmbio:</b> ${esc(v.cambio||'—')}</div>
     <div class="kv"><b>Cor:</b> ${esc(v.cor||'—')}</div>`;
 }
 function secaoFichaHTML(vid,tipo,osId){
@@ -1079,7 +1081,7 @@ function delCliente(id){ if(!pode('excluir')){ toast('Sem permissão para exclui
 ================================================================== */
 function openVeiculo(id, clienteId){ if(!pode('editar')){ toast('Sem permissão para editar'); return; }
   if(!state.clientes.length){ toast('Cadastre um cliente primeiro'); goTab('clientes'); return; }
-  const v=id?getVeiculo(id):{cliente_id:clienteId||'',placa:'',modelo:'',ano:'',cor:'',km_atual:'',media_km_mes:''};
+  const v=id?getVeiculo(id):{cliente_id:clienteId||'',placa:'',modelo:'',ano:'',cor:'',km_atual:'',media_km_mes:'',cambio:''};
   const opts=state.clientes.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(c=>`<option value="${c.id}" ${c.id===v.cliente_id?'selected':''}>${esc(c.nome)}</option>`).join('');
   openModal(`<h3>${id?'Editar veículo':'Novo veículo'}</h3><p class="sub">${id?'':'Ao salvar, abriremos a ficha de entrevista do carro.'}</p>
     <div class="field"><label>Cliente (dono)</label><select id="fCli">${opts}</select></div>
@@ -1087,14 +1089,15 @@ function openVeiculo(id, clienteId){ if(!pode('editar')){ toast('Sem permissão 
       <div class="field"><label>Ano</label><input id="fAno" value="${esc(v.ano)}" placeholder="2018" inputmode="numeric"></div>
       <div class="field"><label>Cor</label><input id="fCor" value="${esc(v.cor||'')}" placeholder="Prata"></div></div>
     <div class="field"><label>Modelo</label><input id="fModelo" value="${esc(v.modelo)}" placeholder="Onix 1.0"></div>
-    <div class="grid2"><div class="field"><label>KM atual</label><input id="fKm" value="${esc(v.km_atual)}" placeholder="45000" inputmode="numeric"></div>
-      <div class="field"><label>Média km/mês (opcional)</label><input id="fMedia" value="${esc(v.media_km_mes)}" placeholder="1200" inputmode="numeric"></div></div>
+    <div class="grid3"><div class="field"><label>Câmbio</label><select id="fCambio"><option value="" ${!v.cambio?'selected':''}>—</option><option ${v.cambio==='Manual'?'selected':''}>Manual</option><option ${v.cambio==='Automático'?'selected':''}>Automático</option></select></div>
+      <div class="field"><label>KM atual</label><input id="fKm" value="${esc(v.km_atual)}" placeholder="45000" inputmode="numeric"></div>
+      <div class="field"><label>Média km/mês</label><input id="fMedia" value="${esc(v.media_km_mes)}" placeholder="1200" inputmode="numeric"></div></div>
     <div class="form-actions"><button class="btn gold" onclick='saveVeiculo(${id?`"${id}"`:'null'})'>Salvar</button>
       ${id?`<button class="btn danger" onclick='delVeiculo("${id}")'>Excluir</button>`:''}
       <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
 }
 function saveVeiculo(id){
-  const dados={cliente_id:val('fCli'),placa:val('fPlaca').trim().toUpperCase(),modelo:val('fModelo').trim(),ano:val('fAno').trim(),cor:val('fCor').trim(),km_atual:num('fKm'),media_km_mes:num('fMedia')};
+  const dados={cliente_id:val('fCli'),placa:val('fPlaca').trim().toUpperCase(),modelo:val('fModelo').trim(),ano:val('fAno').trim(),cor:val('fCor').trim(),cambio:val('fCambio'),km_atual:num('fKm'),media_km_mes:num('fMedia')};
   if(!dados.cliente_id){ toast('Escolha o cliente'); return; }
   if(!dados.modelo&&!dados.placa){ toast('Informe placa ou modelo'); return; }
   if(id){ Object.assign(getVeiculo(id),dados); salvar(); closeModal(); refreshAtual(); toast('Veículo salvo'); }

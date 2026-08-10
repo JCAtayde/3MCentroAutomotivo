@@ -56,7 +56,7 @@
 
     function fechar(){ try{ localStorage.setItem(VISTO, String(Date.now())); }catch(e){} back.remove(); }
 
-    function tela(qtd){
+    function tela(){
       card.innerHTML='';
       card.appendChild(el('button',{class:'pc3m-x','aria-label':'Fechar'},'&times;')).onclick=fechar;
       card.appendChild(el('div',{class:'pc3m-logo'},'3M'));
@@ -67,78 +67,52 @@
       form.innerHTML =
         '<div class="pc3m-f"><label>Seu nome <span class="pc3m-req">*</span></label><input name="nome" placeholder="Nome completo" autocomplete="name"></div>'+
         '<div class="pc3m-f"><label>WhatsApp (com DDD) <span class="pc3m-req">*</span></label><input name="telefone" inputmode="tel" placeholder="62 99999-8888" autocomplete="tel"></div>'+
-        '<div class="pc3m-f"><label>Quantos carros você tem?</label><select name="qtd">'+
-          [1,2,3,4].map(function(n){return '<option value="'+n+'"'+(n===qtd?' selected':'')+'>'+n+' carro'+(n>1?'s':'')+'</option>';}).join('')+
-        '</select></div>'+
-        '<div id="pc3m-carros"></div>'+
+        '<div class="pc3m-car">'+
+          '<div class="cap">Seu veículo</div>'+
+          '<div class="pc3m-f"><label>Modelo do veículo</label><input name="modelo" placeholder="Ex: Onix, HB20, Corolla"></div>'+
+          '<div class="pc3m-row">'+
+            '<div class="pc3m-f"><label>Ano</label><input name="ano" inputmode="numeric" placeholder="2018"></div>'+
+            '<div class="pc3m-f"><label>Câmbio</label><select name="cambio"><option value="">Selecione</option><option value="Manual">Manual</option><option value="Automático">Automático</option></select></div>'+
+          '</div>'+
+        '</div>'+
         '<input class="pc3m-hp" name="website" tabindex="-1" autocomplete="off">'+
         '<div class="pc3m-msg" id="pc3m-msg"></div>'+
         '<button type="submit" class="pc3m-btn">Quero cuidar do meu carro</button>';
       card.appendChild(form);
-
-      var box = form.querySelector('#pc3m-carros');
-      function renderCarros(q){
-        var atual = box.querySelectorAll('.pc3m-car');
-        var vals = [];
-        atual.forEach(function(c){ vals.push({placa:c.querySelector('[data-k=placa]').value, modelo:c.querySelector('[data-k=modelo]').value, ano:c.querySelector('[data-k=ano]').value, km:c.querySelector('[data-k=km]').value}); });
-        box.innerHTML='';
-        for(var i=0;i<q;i++){
-          var v = vals[i]||{};
-          var c = el('div',{class:'pc3m-car'});
-          c.innerHTML =
-            '<div class="cap">Carro '+(i+1)+'</div>'+
-            '<div class="pc3m-f"><label>Placa <span class="pc3m-req">*</span></label><input data-k="placa" placeholder="ABC1D23" style="text-transform:uppercase" value="'+(v.placa||'')+'"></div>'+
-            '<div class="pc3m-row">'+
-              '<div class="pc3m-f"><label>Modelo</label><input data-k="modelo" placeholder="Ex: Onix" value="'+(v.modelo||'')+'"></div>'+
-              '<div class="pc3m-f"><label>Ano</label><input data-k="ano" inputmode="numeric" placeholder="2018" value="'+(v.ano||'')+'"></div>'+
-            '</div>'+
-            '<div class="pc3m-f"><label>KM atual (opcional)</label><input data-k="km" inputmode="numeric" placeholder="Ex: 45000" value="'+(v.km||'')+'"></div>';
-          box.appendChild(c);
-        }
-      }
-      renderCarros(qtd);
-      form.querySelector('[name=qtd]').onchange = function(){ renderCarros(parseInt(this.value)||1); };
 
       form.onsubmit = function(ev){
         ev.preventDefault();
         var msg = form.querySelector('#pc3m-msg'); msg.textContent='';
         var nome = form.nome.value.trim();
         var telefone = form.telefone.value.trim();
-        var website = form.website.value;
         if(!nome){ msg.textContent='Por favor, informe seu nome.'; return; }
         if(telefone.replace(/\D/g,'').length < 10){ msg.textContent='Informe um WhatsApp válido com DDD.'; return; }
-        var carros=[], faltaPlaca=false;
-        box.querySelectorAll('.pc3m-car').forEach(function(c){
-          var placa=c.querySelector('[data-k=placa]').value.trim();
-          if(!placa){ faltaPlaca=true; return; }
-          carros.push({ placa:placa, modelo:c.querySelector('[data-k=modelo]').value.trim(), ano:c.querySelector('[data-k=ano]').value.trim(), km:c.querySelector('[data-k=km]').value.trim() });
-        });
-        if(faltaPlaca || !carros.length){ msg.textContent='A placa é obrigatória em todos os carros.'; return; }
+        var carro = { modelo:form.modelo.value.trim(), ano:form.ano.value.trim(), cambio:form.cambio.value };
 
         var btn = form.querySelector('.pc3m-btn'); btn.disabled=true; btn.textContent='Enviando…';
-        fetch('/api/lead', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ nome:nome, telefone:telefone, website:website, carros:carros }) })
+        fetch('/api/lead', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ nome:nome, telefone:telefone, website:form.website.value, carros:[carro] }) })
           .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
           .then(function(res){
             if(!res.ok || res.d.error){ throw new Error(res.d.error||'Falha ao enviar'); }
             try{ localStorage.setItem(FEITO,'1'); }catch(e){}
-            sucesso(nome, carros.length);
+            sucesso(nome);
           })
           .catch(function(err){ btn.disabled=false; btn.textContent='Quero cuidar do meu carro'; msg.textContent = err.message || 'Não foi possível enviar. Tente de novo.'; });
       };
     }
 
-    function sucesso(nome, n){
+    function sucesso(nome){
       card.innerHTML='';
       card.appendChild(el('button',{class:'pc3m-x'},'&times;')).onclick=fechar;
       card.appendChild(el('div',{class:'pc3m-ok'},
         '<div class="big">✅</div>'+
         '<div class="pc3m-h" style="text-align:center">Cadastro recebido!</div>'+
-        '<div class="pc3m-sub" style="text-align:center">Obrigado, '+nome.split(' ')[0].replace(/[<>]/g,'')+'! Registramos '+n+' carro'+(n>1?'s':'')+'. Em breve a 3M entra em contato para cuidar do seu veículo. 🔧</div>'+
+        '<div class="pc3m-sub" style="text-align:center">Obrigado, '+nome.split(' ')[0].replace(/[<>]/g,'')+'! Em breve a 3M entra em contato para cuidar do seu veículo. 🔧</div>'+
         '<button class="pc3m-btn" style="max-width:200px;margin:6px auto 0">Fechar</button>'));
       card.querySelector('.pc3m-ok .pc3m-btn').onclick=fechar;
     }
 
-    tela(1);
+    tela();
     document.body.appendChild(back);
   }
 
