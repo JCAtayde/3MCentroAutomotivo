@@ -39,8 +39,8 @@ export async function onRequestPost(context){
   const obs = 'Pré-cadastro pelo site' + (email ? (' · e-mail: '+email) : '');
   const stmts = [];
   stmts.push(DB.prepare(
-    'INSERT INTO clientes (id,nome,tipo,telefone1,telefone2,endereco,obs,contatos,nascimento,zap_num,criado,atualizado) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).bind(cid, nome, 'Preventiva', telefone, '', '', obs, '[]', '', '1', now, now));
+    'INSERT INTO clientes (id,nome,tipo,telefone1,telefone2,endereco,obs,contatos,nascimento,zap_num,lead,criado,atualizado) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).bind(cid, nome, 'Preventiva', telefone, '', '', obs, '[]', '', '1', 'novo', now, now));
   for(const c of carros){
     stmts.push(DB.prepare(
       'INSERT INTO veiculos (id,cliente_id,placa,modelo,ano,cor,km_atual,media_km_mes,entrevista,inspecao,cambio,criado,atualizado) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'

@@ -222,6 +222,17 @@
   .arg-lbl{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em}
   .arg-lbl.tec{color:var(--gold)} .arg-lbl.gan{color:var(--green)}
   .arg-lbl.risco{color:var(--red)}
+  #leadPill{background:#E5675C;color:#fff;border:0;border-radius:20px;padding:5px 11px;font-weight:800;font-size:12.5px;cursor:pointer;align-items:center;gap:5px;flex:none}
+  .lead-card{border:1px solid #4a2b2d;background:linear-gradient(180deg,rgba(229,103,92,.10),rgba(229,103,92,.03));border-radius:14px;padding:14px;margin-bottom:16px}
+  .lead-head{font-weight:800;font-size:15px;display:flex;align-items:center;gap:8px}
+  .lead-count{background:#E5675C;color:#fff;border-radius:20px;padding:1px 9px;font-size:13px}
+  .lead-hint{font-size:12px;color:var(--muted);margin:3px 0 10px}
+  .lead-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px;border:1px solid var(--line2);border-radius:11px;background:var(--panel);margin-bottom:8px}
+  .lead-main{flex:1;min-width:160px;cursor:pointer}
+  .lead-t{font-weight:700;font-size:14.5px}
+  .lead-s{font-size:12.5px;color:var(--muted);margin-top:1px}
+  .lead-acts{display:flex;gap:6px;flex-wrap:wrap}
+  .lead-banner{background:rgba(229,103,92,.10);border:1px solid #4a2b2d;border-radius:11px;padding:10px 12px;margin:10px 0;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   body.sem-valores .valor-tag, body.sem-valores .os-total .v, body.sem-valores .tl .valor{ visibility:hidden; position:relative }
   body.sem-valores .valor-tag::after, body.sem-valores .os-total .v::after, body.sem-valores .tl .valor::after{ content:'•••'; visibility:visible; position:absolute; right:0; color:var(--muted2) }
 
@@ -269,6 +280,7 @@
   <div class="spacer"></div>
   <span id="syncDot" title="Sincronizado" style="width:10px;height:10px;border-radius:50%;background:#6D7480;flex:none;margin-right:4px"></span>
   <span id="authUser"></span>
+  <button id="leadPill" onclick="goTab('painel')" style="display:none"></button>
   <nav id="topnav"></nav>
 </header>
 
@@ -276,6 +288,7 @@
   <!-- PAINEL -->
   <section class="screen active" data-screen="painel">
     <div class="view-head"><div><h2>Retornos</h2><p>Revisões vencidas ou próximas</p></div></div>
+    <div id="leadsBox"></div>
     <div class="stats" id="stats"></div><div id="retornos"></div>
   </section>
 
@@ -420,7 +433,7 @@ const CONFIG_PADRAO={janela_dias:30, media_km_mes_padrao:1000,
 function novoBanco(){ return {clientes:[],veiculos:[],ordens:[],
   regras:REGRAS_PADRAO.map(r=>({id:uid(),nome:r.nome,km:+r.km,meses:+r.meses})), config:{...CONFIG_PADRAO}}; }
 
-function normCliente(c){ c.contatos||=[]; c.tipo||='Preventiva'; c.telefone1||=c.telefone||''; c.telefone2||=''; c.endereco||=''; c.obs||=''; c.nascimento||=''; c.zap_num||='1'; return c; }
+function normCliente(c){ c.contatos||=[]; c.tipo||='Preventiva'; c.telefone1||=c.telefone||''; c.telefone2||=''; c.endereco||=''; c.obs||=''; c.nascimento||=''; c.zap_num||='1'; c.lead||=''; return c; }
 function normVeiculo(v){ if(v.entrevista===undefined) v.entrevista=null; v.cor||=''; v.inspecao||={}; v.cambio||=''; return v; }
 
 function upgradeV2toV3(v2){
@@ -491,6 +504,7 @@ async function sincronizar(){
     state.usuarios=data.usuarios||[];
     state.config={...CONFIG_PADRAO,...(data.config||{})};
     lastSnapshot=deepCopy(state); cacheSave(); setSync('ok');
+    if(typeof atualizarLeadBadge==='function') atualizarLeadBadge();
     if(typeof verificarAuth==='function') verificarAuth();
   }catch(e){ setSync('erro'); }
 }
@@ -711,6 +725,36 @@ function pularFilaZap(){
   else { filaPausado=true; renderFilaZap(); }
 }
 function pararFilaZap(){ clearInterval(filaTick); filaZap=[]; filaIdx=0; filaCooldown=0; filaPausado=false; closeModal(); }
+function leadsPendentes(){ return state.clientes.filter(c=>c.lead==='novo').sort((a,b)=>(a.criado||0)-(b.criado||0)); }
+function atualizarLeadBadge(){ const n=leadsPendentes().length; const pill=document.getElementById('leadPill'); if(!pill) return;
+  if(n>0){ pill.style.display='inline-flex'; pill.textContent='🔔 '+n; pill.title=n+' novo(s) cadastro(s) do site para contatar'; } else pill.style.display='none'; }
+function renderLeads(){
+  const box=document.getElementById('leadsBox'); if(!box) return;
+  const leads=leadsPendentes();
+  if(!leads.length){ box.innerHTML=''; return; }
+  const linhas=leads.map(c=>{ const vs=veiculosDe(c.id); const carro=vs[0]?(nomeVeiculo(vs[0])+(vs[0].cambio?(' · '+vs[0].cambio):'')):'sem veículo';
+    const quando=c.criado?tempoDesde(c.criado):''; const semPlaca=vs.some(v=>!v.placa);
+    return `<div class="lead-row">
+      <div class="lead-main" onclick='go("cliente","${c.id}")'>
+        <div class="lead-t">${esc(c.nome)} ${semPlaca?'<span class="badge" style="border-color:#E5675C;color:#ff8b8b">falta placa</span>':''}</div>
+        <div class="lead-s">${esc(c.telefone1||'sem telefone')} · ${esc(carro)}${quando?(' · há '+quando):''}</div></div>
+      <div class="lead-acts">
+        <button class="btn sm green" onclick='chamarLead("${c.id}")'>WhatsApp</button>
+        <button class="btn sm" onclick='go("cliente","${c.id}")'>Abrir</button>
+        <button class="btn sm ghost" onclick='concluirLead("${c.id}")'>✔ Concluir</button>
+      </div></div>`; }).join('');
+  box.innerHTML=`<div class="lead-card"><div class="lead-head">🔔 Novos cadastros do site — contatar <span class="lead-count">${leads.length}</span></div>
+    <div class="lead-hint">Fila por ordem de chegada. Sai da fila quando você conclui ou completa o cadastro (placa).</div>
+    ${linhas}</div>`;
+}
+function tempoDesde(ts){ const d=Math.floor((Date.now()-ts)/86400000); if(d>=1) return d+' dia(s); '.replace('; ',''); const h=Math.floor((Date.now()-ts)/3600000); if(h>=1) return h+'h'; const m=Math.floor((Date.now()-ts)/60000); return Math.max(1,m)+' min'; }
+function chamarLead(cid){ const c=getCliente(cid); const n=zapDoCliente(c); if(!n){ toast('Cliente sem WhatsApp'); return; }
+  const nome=(c.nome||'').split(' ')[0]; const vs=veiculosDe(cid); const carro=vs[0]?nomeVeiculo(vs[0]):'seu veículo';
+  const msg=`Olá ${nome}! 😊 Aqui é da *3M Centro Automotivo*. Recebemos o seu cadastro pelo site sobre o ${carro} e queremos cuidar bem dele. Podemos agendar uma avaliação? 🔧`;
+  window.open('https://wa.me/'+n+'?text='+encodeURIComponent(msg),'_blank'); }
+function concluirLead(cid){ const c=getCliente(cid); if(!c) return; if(!confirm('Concluir o atendimento de '+c.nome+' e tirar da fila?')) return;
+  c.lead=''; c.atualizado=Date.now(); salvar(); renderLeads(); atualizarLeadBadge(); if(typeof refreshAtual==='function') refreshAtual(); toast('Saiu da fila de prioridade'); }
+function reabrirLead(cid){ const c=getCliente(cid); if(!c) return; c.lead='novo'; c.atualizado=Date.now(); salvar(); refreshAtual(); atualizarLeadBadge(); toast('Voltou para a fila'); }
 function renderPainel(){
   const itens=construirRetornos();
   const venc=itens.filter(i=>i.st.tipo==='vencida').length, prox=itens.filter(i=>i.st.tipo==='proxima').length;
@@ -727,6 +771,7 @@ function renderPainel(){
       <div class="stat click" onclick="abrirPrevGlobal('verificar')"><div class="n">${gp.nVer}</div><div class="l">Verificar</div></div>
     </div>`;
   const box=document.getElementById('retornos');
+  renderLeads(); atualizarLeadBadge();
   const lista = !itens.length
     ? emptyState('Nenhum retorno de revisão','Registre ordens de serviço para gerar os retornos.')
     : `<div class="section-label">Retornos de revisão</div>`+itens.map(i=>{ const km=i.prev.kmPrevisto!=null?nfmt(i.prev.kmPrevisto)+' km':'só por tempo';
@@ -777,6 +822,7 @@ function renderClienteDet(id){
   box.innerHTML=`
     <div class="det-head"><h2>${esc(c.nome)} ${badge}</h2>
       <button class="btn sm ghost" onclick='openCliente("${c.id}")'>Editar ficha</button></div>
+    ${c.lead==='novo'?`<div class="lead-banner">🔔 <b>Novo cadastro do site</b> — aguardando contato. <button class="btn sm green" onclick='chamarLead("${c.id}")'>WhatsApp</button> <button class="btn sm ghost" onclick='concluirLead("${c.id}")'>✔ Concluir (sair da fila)</button></div>`:''}
     <div class="panel" style="margin-top:8px">
       <div class="kv">
         <span class="k">Telefone 1</span><span class="v">${tel1}</span>
@@ -1100,10 +1146,11 @@ function saveVeiculo(id){
   const dados={cliente_id:val('fCli'),placa:val('fPlaca').trim().toUpperCase(),modelo:val('fModelo').trim(),ano:val('fAno').trim(),cor:val('fCor').trim(),cambio:val('fCambio'),km_atual:num('fKm'),media_km_mes:num('fMedia')};
   if(!dados.cliente_id){ toast('Escolha o cliente'); return; }
   if(!dados.modelo&&!dados.placa){ toast('Informe placa ou modelo'); return; }
-  if(id){ Object.assign(getVeiculo(id),dados); salvar(); closeModal(); refreshAtual(); toast('Veículo salvo'); }
-  else{ const nv={id:uid(),...dados,entrevista:null,criado:Date.now()}; state.veiculos.push(nv); salvar(); closeModal();
+  if(id){ Object.assign(getVeiculo(id),dados); autoResolveLead(dados.cliente_id,dados.placa); salvar(); closeModal(); refreshAtual(); toast('Veículo salvo'); }
+  else{ const nv={id:uid(),...dados,entrevista:null,criado:Date.now()}; state.veiculos.push(nv); autoResolveLead(dados.cliente_id,dados.placa); salvar(); closeModal();
     go('veiculo',nv.id); openEntrevista(nv.id,true); toast('Veículo cadastrado'); }
 }
+function autoResolveLead(cid,placa){ const c=getCliente(cid); if(c&&c.lead==='novo'&&placa&&placa.trim()){ c.lead=''; c.atualizado=Date.now(); toast('Cadastro completo — saiu da fila de prioridade'); } }
 function delVeiculo(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } if(!confirm('Excluir o veículo e suas OS?')) return;
   state.ordens=state.ordens.filter(o=>o.veiculo_id!==id); state.veiculos=state.veiculos.filter(v=>v.id!==id);
   salvar(); closeModal(); goTab('veiculos'); toast('Veículo excluído'); }
