@@ -784,8 +784,7 @@ function chamarLead(cid){ const c=getCliente(cid); const n=zapDoCliente(c); if(!
   const nome=(c.nome||'').split(' ')[0]; const vs=veiculosDe(cid); const carro=vs[0]?nomeVeiculo(vs[0]):'seu veículo';
   const msg=`Olá ${nome}! 😊 Aqui é da *3M Centro Automotivo*. Recebemos o seu cadastro pelo site sobre o ${carro} e queremos cuidar bem dele. Podemos agendar uma avaliação? 🔧`;
   window.open('https://wa.me/'+n+'?text='+encodeURIComponent(msg),'_blank'); }
-function concluirLead(cid){ const c=getCliente(cid); if(!c) return; if(!confirm('Concluir o atendimento de '+c.nome+' e tirar da fila?')) return;
-  c.lead=''; c.atualizado=Date.now(); salvar(); renderLeads(); atualizarLeadBadge(); if(typeof refreshAtual==='function') refreshAtual(); toast('Saiu da fila de prioridade'); }
+function concluirLead(cid){ const c=getCliente(cid); if(!c) return; confirmar('Concluir o atendimento de '+c.nome+' e tirar da fila?', function(){ c.lead=''; c.atualizado=Date.now(); salvar(); renderLeads(); atualizarLeadBadge(); if(typeof refreshAtual==='function') refreshAtual(); toast('Saiu da fila de prioridade'); }, 'Concluir', 'green'); }
 function reabrirLead(cid){ const c=getCliente(cid); if(!c) return; c.lead='novo'; c.atualizado=Date.now(); salvar(); refreshAtual(); atualizarLeadBadge(); toast('Voltou para a fila'); }
 function renderPainel(){
   const itens=construirRetornos();
@@ -1133,10 +1132,9 @@ function renderOsDet(id){
     <div class="os-total" style="border-top:1px solid var(--line2);margin-top:2px;padding-top:8px"><span class="l"><b>Valor total</b></span><span class="v"><b>${moneyFmt(osTotal(o))}</b></span></div>`;
 }
 function mudarStatusOS(id,novo){ const o=getOS(id); if(!o) return;
-  if(novo==='aprovado' && !confirm('Marcar como APROVADA pelo cliente? Vira serviço executado e passa a gerar os retornos de revisão.')) return;
-  if(novo==='rejeitado' && !confirm('Marcar como orçamento REJEITADO? Não conta como serviço executado nem gera retornos.')) return;
-  o.status=novo; o.atualizado=Date.now(); salvar(); renderOsDet(id); toast(novo==='aprovado'?'OS aprovada ✓':'OS marcada como orçamento'); }
-function delOS(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } if(!confirm('Excluir esta ordem de serviço?')) return; state.ordens=state.ordens.filter(o=>o.id!==id); salvar(); back(); toast('OS excluída'); }
+  const msg = novo==='aprovado' ? 'Marcar como APROVADA pelo cliente?\nVira serviço executado e passa a gerar os retornos de revisão.' : 'Marcar como orçamento REJEITADO?\nNão conta como executado nem gera retornos.';
+  confirmar(msg, function(){ o.status=novo; o.atualizado=Date.now(); salvar(); renderOsDet(id); toast(novo==='aprovado'?'OS aprovada ✓':'OS marcada como orçamento'); }, novo==='aprovado'?'Aprovar':'Rejeitar', novo==='aprovado'?'green':'danger'); }
+function delOS(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } confirmar('Excluir esta ordem de serviço?', function(){ state.ordens=state.ordens.filter(o=>o.id!==id); salvar(); back(); toast('OS excluída'); }); }
 
 /* ==================================================================
    FORM: CLIENTE
@@ -1180,10 +1178,11 @@ function saveCliente(id){
   if(id) Object.assign(getCliente(id),dados); else state.clientes.push({id:uid(),...dados,criado:Date.now()});
   salvar(); closeModal(); refreshAtual(); toast('Cliente salvo');
 }
-function delCliente(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } if(!confirm('Excluir o cliente e todos os veículos/OS dele?')) return;
-  const vids=veiculosDe(id).map(v=>v.id); state.ordens=state.ordens.filter(o=>!vids.includes(o.veiculo_id));
-  state.veiculos=state.veiculos.filter(v=>v.cliente_id!==id); state.clientes=state.clientes.filter(c=>c.id!==id);
-  salvar(); closeModal(); goTab('clientes'); toast('Cliente excluído'); }
+function delCliente(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; }
+  confirmar('Excluir o cliente e todos os veículos/OS dele?', function(){
+    const vids=veiculosDe(id).map(v=>v.id); state.ordens=state.ordens.filter(o=>!vids.includes(o.veiculo_id));
+    state.veiculos=state.veiculos.filter(v=>v.cliente_id!==id); state.clientes=state.clientes.filter(c=>c.id!==id);
+    salvar(); closeModal(); goTab('clientes'); toast('Cliente excluído'); }); }
 
 /* ==================================================================
    FORM: VEÍCULO (+ entrevista na 1ª vez)
@@ -1214,9 +1213,10 @@ function saveVeiculo(id){
     go('veiculo',nv.id); openEntrevista(nv.id,true); toast('Veículo cadastrado'); }
 }
 function autoResolveLead(cid,placa){ const c=getCliente(cid); if(c&&c.lead==='novo'&&placa&&placa.trim()){ c.lead=''; c.atualizado=Date.now(); toast('Cadastro completo — saiu da fila de prioridade'); } }
-function delVeiculo(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } if(!confirm('Excluir o veículo e suas OS?')) return;
-  state.ordens=state.ordens.filter(o=>o.veiculo_id!==id); state.veiculos=state.veiculos.filter(v=>v.id!==id);
-  salvar(); closeModal(); goTab('veiculos'); toast('Veículo excluído'); }
+function delVeiculo(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; }
+  confirmar('Excluir o veículo e suas OS?', function(){
+    state.ordens=state.ordens.filter(o=>o.veiculo_id!==id); state.veiculos=state.veiculos.filter(v=>v.id!==id);
+    salvar(); closeModal(); goTab('veiculos'); toast('Veículo excluído'); }); }
 
 /* FORM: ENTREVISTA */
 /* --- Resumo da entrevista (exibição na ficha do veículo) --- */
@@ -1613,7 +1613,7 @@ function saveRegra(id){ const nome=tc(val('fRNome').trim()),km=num('fRKm')||0,me
   if(!nome){ toast('Informe o nome'); return; } if(km<=0&&meses<=0){ toast('Preencha KM ou meses'); return; }
   if(id) Object.assign(getRegra(id),{nome,km,meses}); else state.regras.push({id:uid(),nome,km,meses});
   salvar(); document.getElementById('regrasList').innerHTML=state.regras.map(r=>`<option value="${esc(r.nome)}">`).join(''); closeModal(); renderRegras(); toast('Regra salva'); }
-function delRegra(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } if(!confirm('Excluir esta regra?')) return; state.regras=state.regras.filter(r=>r.id!==id); salvar(); closeModal(); renderRegras(); toast('Regra excluída'); }
+function delRegra(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } confirmar('Excluir esta regra?', function(){ state.regras=state.regras.filter(r=>r.id!==id); salvar(); closeModal(); renderRegras(); toast('Regra excluída'); }); }
 
 function carregarConfig(){ document.getElementById('cfgMsg').value=state.config.msg; document.getElementById('cfgJanela').value=state.config.janela_dias; document.getElementById('cfgMedia').value=state.config.media_km_mes_padrao; const l=document.getElementById('cfgLink'); if(l) l.value=state.config.link_manutencao||''; montarCfgTabs(); cfgTab(cfgAtiva); }
 let cfgAtiva='mensagens';
@@ -1641,14 +1641,16 @@ function salvarConfig(){ state.config.msg=document.getElementById('cfgMsg').valu
 function exportar(){ const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='backup-oficina-'+toISO(hoje())+'.json'; a.click(); toast('Backup exportado'); }
 function importar(ev){ const f=ev.target.files[0]; if(!f) return; const rd=new FileReader();
   rd.onload=()=>{ try{ const d=JSON.parse(rd.result); if(!d.clientes||!d.veiculos){ toast('Arquivo inválido'); return; }
-    if(!confirm('Substituir TODOS os dados atuais por este backup?')) return;
-    let db; if(d.ordens){ db=d; } else if(d.atendimentos){ db=upgradeV2toV3(d); } else if(d.servicos){ db=upgradeV2toV3(migrarV1toV2shape(d)); } else db={...novoBanco(),...d};
-    db.config={...CONFIG_PADRAO,...(db.config||{})}; db.clientes.forEach(normCliente); db.veiculos.forEach(normVeiculo); db.ordens||=[];
-    state=db; cacheSave(); montarNav(); goTab('painel'); toast('Enviando backup para a nuvem…');
-    apiPost('replace',{clientes:state.clientes,veiculos:state.veiculos,ordens:state.ordens,regras:state.regras,usuarios:state.usuarios,mecanicos:state.mecanicos,config:state.config})
-      .then(()=>sincronizar()).then(()=>toast('Backup importado')).catch(()=>toast('Falha ao enviar — verifique a conexão'));
+    confirmar('Substituir TODOS os dados atuais por este backup?', function(){
+      let db; if(d.ordens){ db=d; } else if(d.atendimentos){ db=upgradeV2toV3(d); } else if(d.servicos){ db=upgradeV2toV3(migrarV1toV2shape(d)); } else db={...novoBanco(),...d};
+      db.config={...CONFIG_PADRAO,...(db.config||{})}; db.clientes.forEach(normCliente); db.veiculos.forEach(normVeiculo); db.ordens||=[];
+      state=db; cacheSave(); montarNav(); goTab('painel'); toast('Enviando backup para a nuvem…');
+      apiPost('replace',{clientes:state.clientes,veiculos:state.veiculos,ordens:state.ordens,regras:state.regras,usuarios:state.usuarios,mecanicos:state.mecanicos,config:state.config})
+        .then(()=>sincronizar()).then(()=>toast('Backup importado')).catch(()=>toast('Falha ao enviar — verifique a conexão'));
+    });
   }catch(e){ toast('Não foi possível ler o arquivo'); } }; rd.readAsText(f); ev.target.value=''; }
-function limparTudo(){ if(!confirm('Apagar TODOS os dados da NUVEM? Sem volta.')) return; if(!confirm('Tem certeza? Exporte um backup antes.')) return;
+function limparTudo(){ confirmar('Apagar TODOS os dados da NUVEM? Sem volta.', function(){ confirmar('Tem certeza? Exporte um backup antes.', limparTudoConfirmado); }); }
+function limparTudoConfirmado(){
   state=novoBanco(); cacheSave(); montarNav(); goTab('painel');
   apiPost('replace',{clientes:[],veiculos:[],ordens:[],regras:state.regras,usuarios:state.usuarios,mecanicos:state.mecanicos,config:state.config}).then(()=>sincronizar()).then(()=>toast('Dados apagados')).catch(()=>toast('Falha — verifique a conexão')); }
 
@@ -1658,6 +1660,12 @@ function limparTudo(){ if(!confirm('Apagar TODOS os dados da NUVEM? Sem volta.')
 function emptyState(t,s){ return `<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01" stroke-linecap="round"/></svg><p>${t}</p>${s?`<span>${s}</span>`:''}</div>`; }
 function openModal(html){ document.getElementById('modal').innerHTML=html; document.getElementById('overlay').classList.add('open'); }
 function closeModal(){ document.getElementById('overlay').classList.remove('open'); }
+function confirmar(msg, onOk, okLabel, okClass){
+  openModal(`<h3>Confirmar</h3><p class="sub" style="white-space:pre-line">${esc(msg)}</p>
+    <div class="form-actions"><button class="btn ${okClass||'danger'}" id="__cfmOk">${esc(okLabel||'Confirmar')}</button>
+      <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+  const b=document.getElementById('__cfmOk'); if(b) b.onclick=function(){ closeModal(); setTimeout(function(){ if(onOk) onOk(); },40); };
+}
 document.getElementById('overlay').addEventListener('click',e=>{ if(e.target.id==='overlay') closeModal(); });
 let toastT; function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2400); }
 
@@ -1692,7 +1700,7 @@ function salvarMecanico(id){ const nome=tc(val('mNome').trim()); if(!nome){ toas
   else state.mecanicos.push({id:uid(),nome,percentual:perc,ativo:1,criado:Date.now()});
   salvar(); closeModal(); renderMecanicos(); toast('Mecânico salvo'); }
 function toggleMecanico(id){ const m=state.mecanicos.find(x=>x.id===id); if(!m) return; m.ativo=(m.ativo!==0&&m.ativo!==false)?0:1; m.atualizado=Date.now(); salvar(); renderMecanicos(); }
-function excluirMecanico(id){ if(!confirm('Excluir este mecânico? As OS antigas mantêm o registro do serviço.')) return; state.mecanicos=state.mecanicos.filter(x=>x.id!==id); salvar(); closeModal(); renderMecanicos(); }
+function excluirMecanico(id){ confirmar('Excluir este mecânico? As OS antigas mantêm o registro do serviço.', function(){ state.mecanicos=state.mecanicos.filter(x=>x.id!==id); salvar(); closeModal(); renderMecanicos(); }); }
 
 let finDe='',finAte='',finMec='',finStatus='aprovado';
 function renderFinanceiro(){
@@ -1881,7 +1889,7 @@ function renderUsuariosAdmin(){
 function adminToggle(id){ const u=getUsuario(id); if(!u) return; if(usuarioAtual&&u.id===usuarioAtual.id){ toast('Você não pode alterar o próprio acesso'); return; }
   u.status = u.status==='ativo'?'bloqueado':'ativo'; u.atualizado=Date.now(); salvar(); renderUsuariosAdmin(); toast(u.status==='ativo'?'Acesso liberado':'Acesso inativado'); }
 function adminExcluir(id){ const u=getUsuario(id); if(!u) return; if(usuarioAtual&&u.id===usuarioAtual.id){ toast('Você não pode se excluir'); return; }
-  if(!confirm('Excluir o acesso de '+u.nome+'? (não afeta clientes, veículos ou ordens)')) return; state.usuarios=state.usuarios.filter(x=>x.id!==id); salvar(); renderUsuariosAdmin(); toast('Usuário excluído'); }
+  confirmar('Excluir o acesso de '+u.nome+'? (não afeta clientes, veículos ou ordens)', function(){ state.usuarios=state.usuarios.filter(x=>x.id!==id); salvar(); renderUsuariosAdmin(); toast('Usuário excluído'); }); }
 function adminCadastrar(){
   openModal(`<h3>Cadastrar usuário</h3><p class="sub">Criado já liberado (ativo).</p>
     <div class="field"><label>Nome</label><input id="nuNome" placeholder="Nome"></div>
