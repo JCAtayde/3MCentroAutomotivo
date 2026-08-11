@@ -1174,8 +1174,8 @@ function renderOsDet(id){
 function acoesFase(o,st){
   if(st==='aguardando') return `<button class="btn sm green" onclick='aprovarOrcamento("${o.id}")'>✓ Aprovado</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>✕ Rejeitar</button>`;
   if(st==='andamento') return `${pode('valores')?`<button class="btn sm green" onclick='finalizarOS("${o.id}")'>✓ Finalizar</button>`:''}<button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>Rejeitar</button>`;
-  if(st==='executado') return `<span class="cx-mini">Finalizada</span>`;
-  if(st==='rejeitado') return `<button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir orçamento</button>`;
+  if(st==='executado') return `<span class="cx-mini">Finalizada</span>${ehAdmin()?` <button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir</button>`:''}`;
+  if(st==='rejeitado') return ehAdmin()?`<button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir orçamento</button>`:`<span class="cx-mini">Orçamento não aprovado</span>`;
   return '';
 }
 function renderPagamentosOS(o){
@@ -1185,7 +1185,7 @@ function renderPagamentosOS(o){
   bloco+= pgs.length?`<div class="rows">${linhas}</div>`:`<div class="note empty-note">Nenhum pagamento lançado.</div>`;
   bloco+=`<div class="os-total"><span class="l">Pago</span><span class="v" style="color:var(--green)">${moneyFmt(pago)}</span></div>
     <div class="os-total"><span class="l"><b>Restante</b></span><span class="v"><b style="color:${rest>0?'var(--red)':'var(--green)'}">${moneyFmt(rest)}</b></span></div>`;
-  if(osStatus(o)==='andamento' && pode('valores')) bloco+=`<div class="form-actions" style="margin-top:8px"><button class="btn" onclick='pagamentoModal("${o.id}","adiantamento")'>💵 Registrar entrada / adiantamento</button></div>`;
+  if((osStatus(o)==='andamento'||osStatus(o)==='executado') && pode('valores') && rest>0) bloco+=`<div class="form-actions" style="margin-top:8px"><button class="btn" onclick='pagamentoModal("${o.id}","adiantamento")'>💵 Registrar pagamento</button></div>`;
   return bloco;
 }
 
@@ -1193,7 +1193,7 @@ function renderPagamentosOS(o){
 function carroChegou(oid){ const o=getOS(oid); if(!o) return; confirmar('Confirmar que o carro chegou? A OS vai para "Aguardando orçamento".', function(){ o.status='aguardando'; if(!o.data||o.status==='agendamento') o.data=toISO(hoje()); o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; renderOsDet(oid); toast('Em Aguardando orçamento'); }, 'Confirmar', 'green'); }
 function aprovarOrcamento(oid){ const o=getOS(oid); if(!o) return; confirmar('Cliente aprovou o orçamento?\nA OS vai para "Em andamento".', function(){ o.status='andamento'; o.atualizado=Date.now(); salvar(); osFiltroStatus='andamento'; renderOsDet(oid); toast('Em andamento ✓'); }, 'Aprovar', 'green'); }
 function rejeitarOS(oid){ const o=getOS(oid); if(!o) return; confirmar('Rejeitar o orçamento? O carro é entregue sem o serviço, mas fica o registro da passagem.', function(){ o.status='rejeitado'; o.atualizado=Date.now(); salvar(); osFiltroStatus='rejeitado'; renderOsDet(oid); toast('Orçamento rejeitado'); }); }
-function reabrirOrcamento(oid){ const o=getOS(oid); if(!o) return; o.status='aguardando'; o.atualizado=Date.now(); salvar(); renderOsDet(oid); toast('Reaberto em Aguardando'); }
+function reabrirOrcamento(oid){ if(!ehAdmin()){ toast('Apenas o gestor geral pode reabrir'); return; } const o=getOS(oid); if(!o) return; confirmar('Reabrir esta ordem? Ela volta para "Aguardando orçamento".', function(){ o.status='aguardando'; o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; renderOsDet(oid); toast('Reaberta em Aguardando'); }, 'Reabrir'); }
 function finalizarOS(oid){ const o=getOS(oid); if(!o) return; pagamentoModal(oid,'final'); }
 
 /* ---- pagamentos (adiantamento / final) ---- */
