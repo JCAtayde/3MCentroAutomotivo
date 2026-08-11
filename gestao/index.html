@@ -1999,7 +1999,7 @@ function salvarMecanico(id){ const nome=tc(val('mNome').trim()); if(!nome){ toas
 function toggleMecanico(id){ const m=state.mecanicos.find(x=>x.id===id); if(!m) return; m.ativo=(m.ativo!==0&&m.ativo!==false)?0:1; m.atualizado=Date.now(); salvar(); renderMecanicos(); }
 function excluirMecanico(id){ confirmar('Excluir este mecânico? As OS antigas mantêm o registro do serviço.', function(){ state.mecanicos=state.mecanicos.filter(x=>x.id!==id); salvar(); closeModal(); renderMecanicos(); }); }
 
-let finDe='',finAte='',finMec='',finStatus='aprovado';
+let finDe='',finAte='',finMec='',finStatus='executado';
 function renderFinanceiro(){
   const box=document.getElementById('financeiroBox'); if(!box) return;
   if(!ehAdmin()){ box.innerHTML='<div class="note empty-note">Apenas administradores.</div>'; return; }
@@ -2010,28 +2010,28 @@ function renderFinanceiro(){
       <div class="field"><label>Até</label><input id="finAte" type="date" value="${finAte||''}"></div></div>
     <div class="grid2"><div class="field"><label>Mecânico</label><select id="finMec"><option value="">Todos os mecânicos</option>${mecs.map(m=>`<option value="${m.id}" ${finMec===m.id?'selected':''}>${esc(m.nome)}</option>`).join('')}</select></div>
       <div class="field"><label>Situação</label><select id="finStatus">
-        <option value="aprovado" ${finStatus==='aprovado'?'selected':''}>Aprovados (executados)</option>
-        <option value="rejeitado" ${finStatus==='rejeitado'?'selected':''}>Não aprovados (orçamento)</option>
-        <option value="ambos" ${finStatus==='ambos'?'selected':''}>Ambos</option></select></div></div>
+        <option value="executado" ${finStatus==='executado'?'selected':''}>Executados (finalizados)</option>
+        <option value="andamento" ${finStatus==='andamento'?'selected':''}>Aprovados (em andamento)</option>
+        <option value="rejeitado" ${finStatus==='rejeitado'?'selected':''}>Rejeitados (orçamento)</option>
+        <option value="todos" ${finStatus==='todos'?'selected':''}>Todos</option></select></div></div>
     <div class="form-actions" style="margin-bottom:12px"><button class="btn gold" onclick="gerarFinanceiro()">Gerar relatório</button></div>
     <div id="finResultado"></div>`;
   if(finDe||finMec) gerarFinanceiro();
 }
 function gerarFinanceiro(){
-  finDe=val('finDe')||''; finAte=val('finAte')||''; finMec=val('finMec')||''; finStatus=val('finStatus')||'aprovado';
+  finDe=val('finDe')||''; finAte=val('finAte')||''; finMec=val('finMec')||''; finStatus=val('finStatus')||'executado';
   const de=finDe||'0000-00-00', ate=finAte||'9999-99-99';
   const porMec={};
   state.ordens.forEach(o=>{ if(!o.data||o.data<de||o.data>ate) return;
-    const st=osStatus(o); const aprovada=osExecutada(o);
-    if(finStatus==='aprovado' && !aprovada) return;
-    if(finStatus==='rejeitado' && st!=='rejeitado') return;
-    if(finStatus==='ambos' && !(aprovada||st==='rejeitado')) return;
+    const st=osStatus(o);
+    if(finStatus==='todos'){ if(!['executado','andamento','rejeitado'].includes(st)) return; }
+    else if(st!==finStatus) return;
     (o.maodeobra||[]).forEach(m=>{ if(finMec && m.mecanico_id!==finMec) return;
       const mec=(state.mecanicos||[]).find(x=>x.id===m.mecanico_id); const key=m.mecanico_id||'__sem__';
       porMec[key]=porMec[key]||{nome:mec?mec.nome:'Sem mecânico definido',perc:mec?(mec.percentual!=null?mec.percentual:50):50,total:0,itens:[]};
       porMec[key].total+=Number(m.valor)||0; porMec[key].itens.push({o,m}); }); });
   const box=document.getElementById('finResultado'); const keys=Object.keys(porMec);
-  const rotulo=finStatus==='aprovado'?'aprovada (executada)':finStatus==='rejeitado'?'de orçamento (não aprovada)':'(aprovada + orçamento)';
+  const rotulo=finStatus==='executado'?'executada (finalizada)':finStatus==='andamento'?'aprovada (em andamento)':finStatus==='rejeitado'?'de orçamento (rejeitada)':'(todas)';
   if(!keys.length){ box.innerHTML=`<div class="note empty-note">Nenhuma mão de obra ${rotulo} nesse período.</div>`; return; }
   let totalGeral=0, totalReceber=0;
   const blocos=keys.sort((a,b)=>porMec[b].total-porMec[a].total).map(k=>{ const g=porMec[k]; const receber=g.total*g.perc/100; totalGeral+=g.total; totalReceber+=receber;
