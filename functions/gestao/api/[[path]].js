@@ -11,7 +11,8 @@ const SCHEMA = {
   regras:   { cols:['id','nome','km','meses','ordem'], json:[] },
   mecanicos:{ cols:['id','nome','percentual','ativo','telefone','criado','atualizado'], json:[] },
   caixa:    { cols:['id','tipo','data','valor','forma','taxa','liquido','descricao','ordem_id','parcelas','criado','atualizado'], json:[] },
-  usuarios: { cols:['id','nome','login','senha_hash','salt','status','papel','email','perms','reset','criado','atualizado'], json:['perms'] },
+  usuarios: { cols:['id','nome','login','senha_hash','salt','status','papel','email','perms','reset','mecanico_id','criado','atualizado'], json:['perms'] },
+  pecas:    { cols:['id','nome','preco','criado','atualizado'], json:[] },
 };
 
 const jsonResp = (o, s = 200) =>
@@ -30,7 +31,7 @@ export async function onRequest(context) {
 
   try {
     if (request.method === 'GET' && acao === 'state') {
-      const [cli, vei, ord, reg, cfg, usu, mec, cxa] = await Promise.all([
+      const [cli, vei, ord, reg, cfg, usu, mec, cxa, pec] = await Promise.all([
         DB.prepare('SELECT * FROM clientes').all(),
         DB.prepare('SELECT * FROM veiculos').all(),
         DB.prepare('SELECT * FROM ordens').all(),
@@ -39,6 +40,7 @@ export async function onRequest(context) {
         DB.prepare('SELECT * FROM usuarios').all(),
         DB.prepare('SELECT * FROM mecanicos').all(),
         DB.prepare('SELECT * FROM caixa').all(),
+        DB.prepare('SELECT * FROM pecas').all(),
       ]);
       const config = {};
       (cfg.results || []).forEach(r => { config[r.chave] = r.valor; });
@@ -50,6 +52,7 @@ export async function onRequest(context) {
         usuarios: (usu.results || []).map(r => ({ ...r, perms: parse(r.perms, null) })),
         mecanicos:(mec.results || []),
         caixa:    (cxa.results || []),
+        pecas:    (pec.results || []),
         config,
       });
     }
@@ -124,5 +127,6 @@ async function replaceAll(DB, body) {
   if (body.usuarios) await upsertRows(DB, 'usuarios', body.usuarios);
   if (body.mecanicos) await upsertRows(DB, 'mecanicos', body.mecanicos);
   if (body.caixa) await upsertRows(DB, 'caixa', body.caixa);
+  if (body.pecas) await upsertRows(DB, 'pecas', body.pecas);
   if (body.config) await saveConfig(DB, body.config);
 }

@@ -160,6 +160,7 @@
   .baixa-sub{font-size:12.5px; color:var(--muted); margin-top:4px}
   .cx-mini{font-size:12px; color:var(--muted); padding:2px 0}
   .pg-info{font-size:13px; color:var(--muted); background:var(--panel); border:1px solid var(--line2); border-radius:9px; padding:9px 11px; margin-bottom:12px}
+  .peca-inline{border:1px dashed var(--line2); border-radius:11px; padding:10px; margin-top:8px; background:var(--bg2)}
   .os-row input{padding:10px 11px; font-size:14px}
   .os-total{display:flex; justify-content:space-between; align-items:center; margin-top:6px; padding:12px 14px; background:var(--panel2); border:1px solid var(--line); border-radius:var(--radius-s)}
   .os-total .l{color:var(--muted); font-size:13px; font-weight:600}
@@ -493,9 +494,9 @@ function apiGet(){ return fetch(API+'/state',{headers:{'accept':'application/jso
 function apiPost(path,body){ return fetch(API+'/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
 function deepCopy(o){ return JSON.parse(JSON.stringify(o)); }
 function cacheSave(){ try{ localStorage.setItem(CACHE_KEY,JSON.stringify(state)); }catch(e){} }
-function cacheLoad(){ try{ const r=localStorage.getItem(CACHE_KEY); if(r){ const d=JSON.parse(r); d.clientes||=[]; d.veiculos||=[]; d.ordens||=[]; d.regras||=[]; d.usuarios||=[]; d.mecanicos||=[]; d.caixa||=[]; d.ordens.forEach(normOrdem); d.config={...CONFIG_PADRAO,...(d.config||{})}; try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); }catch(e){} return d; } }catch(e){} return null; }
+function cacheLoad(){ try{ const r=localStorage.getItem(CACHE_KEY); if(r){ const d=JSON.parse(r); d.clientes||=[]; d.veiculos||=[]; d.ordens||=[]; d.regras||=[]; d.usuarios||=[]; d.mecanicos||=[]; d.caixa||=[]; d.pecas||=[]; d.ordens.forEach(normOrdem); d.config={...CONFIG_PADRAO,...(d.config||{})}; try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); }catch(e){} return d; } }catch(e){} return null; }
 
-let state = cacheLoad() || {clientes:[],veiculos:[],ordens:[],regras:[],usuarios:[],mecanicos:[],caixa:[],config:{...CONFIG_PADRAO}};
+let state = cacheLoad() || {clientes:[],veiculos:[],ordens:[],regras:[],usuarios:[],mecanicos:[],caixa:[],pecas:[],config:{...CONFIG_PADRAO}};
 let lastSnapshot = deepCopy(state);
 let syncTimer=null, syncing=false, syncPend=false;
 
@@ -514,7 +515,7 @@ async function enviarMudancas(){
   if(syncing){ syncPend=true; return; }
   syncing=true; setSync('sync');
   try{
-    for(const t of ['clientes','veiculos','ordens','regras','usuarios','mecanicos','caixa']){
+    for(const t of ['clientes','veiculos','ordens','regras','usuarios','mecanicos','caixa','pecas']){
       const d=diffTabela(lastSnapshot[t], state[t]);
       if(d.up.length) await apiPost('upsert',{table:t,rows:d.up});
       if(d.del.length) await apiPost('delete',{table:t,ids:d.del});
@@ -536,6 +537,7 @@ async function sincronizar(){
     state.usuarios=data.usuarios||[];
     state.mecanicos=data.mecanicos||[];
     state.caixa=data.caixa||[];
+    state.pecas=data.pecas||[];
     state.config={...CONFIG_PADRAO,...(data.config||{})};
     lastSnapshot=deepCopy(state); cacheSave(); setSync('ok');
     if(typeof atualizarRegrasList==='function') atualizarRegrasList();
@@ -666,17 +668,22 @@ function back(){ histStack.pop(); const p=histStack[histStack.length-1]||{screen
 function refreshAtual(){ const p=histStack[histStack.length-1]||{screen:'painel'}; render(p.screen,p.param); }
 function montarNav(){
   const top=document.getElementById('topnav'),tab=document.getElementById('tabbar'); top.innerHTML=''; tab.innerHTML='';
-  VIEWS.forEach((v,i)=>{
+  const views = ehMecanico() ? VIEWS.filter(v=>v.id==='ordens') : VIEWS;
+  views.forEach((v,i)=>{
     const b=document.createElement('button'); b.dataset.go=v.id; b.textContent=v.label; if(!i)b.classList.add('active'); b.onclick=()=>goTab(v.id); top.appendChild(b);
     const t=document.createElement('button'); t.dataset.go=v.id;
     t.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="'+v.icon+'"/></svg><span>'+v.label+'</span>';
     if(!i)t.classList.add('active'); t.onclick=()=>goTab(v.id); tab.appendChild(t);
   });
   garantirRegras();
-  document.getElementById('regrasList').innerHTML=state.regras.map(r=>`<option value="${esc(r.nome)}">`).join('');
+  atualizarRegrasList();
 }
+function souMecanico(){ return usuarioAtual ? (usuarioAtual.mecanico_id||'') : ''; }
+function ehMecanico(){ return !!souMecanico(); }
 function garantirRegras(){ if(!state.regras || !state.regras.length){ state.regras=REGRAS_PADRAO.map(r=>({...r})); if(typeof lastSnapshot!=='undefined'&&lastSnapshot) lastSnapshot.regras=state.regras.map(r=>({...r})); cacheSave(); } }
-function atualizarRegrasList(){ const dl=document.getElementById('regrasList'); if(dl) dl.innerHTML=state.regras.map(r=>`<option value="${esc(r.nome)}">`).join(''); }
+function catalogoOS(){ const serv=state.regras.map(r=>({nome:r.nome,preco:null})); const pec=(state.pecas||[]).map(p=>({nome:p.nome,preco:p.preco||0})); return [...pec,...serv]; }
+function atualizarRegrasList(){ const dl=document.getElementById('regrasList'); if(dl) dl.innerHTML=catalogoOS().map(r=>`<option value="${esc(r.nome)}">`).join(''); }
+function pecaPorNome(nome){ const n=(nome||'').trim().toLowerCase(); return (state.pecas||[]).find(p=>p.nome.toLowerCase()===n); }
 
 /* ==================================================================
    PAINEL
@@ -1031,9 +1038,21 @@ function secaoFichaHTML(vid,tipo,osId){
       ${mo?`<h3>Mão de obra</h3><table>${mo}</table>`:''}
       <div class="kv" style="margin-top:8px"><b>Valor peças:</b> ${moneyFmt(pecasTotal(o))}</div>
       <div class="kv"><b>Valor mão de obra:</b> ${moneyFmt(osMdoTotal(o))}</div>
-      <div class="kv"><b>VALOR TOTAL:</b> ${moneyFmt(osTotal(o))}</div>`;
+      <div class="kv"><b>VALOR TOTAL:</b> ${moneyFmt(osTotal(o))}</div>
+      ${secaoPagamentosFicha(o)}`;
   }
   return '';
+}
+function secaoPagamentosFicha(o){
+  const pgs=pagamentosOS(o.id); if(!pgs.length) return '';
+  const pago=pagoOS(o.id); const rest=restanteOS(o);
+  const totalTaxa=pgs.reduce((s,m)=>s+(Number(m.taxa)||0),0);
+  const linhas=pgs.map(m=>{ const cartao=m.forma==='cartao';
+    return `<tr><td>${formaLabel(m.forma)}${cartao&&m.parcelas>1?(' '+m.parcelas+'x'):''} — ${fmtBR(parseISO(m.data))}</td><td style="text-align:right">${moneyFmt(m.valor)}${cartao&&m.taxa?(' <span style="color:#c00">(desconto cartão '+moneyFmt(m.taxa)+')</span>'):''}</td></tr>`; }).join('');
+  return `<h3>Pagamentos</h3><table>${linhas}</table>
+    <div class="kv" style="margin-top:6px"><b>Pago:</b> ${moneyFmt(pago)}</div>
+    ${totalTaxa>0?`<div class="kv"><b>Desconto de cartão (taxas):</b> ${moneyFmt(totalTaxa)}</div><div class="kv"><b>Líquido recebido:</b> ${moneyFmt(pago-totalTaxa)}</div>`:''}
+    ${rest>0?`<div class="kv"><b>Restante:</b> ${moneyFmt(rest)}</div>`:''}`;
 }
 function fichaHTML(vid,tipo,osId){
   const v=getVeiculo(vid); const c=getCliente(v.cliente_id);
@@ -1101,30 +1120,36 @@ function escolherFicha(vid,acao){
 ================================================================== */
 let osFiltroStatus='aguardando';
 function setOsFiltro(s){ osFiltroStatus=s; renderOrdens(); }
+function osDoMecanico(o,mid){ return o.mecanico_id===mid || (o.maodeobra||[]).some(m=>m.mecanico_id===mid); }
 function renderOrdens(){
   const box=document.getElementById('listaOrdens');
   const q=((document.getElementById('buscaOS')||{}).value||'').trim().toLowerCase();
   const segBox=document.getElementById('osFiltro');
-  const cont={agendamento:0,aguardando:0,andamento:0,executado:0,rejeitado:0}; state.ordens.forEach(o=>{ const s=osStatus(o); if(cont[s]!=null) cont[s]++; });
-  if(segBox){ const abas=[['agendamento','Agenda',cont.agendamento],['aguardando','Aguardando',cont.aguardando],['andamento','Em andamento',cont.andamento],['executado','Executados',cont.executado],['rejeitado','Rejeitados',cont.rejeitado]];
+  const mid=souMecanico();
+  const base = mid ? state.ordens.filter(o=>osDoMecanico(o,mid)) : state.ordens;
+  const cont={agendamento:0,aguardando:0,andamento:0,executado:0,rejeitado:0}; base.forEach(o=>{ const s=osStatus(o); if(cont[s]!=null) cont[s]++; });
+  if(segBox){ let abas=[['agendamento','Agenda',cont.agendamento],['aguardando','Aguardando',cont.aguardando],['andamento','Em andamento',cont.andamento],['executado','Executados',cont.executado],['rejeitado','Rejeitados',cont.rejeitado]];
+    if(mid) abas=abas.filter(a=>['agendamento','aguardando','andamento'].includes(a[0]));
+    if(mid && !['agendamento','aguardando','andamento'].includes(osFiltroStatus)) osFiltroStatus='aguardando';
     segBox.innerHTML=abas.map(([k,r,n])=>`<button class="${k===osFiltroStatus?'on':''}" onclick="setOsFiltro('${k}')">${r}${n?` <span class="seg-n">${n}</span>`:''}</button>`).join(''); }
-  let lista=state.ordens.filter(o=>osStatus(o)===osFiltroStatus).sort((a,b)=>{ const da=(a.agenda_data||a.data||''), db=(b.agenda_data||b.data||''); return osFiltroStatus==='agendamento'? da.localeCompare(db) : db.localeCompare(da); });
+  let lista=base.filter(o=>osStatus(o)===osFiltroStatus).sort((a,b)=>{ const da=(a.agenda_data||a.data||''), db=(b.agenda_data||b.data||''); return osFiltroStatus==='agendamento'? da.localeCompare(db) : db.localeCompare(da); });
   if(q){ lista=lista.filter(o=>{ const v=getVeiculo(o.veiculo_id); if(!v) return false; const c=getCliente(v.cliente_id);
     return ((c&&c.nome||'').toLowerCase().includes(q)) || ((v.placa||'').toLowerCase().includes(q)) || ((v.modelo||'').toLowerCase().includes(q)); }); }
-  if(!lista.length){ box.innerHTML=emptyState(q?'Nada encontrado':'Nada nesta fase', q?'Tente outro nome ou placa.':(osFiltroStatus==='aguardando'?'Toque em “Nova OS”.':'')); return; }
+  if(!lista.length){ box.innerHTML=emptyState(q?'Nada encontrado':'Nada nesta fase', q?'Tente outro nome ou placa.':(osFiltroStatus==='aguardando'?(mid?'':'Toque em “Nova OS”.'):'')); return; }
   box.innerHTML=lista.map(o=>{ const v=getVeiculo(o.veiculo_id); if(!v) return ''; const c=getCliente(v.cliente_id);
     const quando = osFiltroStatus==='agendamento' && o.agenda_data ? (fmtBR(parseISO(o.agenda_data))+(o.agenda_hora?(' '+o.agenda_hora):'')) : fmtBR(parseISO(o.data));
     const dir = osFiltroStatus==='agendamento' ? (o.reclamacao?esc(o.reclamacao.slice(0,40)):'agendado') : `${(o.itens||[]).length} item(ns)`;
     return `<div class="row click" onclick='go("os","${o.id}")'>
       <div class="main"><div class="t">${esc(c?.nome||'—')} <span class="plate">${esc(v.placa||'—')}</span></div>
         <div class="s">${quando} · ${esc(nomeVeiculo(v))} · ${dir}</div></div>
-      <div class="acts">${osFiltroStatus==='agendamento'?'':`<span class="valor-tag">${moneyFmt(osTotal(o))}</span>`}${chev()}</div></div>`; }).join('');
+      <div class="acts">${(osFiltroStatus==='agendamento'||mid)?'':`<span class="valor-tag">${moneyFmt(osTotal(o))}</span>`}${chev()}</div></div>`; }).join('');
 }
 
 /* OS detalhe (por fase) */
 function renderOsDet(id){
   const o=getOS(id); const box=document.getElementById('osDet');
   if(!o){ box.innerHTML=emptyState('Ordem não encontrada',''); return; }
+  const mid=souMecanico(); if(mid) return renderOsDetMecanico(o,mid);
   const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const st=osStatus(o);
   const mecResp=(state.mecanicos||[]).find(x=>x.id===o.mecanico_id);
   const stBadge=`<span class="badge" style="border-color:${faseCor(st)};color:${faseCor(st)}">${faseLabel(st)}</span>`;
@@ -1164,12 +1189,31 @@ function renderOsDet(id){
   if(v){ corpo+=`<div class="form-actions" style="margin-top:10px">
     <button class="btn sm ghost" onclick='imprimirFicha("${v.id}","os","${o.id}")'>🖨️ Imprimir</button>
     <button class="btn sm ghost" onclick='baixarFicha("${v.id}","os","${o.id}")'>⬇️ Baixar</button>
-    <button class="btn sm ghost" onclick='zapFicha("${v.id}","os","${o.id}")'>📲 Enviar</button></div>`; }
+    <button class="btn sm ghost" onclick='zapFicha("${v.id}","os","${o.id}")'>📲 Enviar</button>
+    ${(st==='aguardando'||st==='andamento')?`<button class="btn sm ghost" onclick='avisarMecanico("${o.id}")'>🔧 Avisar mecânico</button>`:''}</div>`; }
 
   // Pagamentos (andamento/executado)
   if(st==='andamento'||st==='executado'){ corpo+=renderPagamentosOS(o); }
 
   box.innerHTML=head+corpo;
+}
+function renderOsDetMecanico(o,mid){
+  const box=document.getElementById('osDet'); const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const st=osStatus(o);
+  const minhas=(o.maodeobra||[]).filter(m=>m.mecanico_id===mid);
+  const meuTotal=minhas.reduce((s,m)=>s+(Number(m.valor)||0),0);
+  const pecas=(o.itens||[]).map(i=>`<div class="row"><div class="main"><div class="t">${esc(i.nome)}</div><div class="s">Qtd: ${Number(i.qtde)||1}</div></div></div>`).join('');
+  box.innerHTML=`
+    <div class="det-head"><h2>OS · ${st==='agendamento'?(o.agenda_data?fmtBR(parseISO(o.agenda_data)):'Agendamento'):fmtBR(parseISO(o.data))}</h2></div>
+    <div class="os-status-bar"><span class="badge" style="border-color:${faseCor(st)};color:${faseCor(st)}">${faseLabel(st)}</span></div>
+    <div class="panel" style="margin-top:8px"><div class="kv">
+      <span class="k">Cliente</span><span class="v">${esc(c?.nome||'—')}</span>
+      <span class="k">Veículo</span><span class="v">${esc(v?nomeVeiculo(v):'—')} · ${esc(v?.placa||'')}</span>
+      ${st==='agendamento'?`<span class="k">Agendado</span><span class="v">${o.agenda_data?fmtBR(parseISO(o.agenda_data)):'—'}${o.agenda_hora?(' às '+o.agenda_hora):''}</span>`:`<span class="k">KM</span><span class="v">${o.km?nfmt(o.km)+' km':'—'}</span>`}</div></div>
+    <div class="note-label">${st==='agendamento'?'Prévia do serviço':'Reclamação / serviço'}</div><div class="note ${o.reclamacao?'':'empty-note'}">${o.reclamacao?esc(o.reclamacao):'—'}</div>
+    ${pecas?`<div class="section-label">Peças / itens do serviço</div><div class="rows">${pecas}</div>`:''}
+    <div class="section-label">Sua mão de obra</div>
+    ${minhas.length?`<div class="rows">${minhas.map(m=>`<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div></div><span class="valor-tag">${moneyFmt(m.valor)}</span></div>`).join('')}</div>
+      <div class="os-total"><span class="l"><b>Seu total de mão de obra</b></span><span class="v"><b>${moneyFmt(meuTotal)}</b></span></div>`:'<div class="note empty-note">Nenhuma mão de obra sua nesta OS ainda.</div>'}`;
 }
 function acoesFase(o,st){
   if(st==='aguardando') return `<button class="btn sm green" onclick='aprovarOrcamento("${o.id}")'>✓ Aprovado</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>✕ Rejeitar</button>`;
@@ -1228,13 +1272,20 @@ function removerPagamento(mid,oid){ confirmar('Remover este pagamento do caixa?'
 function avisarClienteAgenda(oid){ const o=getOS(oid); if(!o) return; const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const n=zapDoCliente(c);
   if(!n){ toast('Cliente sem WhatsApp'); return; }
   const nome=(c.nome||'').split(' ')[0]; const dia=o.agenda_data?fmtBR(parseISO(o.agenda_data)):''; const hora=o.agenda_hora||'';
-  const msg=`Olá ${nome}! 😊 Aqui é da *3M Centro Automotivo*.\nSeu agendamento está confirmado para *${dia}*${hora?(' às *'+hora+'*'):''}.\nVeículo: ${v?nomeVeiculo(v):''}.\n${o.reclamacao?('Serviço: '+o.reclamacao+'\n'):''}Qualquer dúvida, estamos à disposição. 🔧`;
+  const mec=(state.mecanicos||[]).find(x=>x.id===o.mecanico_id);
+  const msg=`Olá ${nome}! 😊 Aqui é da *3M Centro Automotivo*.\nSeu agendamento está confirmado para *${dia}*${hora?(' às *'+hora+'*'):''}.\nVeículo: ${v?nomeVeiculo(v):''}.\n${mec?('Técnico responsável: '+mec.nome+'\n'):''}Qualquer dúvida, estamos à disposição. 🔧`;
   window.open('https://wa.me/'+n+'?text='+encodeURIComponent(msg),'_blank'); }
-function avisarMecanicoAgenda(oid){ const o=getOS(oid); if(!o) return; const mec=(state.mecanicos||[]).find(x=>x.id===o.mecanico_id);
-  if(!mec){ toast('Defina o mecânico responsável (edite o agendamento)'); return; }
+function avisarMecanicoAgenda(oid){ avisarMecanico(oid); }
+function avisarMecanico(oid){ const o=getOS(oid); if(!o) return; const mec=(state.mecanicos||[]).find(x=>x.id===o.mecanico_id);
+  if(!mec){ toast('Defina o mecânico responsável'); return; }
   const tel=zapNumero(mec.telefone||''); if(!tel){ toast('Mecânico sem telefone cadastrado (Configuração → Mecânicos)'); return; }
-  const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const dia=o.agenda_data?fmtBR(parseISO(o.agenda_data)):''; const hora=o.agenda_hora||'';
-  const msg=`*Agendamento 3M* 🔧\nData: *${dia}*${hora?(' às *'+hora+'*'):''}\nCliente: ${c?c.nome:''}\nVeículo: ${v?nomeVeiculo(v):''}${v&&v.ano?(' '+v.ano):''}\n${o.reclamacao?('Serviço: '+o.reclamacao+'\n'):''}Você é o responsável.`;
+  const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const st=osStatus(o);
+  let msg;
+  if(st==='agendamento'){ const dia=o.agenda_data?fmtBR(parseISO(o.agenda_data)):''; const hora=o.agenda_hora||'';
+    msg=`*Agendamento 3M* 🔧\nData: *${dia}*${hora?(' às *'+hora+'*'):''}\nCliente: ${c?c.nome:''}\nVeículo: ${v?nomeVeiculo(v):''}${v&&v.ano?(' '+v.ano):''}${v&&v.placa?(' · '+v.placa):''}\n${o.reclamacao?('Serviço: '+o.reclamacao+'\n'):''}Você é o responsável.`;
+  } else {
+    msg=`*Carro na oficina* 🔧\nSob sua responsabilidade:\nCliente: ${c?c.nome:''}\nVeículo: ${v?nomeVeiculo(v):''}${v&&v.ano?(' '+v.ano):''}${v&&v.placa?(' · '+v.placa):''}\n${o.reclamacao?('Serviço: '+o.reclamacao+'\n'):''}`;
+  }
   window.open('https://wa.me/'+tel+'?text='+encodeURIComponent(msg),'_blank'); }
 
 function delOS(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } confirmar('Excluir esta ordem de serviço?', function(){ state.ordens=state.ordens.filter(o=>o.id!==id); state.caixa=state.caixa.filter(m=>m.ordem_id!==id); salvar(); back(); toast('OS excluída'); }); }
@@ -1592,9 +1643,10 @@ function copiarTexto(t){ if(navigator.clipboard&&navigator.clipboard.writeText){
 ================================================================== */
 let osItens=[], osFixoVeiculo=null;
 function renderOsItens(){ const box=document.getElementById('osItensBox');
-  const opcoes=state.regras.map(r=>`<option value="${esc(r.nome)}">${esc(r.nome)}</option>`).join('');
+  const cat=catalogoOS();
+  const opcoes=cat.map(r=>`<option value="${esc(r.nome)}">${esc(r.nome)}</option>`).join('');
   box.innerHTML=osItens.map(row=>{
-    const known=state.regras.some(r=>r.nome===row.nome);
+    const known=cat.some(r=>r.nome===row.nome);
     return `<div class="os-row">
     <div class="os-serv">
       <select class="os-sel" onchange="selServico('${row.id}',this.value)"><option value="">Escolher peça/serviço…</option>${opcoes}<option value="__manter__" ${(!known&&row.nome)?'selected':''} ${(!known&&row.nome)?'':'hidden'}>${esc(row.nome||'')}</option></select>
@@ -1607,10 +1659,23 @@ function renderOsItens(){ const box=document.getElementById('osItensBox');
   box.querySelectorAll('.os-row').forEach((rowEl,i)=>{ const nome=osItens[i].nome; const sel=rowEl.querySelector('.os-sel');
     if(sel){ const opt=[...sel.options].find(o=>o.value===nome); sel.value = opt?nome:(nome?'__manter__':''); } });
   atualizaTotal(); calcOsPrevia(); }
-function selServico(id,v){ if(v==='__manter__'||v==='') return; const r=osItens.find(x=>x.id===id); if(r){ r.nome=v; renderOsItens(); } }
+function selServico(id,v){ if(v==='__manter__'||v==='') return; const r=osItens.find(x=>x.id===id); if(r){ r.nome=v; const p=pecaPorNome(v); if(p&&p.preco&&!moneyParse(r.valor)) r.valor=String(p.preco).replace('.',','); renderOsItens(); } }
 function marcarSelect(inp){ const sel=inp.parentElement.querySelector('.os-sel'); if(!sel) return; const opt=[...sel.options].find(o=>o.value===inp.value&&o.value); sel.value=opt?inp.value:''; }
 function setOsItem(id,k,v){ const r=osItens.find(x=>x.id===id); if(r) r[k]=v; if(k==='valor'||k==='qtde') atualizaTotal(); else calcOsPrevia(); }
 function addOsItem(){ osItens.push({id:uid(),nome:'',qtde:'1',valor:''}); renderOsItens(); }
+function togglePecaInline(){ const box=document.getElementById('pcInline'); if(!box) return;
+  if(box.innerHTML){ box.innerHTML=''; return; }
+  box.innerHTML=`<div class="peca-inline"><div class="grid2">
+    <div class="field"><label>Nova peça</label><input id="pcNome" placeholder="Nome da peça"></div>
+    <div class="field"><label>Preço sugerido (opcional)</label><input id="pcPreco" inputmode="decimal" placeholder="0,00"></div></div>
+    <div class="form-actions"><button class="btn sm green" onclick="salvarPecaCatalogo()">Salvar no catálogo</button>
+      <button class="btn sm ghost" onclick="togglePecaInline()">Cancelar</button></div></div>`;
+}
+function salvarPecaCatalogo(){ const nome=tc(val('pcNome').trim()); if(!nome){ toast('Informe o nome da peça'); return; }
+  if(pecaPorNome(nome)){ toast('Essa peça já existe'); const b=document.getElementById('pcInline'); if(b) b.innerHTML=''; return; }
+  const preco=moneyParse(val('pcPreco'))||0;
+  state.pecas.push({id:uid(),nome,preco,criado:Date.now()}); salvar(); atualizarRegrasList();
+  const b=document.getElementById('pcInline'); if(b) b.innerHTML=''; renderOsItens(); toast('Peça cadastrada ✓'); }
 function removeOsItem(id){ osItens=osItens.filter(x=>x.id!==id); renderOsItens(); }
 function atualizaTotal(){ const pecas=osItens.reduce((s,i)=>s+moneyParse(i.valor)*(parseInt(i.qtde)||1),0);
   const mdo=(osMdo||[]).reduce((s,m)=>s+moneyParse(m.valor),0);
@@ -1707,6 +1772,8 @@ function openOS(id, veiculoFixo){ if(!pode('editar')){ toast('Sem permissão par
     <div class="field" style="margin-bottom:8px"><label>Peças / produtos — informe quantidade e valor unitário</label></div>
     <div id="osItensBox"></div>
     <button class="btn sm ghost" onclick="addOsItem()">+ Adicionar peça</button>
+    <button class="btn sm ghost" onclick="togglePecaInline()">🗂️ Cadastrar peça no catálogo</button>
+    <div id="pcInline"></div>
     <div class="os-total"><span class="l">Valor de peças</span><span class="v" id="osTotal">R$ 0,00</span></div>
 
     <div class="field" style="margin:16px 0 6px"><label>Mão de obra (com mecânico responsável)</label></div>
@@ -1800,7 +1867,7 @@ function cfgTab(k){
 const PERMS=[['editar','Cadastrar e editar'],['excluir','Excluir registros'],['valores','Ver valores (R$)'],['config','Acessar Configuração']];
 function permsPadrao(){ return {editar:true, excluir:false, valores:true, config:false}; }
 function pode(perm){ if(!usuarioAtual) return false; if(usuarioAtual.papel==='admin') return true; const p=usuarioAtual.perms||permsPadrao(); return !!p[perm]; }
-function aplicarPermissoesUI(){ document.body.classList.toggle('sem-valores', !pode('valores')); }
+function aplicarPermissoesUI(){ document.body.classList.toggle('sem-valores', !pode('valores') && !ehMecanico()); document.body.classList.toggle('modo-mecanico', ehMecanico()); montarNav(); if(ehMecanico()){ osFiltroStatus='aguardando'; } }
 function salvarConfig(){ state.config.msg=document.getElementById('cfgMsg').value; state.config.janela_dias=num('cfgJanela')||30; state.config.media_km_mes_padrao=num('cfgMedia')||1000; const l=document.getElementById('cfgLink'); if(l) state.config.link_manutencao=l.value.trim(); salvar(); toast('Ajustes salvos'); }
 function exportar(){ const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='backup-oficina-'+toISO(hoje())+'.json'; a.click(); toast('Backup exportado'); }
 function importar(ev){ const f=ev.target.files[0]; if(!f) return; const rd=new FileReader();
@@ -1809,14 +1876,14 @@ function importar(ev){ const f=ev.target.files[0]; if(!f) return; const rd=new F
       let db; if(d.ordens){ db=d; } else if(d.atendimentos){ db=upgradeV2toV3(d); } else if(d.servicos){ db=upgradeV2toV3(migrarV1toV2shape(d)); } else db={...novoBanco(),...d};
       db.config={...CONFIG_PADRAO,...(db.config||{})}; db.clientes.forEach(normCliente); db.veiculos.forEach(normVeiculo); db.ordens||=[];
       state=db; cacheSave(); montarNav(); goTab('painel'); toast('Enviando backup para a nuvem…');
-      apiPost('replace',{clientes:state.clientes,veiculos:state.veiculos,ordens:state.ordens,regras:state.regras,usuarios:state.usuarios,mecanicos:state.mecanicos,caixa:state.caixa,config:state.config})
+      apiPost('replace',{clientes:state.clientes,veiculos:state.veiculos,ordens:state.ordens,regras:state.regras,usuarios:state.usuarios,mecanicos:state.mecanicos,caixa:state.caixa,pecas:state.pecas,config:state.config})
         .then(()=>sincronizar()).then(()=>toast('Backup importado')).catch(()=>toast('Falha ao enviar — verifique a conexão'));
     });
   }catch(e){ toast('Não foi possível ler o arquivo'); } }; rd.readAsText(f); ev.target.value=''; }
 function limparTudo(){ confirmar('Apagar TODOS os dados da NUVEM? Sem volta.', function(){ confirmar('Tem certeza? Exporte um backup antes.', limparTudoConfirmado); }); }
 function limparTudoConfirmado(){
   state=novoBanco(); cacheSave(); montarNav(); goTab('painel');
-  apiPost('replace',{clientes:[],veiculos:[],ordens:[],regras:state.regras,usuarios:state.usuarios,mecanicos:state.mecanicos,caixa:state.caixa,config:state.config}).then(()=>sincronizar()).then(()=>toast('Dados apagados')).catch(()=>toast('Falha — verifique a conexão')); }
+  apiPost('replace',{clientes:[],veiculos:[],ordens:[],regras:state.regras,usuarios:state.usuarios,mecanicos:state.mecanicos,caixa:state.caixa,pecas:state.pecas,config:state.config}).then(()=>sincronizar()).then(()=>toast('Dados apagados')).catch(()=>toast('Falha — verifique a conexão')); }
 
 /* ==================================================================
    UI helpers
@@ -2106,11 +2173,12 @@ function renderUsuariosAdmin(){
   const badge=s=>`<span class="badge st-${s}">${s==='ativo'?'Ativo':s==='pendente'?'Pendente':'Bloqueado'}</span>`;
   const rows=state.usuarios.slice().sort((a,b)=>((a.status==='pendente')?-1:0)-((b.status==='pendente')?-1:0)||a.nome.localeCompare(b.nome)).map(u=>{
     const eu=usuarioAtual&&u.id===usuarioAtual.id;
-    return `<div class="row" style="flex-wrap:wrap; gap:8px"><div class="main"><div class="t">${esc(u.nome)} ${badge(u.status)}${u.papel==='admin'?' <span class="badge prev">admin</span>':''}${u.reset?' <span class="badge st-pendente">pediu senha</span>':''}</div>
+    return `<div class="row" style="flex-wrap:wrap; gap:8px"><div class="main"><div class="t">${esc(u.nome)} ${badge(u.status)}${u.papel==='admin'?' <span class="badge prev">admin</span>':''}${u.mecanico_id?' <span class="badge" style="border-color:#48B98A;color:#48B98A">mecânico</span>':''}${u.reset?' <span class="badge st-pendente">pediu senha</span>':''}</div>
       <div class="s">login: ${esc(u.login||'—')}${u.email?(' · '+esc(u.email)):''}${eu?' · (você)':''}</div></div>
       <div class="acts">
         <button class="switch ${u.status==='ativo'?'on':''}" title="${u.status==='ativo'?'Inativar':'Ativar'}" ${eu?'disabled style="opacity:.4"':''} onclick='adminToggle("${u.id}")'></button>
         <button class="btn sm ghost" ${u.papel==='admin'?'disabled style="opacity:.4"':''} onclick='adminPermissoes("${u.id}")'>Permissões</button>
+        <button class="btn sm ghost" onclick='adminVincularMec("${u.id}")'>Mecânico</button>
         <button class="btn sm ghost" onclick='adminRedefinirSenha("${u.id}")'>${u.reset?'Redefinir ⚠':'Redefinir senha'}</button>
         <button class="btn sm danger" ${eu?'disabled style="opacity:.4"':''} onclick='adminExcluir("${u.id}")'>Excluir</button>
       </div></div>`;
@@ -2130,14 +2198,16 @@ function adminCadastrar(){
       <div class="field"><label>E-mail</label><input id="nuEmail" placeholder="maria@email.com"></div></div>
     <div class="grid2"><div class="field"><label>Senha</label><input id="nuSenha" type="password" placeholder="senha"></div>
       <div class="field"><label>Papel</label><select id="nuPapel"><option value="operador">Operador</option><option value="admin">Administrador</option></select></div></div>
+    <div class="field"><label>Vincular a um mecânico (opcional)</label><select id="nuMec"><option value="">— não é mecânico —</option>${mecanicosAtivos().map(m=>`<option value="${m.id}">${esc(m.nome)}</option>`).join('')}</select>
+      <div class="hint" style="margin-bottom:0">Se vincular, este usuário entra em <b>modo mecânico</b>: vê só as OS no nome dele, sem valores de peças, apenas a mão de obra dele.</div></div>
     <div class="form-actions"><button class="btn gold" onclick="salvarNovoUsuario()">Salvar</button><button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
 }
 async function salvarNovoUsuario(){
   const nome=val('nuNome').trim(), login=val('nuLogin').trim(), senha=val('nuSenha');
   if(!nome||!login||!senha){ toast('Preencha nome, login e senha'); return; }
   if(usuarioPorLogin(login)){ toast('Esse login já existe'); return; }
-  const salt=randSalt(), hash=await hashSenha(senha,salt);
-  state.usuarios.push({id:uid(),nome,login,email:val('nuEmail').trim(),senha_hash:hash,salt,status:'ativo',papel:val('nuPapel'),perms:permsPadrao(),reset:'',criado:Date.now()});
+  const salt=randSalt(), hash=await hashSenha(senha,salt); const mecId=val('nuMec')||'';
+  state.usuarios.push({id:uid(),nome,login,email:val('nuEmail').trim(),senha_hash:hash,salt,status:'ativo',papel:mecId?'operador':val('nuPapel'),perms:permsPadrao(),reset:'',mecanico_id:mecId,criado:Date.now()});
   salvar(); closeModal(); renderUsuariosAdmin(); toast('Usuário cadastrado');
 }
 function adminPermissoes(id){
@@ -2153,6 +2223,13 @@ function salvarPermissoes(id){
   if(usuarioAtual&&usuarioAtual.id===id) aplicarPermissoesUI();
   toast('Permissões salvas');
 }
+function adminVincularMec(id){ const u=getUsuario(id); if(!u) return;
+  openModal(`<h3>Vincular a mecânico — ${esc(u.nome)}</h3><p class="sub">Ao vincular, o usuário entra em modo mecânico (vê só as OS dele, sem valores de peças).</p>
+    <div class="field"><label>Mecânico</label><select id="vmMec"><option value="">— não é mecânico —</option>${mecanicosAtivos().map(m=>`<option value="${m.id}" ${u.mecanico_id===m.id?'selected':''}>${esc(m.nome)}</option>`).join('')}</select></div>
+    <div class="form-actions"><button class="btn gold" onclick='salvarVincMec("${id}")'>Salvar</button><button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+}
+function salvarVincMec(id){ const u=getUsuario(id); if(!u) return; const mid=val('vmMec')||''; u.mecanico_id=mid; if(mid) u.papel='operador'; u.atualizado=Date.now();
+  salvar(); closeModal(); renderUsuariosAdmin(); if(usuarioAtual&&usuarioAtual.id===id) aplicarPermissoesUI(); toast('Vínculo atualizado'); }
 async function adminRedefinirSenha(id){
   const u=getUsuario(id); if(!u) return;
   const nova=prompt('Nova senha para '+u.nome+':'); if(nova==null||!nova.trim()) return;
