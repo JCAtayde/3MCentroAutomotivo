@@ -465,6 +465,7 @@ function novoBanco(){ return {clientes:[],veiculos:[],ordens:[],
 
 function normCliente(c){ c.contatos||=[]; c.tipo||='Preventiva'; c.telefone1||=c.telefone||''; c.telefone2||=''; c.endereco||=''; c.obs||=''; c.nascimento||=''; c.zap_num||='1'; c.lead||=''; return c; }
 function normVeiculo(v){ if(v.entrevista===undefined) v.entrevista=null; v.cor||=''; v.inspecao||={}; v.cambio||=''; return v; }
+function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
 
 function upgradeV2toV3(v2){
   const db=novoBanco();
@@ -492,7 +493,7 @@ function apiGet(){ return fetch(API+'/state',{headers:{'accept':'application/jso
 function apiPost(path,body){ return fetch(API+'/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
 function deepCopy(o){ return JSON.parse(JSON.stringify(o)); }
 function cacheSave(){ try{ localStorage.setItem(CACHE_KEY,JSON.stringify(state)); }catch(e){} }
-function cacheLoad(){ try{ const r=localStorage.getItem(CACHE_KEY); if(r){ const d=JSON.parse(r); d.clientes||=[]; d.veiculos||=[]; d.ordens||=[]; d.regras||=[]; d.usuarios||=[]; d.mecanicos||=[]; d.caixa||=[]; d.config={...CONFIG_PADRAO,...(d.config||{})}; return d; } }catch(e){} return null; }
+function cacheLoad(){ try{ const r=localStorage.getItem(CACHE_KEY); if(r){ const d=JSON.parse(r); d.clientes||=[]; d.veiculos||=[]; d.ordens||=[]; d.regras||=[]; d.usuarios||=[]; d.mecanicos||=[]; d.caixa||=[]; d.ordens.forEach(normOrdem); d.config={...CONFIG_PADRAO,...(d.config||{})}; try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); }catch(e){} return d; } }catch(e){} return null; }
 
 let state = cacheLoad() || {clientes:[],veiculos:[],ordens:[],regras:[],usuarios:[],mecanicos:[],caixa:[],config:{...CONFIG_PADRAO}};
 let lastSnapshot = deepCopy(state);
@@ -529,7 +530,7 @@ async function sincronizar(){
     const data=await apiGet();
     state.clientes=(data.clientes||[]).map(normCliente);
     state.veiculos=(data.veiculos||[]).map(normVeiculo);
-    state.ordens=data.ordens||[];
+    state.ordens=(data.ordens||[]).map(normOrdem);
     state.regras=data.regras||[];
     if(!state.regras.length) state.regras=REGRAS_PADRAO.map(r=>({...r}));
     state.usuarios=data.usuarios||[];
