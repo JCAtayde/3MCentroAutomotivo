@@ -133,6 +133,7 @@
   .overlay{position:fixed; inset:0; background:rgba(6,7,9,.72); backdrop-filter:blur(3px); z-index:60; display:none; align-items:flex-end; justify-content:center;}
   .overlay.open{display:flex}
   .modal-pill{position:fixed; left:50%; transform:translateX(-50%); bottom:82px; z-index:58; background:var(--gold,#E8B23A); color:#1a1206; font-weight:800; padding:11px 18px; border-radius:24px; box-shadow:0 10px 28px rgba(0,0,0,.45); cursor:pointer; display:none; align-items:center; gap:8px; font-size:13.5px}
+  .alerta-cad{margin-top:12px; padding:12px; border:1px solid var(--amber,#E8B23A); background:rgba(232,178,58,.10); border-radius:11px; font-size:13.5px}
   @media(min-width:640px){ .modal-pill{bottom:24px} }
   @media(min-width:640px){ .overlay{align-items:center; padding:20px} }
   .modal{background:var(--bg2); border:1px solid var(--line2); width:100%; max-width:580px; border-radius:18px 18px 0 0; padding:20px; max-height:92vh; overflow:auto}
@@ -1254,7 +1255,8 @@ function renderOsDet(id){
       <span class="k">Veículo</span><span class="v link" onclick='go("veiculo","${v?.id}")'>${esc(v?nomeVeiculo(v):'—')} · ${esc(v?.placa||'')}</span>
       ${st==='agendamento'?`<span class="k">Agendado para</span><span class="v">${o.agenda_data?fmtBR(parseISO(o.agenda_data)):'—'}${o.agenda_hora?(' às '+o.agenda_hora):''}</span>`:`<span class="k">KM na entrada</span><span class="v">${o.km?nfmt(o.km)+' km':'—'}</span>`}
       ${mecResp?`<span class="k">Mecânico</span><span class="v">👨‍🔧 ${esc(mecResp.nome)}</span>`:''}</div></div>
-    <div class="note-label">${st==='agendamento'?'Prévia do serviço / problema':'Reclamação do cliente'}</div><div class="note ${o.reclamacao?'':'empty-note'}">${o.reclamacao?esc(o.reclamacao):'—'}</div>`;
+    <div class="note-label">${st==='agendamento'?'Prévia do serviço / problema':'Reclamação do cliente'}</div><div class="note ${o.reclamacao?'':'empty-note'}">${o.reclamacao?esc(o.reclamacao):'—'}</div>
+    ${alertaCadastro(o,st)}`;
 
   // Agendamento: mensagens + chegou
   if(st==='agendamento'){ box.innerHTML=head+`
@@ -1407,6 +1409,27 @@ function renderPagamentosOS(o){
 
 /* ---- transições de fase ---- */
 function carroChegou(oid){ const o=getOS(oid); if(!o) return; confirmar('Confirmar que o carro chegou? A OS vai para "Aguardando orçamento".', function(){ o.status='aguardando'; if(!o.data||o.status==='agendamento') o.data=toISO(hoje()); o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; renderOsDet(oid); toast('Em Aguardando orçamento'); }, 'Confirmar', 'green'); }
+function alertaCadastro(o,st){
+  if(ehMecanico()) return '';
+  if(st!=='agendamento' && st!=='aguardando') return '';
+  const chk=cadastroCompleto(o); if(chk.ok) return '';
+  return `<div class="alerta-cad">⚠️ <b>Cadastro incompleto.</b> Faltam: ${esc(chk.faltas.join(', '))}.
+    <div class="hint" style="margin:6px 0 0">O sistema só avança (aprovar/executar) com esses dados completos.</div>
+    <div class="form-actions" style="margin-top:8px">
+      <button class="btn sm gold" onclick='pedirDadosCliente("${o.id}")'>📲 Pedir dados que faltam ao cliente</button>
+      ${chk.c?`<button class="btn sm ghost" onclick='openCliente("${chk.c.id}")'>Completar agora</button>`:''}</div></div>`;
+}
+function pedirDadosCliente(oid){
+  const o=getOS(oid); if(!o) return; const chk=cadastroCompleto(o); const c=chk.c;
+  if(!c){ toast('Cliente não encontrado'); return; }
+  const n=zapDoCliente(c);
+  if(!n){ toast('Cliente sem WhatsApp cadastrado. Adicione o telefone dele primeiro (Completar agora).'); return; }
+  const faltas=chk.faltas.filter(f=>f!=='telefone').map(f=>'• '+f.charAt(0).toUpperCase()+f.slice(1));
+  if(!faltas.length){ toast('Só falta o telefone, que você já tem. Complete no cadastro.'); return; }
+  const nome=(c.nome||'').split(' ')[0]||'';
+  const msg=`Olá ${nome}! 😊 Aqui é da *3M Centro Automotivo*.\n\nPara concluir o cadastro do seu veículo no nosso sistema e mantermos o *histórico completo* dos serviços do seu carro, faltam alguns dados:\n\n${faltas.join('\n')}\n\nEsses dados são importantes para registrarmos, de forma segura e eficaz, todo o histórico do seu carro em nossa empresa — e o nosso sistema só avança com o atendimento após tê-los. 🙏\n\nPode nos enviar por aqui mesmo? Obrigado! 🔧`;
+  window.open('https://wa.me/'+n+'?text='+encodeURIComponent(msg),'_blank');
+}
 function cadastroCompleto(o){
   const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const faltas=[];
   if(!c){ faltas.push('cliente'); return {ok:false,faltas,c:null,v}; }
@@ -1428,8 +1451,9 @@ function aprovarOrcamento(oid){ const o=getOS(oid); if(!o) return;
       <p class="sub">Para o carro entrar em andamento, o cadastro do cliente e do carro precisa estar completo. Falta:</p>
       <div class="note" style="color:var(--amber)">${chk.faltas.map(f=>'• '+f).join('<br>')}</div>
       <div class="form-actions" style="margin-top:12px">
-        ${chk.c?`<button class="btn gold" onclick='closeModal(); openCliente("${chk.c.id}")'>Completar cliente</button>`:''}
-        ${chk.v?`<button class="btn gold" onclick='closeModal(); openVeiculo("${chk.v.id}")'>Completar carro</button>`:''}
+        <button class="btn gold" onclick='closeModal(); pedirDadosCliente("${oid}")'>📲 Pedir dados ao cliente</button>
+        ${chk.c?`<button class="btn ghost" onclick='closeModal(); openCliente("${chk.c.id}")'>Completar cliente</button>`:''}
+        ${chk.v?`<button class="btn ghost" onclick='closeModal(); openVeiculo("${chk.v.id}")'>Completar carro</button>`:''}
         <button class="btn ghost" onclick="closeModal()">Fechar</button></div>`);
     return;
   }
