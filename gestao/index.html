@@ -132,6 +132,8 @@
 
   .overlay{position:fixed; inset:0; background:rgba(6,7,9,.72); backdrop-filter:blur(3px); z-index:60; display:none; align-items:flex-end; justify-content:center;}
   .overlay.open{display:flex}
+  .modal-pill{position:fixed; left:50%; transform:translateX(-50%); bottom:82px; z-index:58; background:var(--gold,#E8B23A); color:#1a1206; font-weight:800; padding:11px 18px; border-radius:24px; box-shadow:0 10px 28px rgba(0,0,0,.45); cursor:pointer; display:none; align-items:center; gap:8px; font-size:13.5px}
+  @media(min-width:640px){ .modal-pill{bottom:24px} }
   @media(min-width:640px){ .overlay{align-items:center; padding:20px} }
   .modal{background:var(--bg2); border:1px solid var(--line2); width:100%; max-width:580px; border-radius:18px 18px 0 0; padding:20px; max-height:92vh; overflow:auto}
   @media(min-width:640px){ .modal{border-radius:18px} }
@@ -654,7 +656,7 @@ function contatarReativar(cid){ const c=getCliente(cid); if(!c) return; const n=
       <option value="uma checagem gratuita de segurança (freios, pneus e suspensão)">Check-up de segurança grátis</option>
       <option value="um mimo especial preparado para você">Outro mimo</option></select></div>
     <div class="form-actions"><button class="btn green" onclick='enviarReativar("${cid}")'>📲 Enviar WhatsApp</button>
-      <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+      <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
 function enviarReativar(cid){ const c=getCliente(cid); const n=zapDoCliente(c); if(!n){ toast('Cliente sem WhatsApp'); return; }
   const brinde=val('reatBrinde')||'um mimo especial'; const nome=(c.nome||'').split(' ')[0];
@@ -1198,7 +1200,7 @@ function escolherFicha(vid,acao){
       ${opt('verificar','Prevenção · Inspecionar')}
     </div>
     ${osRows}
-    <div class="form-actions" style="margin-top:14px"><button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+    <div class="form-actions" style="margin-top:14px"><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
 
 /* ==================================================================
@@ -1452,7 +1454,7 @@ function pagamentoModal(oid,modo){ const o=getOS(oid); if(!o) return; if(!pode('
       <div class="hint" id="pgLiq" style="margin-bottom:0"></div></div>
     ${modo==='final'?`<div class="hint">Ao finalizar, o valor entra no caixa do dia e a OS vai para <b>Executados</b>. Se já estiver tudo pago, deixe o valor 0.</div>`:''}
     <div class="form-actions"><button class="btn green" onclick='salvarPagamento("${oid}","${modo}")'>${modo==='final'?'Finalizar':'Registrar'}</button>
-      <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+      <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
 function pgToggle(){ const f=val('pgForma'); const w=document.getElementById('pgCartao'); if(w) w.style.display=f==='cartao'?'':'none'; pgCalc(); }
 function pgCalc(){ const v=moneyParse(val('pgValor')); const t=moneyParse(val('pgTaxa')); const el=document.getElementById('pgLiq'); if(el) el.innerHTML=`Líquido a receber: <b>${moneyFmt(Math.max(0,v-t))}</b>`; }
@@ -1528,7 +1530,7 @@ function openCliente(id){ if(!pode('editar')){ toast('Sem permissão para editar
     <div class="field"><label>Observações</label><input autocomplete="off" id="fObs" value="${esc(c.obs)}" placeholder="opcional"></div>
     <div class="form-actions"><button class="btn gold" onclick='saveCliente(${id?`"${id}"`:'null'})'>Salvar</button>
       ${id?`<button class="btn danger" onclick='delCliente("${id}")'>Excluir</button>`:''}
-      <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+      <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
   renderContatos();
 }
 function saveCliente(id){
@@ -1567,7 +1569,7 @@ function openVeiculo(id, clienteId){ if(!pode('editar')){ toast('Sem permissão 
       <div class="field"><label>Média km/mês</label><input id="fMedia" value="${esc(v.media_km_mes)}" placeholder="1200" inputmode="numeric"></div></div>
     <div class="form-actions"><button class="btn gold" onclick='saveVeiculo(${id?`"${id}"`:'null'})'>Salvar</button>
       ${id?`<button class="btn danger" onclick='delVeiculo("${id}")'>Excluir</button>`:''}
-      <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+      <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
 function saveVeiculo(id){
   const dados={cliente_id:val('fCli'),placa:val('fPlaca').trim().toUpperCase(),modelo:tc(val('fModelo').trim()),ano:val('fAno').trim(),cor:tc(val('fCor').trim()),cambio:val('fCambio'),km_atual:num('fKm'),media_km_mes:num('fMedia')};
@@ -1914,7 +1916,7 @@ function novaOSchooser(){ if(!pode('editar')){ toast('Sem permissão para editar
     <div class="form-actions" style="flex-direction:column;align-items:stretch;gap:10px">
       <button class="btn gold" onclick="closeModal(); openAgendamento(null)">📅 Agendamento (serviço marcado para depois)</button>
       <button class="btn green" onclick="closeModal(); novaOSAqui()">🚗 Carro na oficina (aguardando orçamento)</button>
-      <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+      <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
 function novaOSAqui(){ if(!state.veiculos.length){ toast('Cadastre um veículo primeiro'); goTab('veiculos'); return; } openOS(null,null); }
 
@@ -1935,7 +1937,7 @@ function openAgendamento(id){ if(!pode('editar')){ toast('Sem permissão para ed
       ${dtField('agHora','time',(o&&o.agenda_hora?o.agenda_hora:''),'Hora')}</div>
     <div class="field"><label>Mecânico responsável</label><select id="agMec"><option value="">—</option>${mecOpts}</select></div>
     <div class="form-actions"><button class="btn gold" onclick='saveAgendamento(${id?`"${id}"`:'null'})'>Salvar agendamento</button>
-      <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+      <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
   agCliChange(true);
   if(o&&v){ const sel=document.getElementById('agVeic'); if(sel) sel.value=v.id; }
 }
@@ -2001,7 +2003,7 @@ function openOS(id, veiculoFixo){ if(!pode('editar')){ toast('Sem permissão par
     <div class="prev-list" id="osPrevia"></div>
     <div class="hint" style="margin:12px 0 0">A ordem fica em <b>Aguardando orçamento</b>. Depois: <b>Aprovado</b> → Em andamento (onde você lança pagamentos e finaliza); <b>Rejeitar</b> → Rejeitado. Ao <b>Finalizar</b>, vira Executado e gera os retornos. Peças com nome da Tabela de Revisões geram o retorno automático.</div>
     <div class="form-actions" style="margin-top:14px"><button class="btn green" onclick='saveOS(${id?`"${id}"`:'null'})'>Salvar ordem</button>
-      <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+      <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
   renderOsItens(); renderOsMdo();
 }
 let osMdo=[];
@@ -2052,7 +2054,7 @@ function openRegra(id){ if(!pode('editar')){ toast('Sem permissão para editar')
       <div class="field"><label>Validade em meses (0 = ignora)</label><input id="fRMes" value="${esc(r.meses)}" inputmode="numeric" placeholder="12"></div></div>
     <div class="form-actions"><button class="btn gold" onclick='saveRegra(${id?`"${id}"`:'null'})'>Salvar</button>
       ${id?`<button class="btn danger" onclick='delRegra("${id}")'>Excluir</button>`:''}
-      <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`); }
+      <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`); }
 function saveRegra(id){ const nome=tc(val('fRNome').trim()),km=num('fRKm')||0,meses=num('fRMes')||0;
   if(!nome){ toast('Informe o nome'); return; } if(km<=0&&meses<=0){ toast('Preencha KM ou meses'); return; }
   if(id) Object.assign(getRegra(id),{nome,km,meses}); else state.regras.push({id:uid(),nome,km,meses});
@@ -2110,15 +2112,46 @@ function limparTudoConfirmado(){
    UI helpers
 ================================================================== */
 function emptyState(t,s){ return `<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01" stroke-linecap="round"/></svg><p>${t}</p>${s?`<span>${s}</span>`:''}</div>`; }
-function openModal(html){ document.getElementById('modal').innerHTML=html; document.getElementById('overlay').classList.add('open'); }
-function closeModal(){ document.getElementById('overlay').classList.remove('open'); }
+let modalOpts={persist:false}, modalMinimizado=false, modalSaveBtn=null;
+function openModal(html){
+  const modal=document.getElementById('modal'); modal.innerHTML=html;
+  document.getElementById('overlay').classList.add('open');
+  modalMinimizado=false; esconderPill();
+  const campo=modal.querySelector('input:not([type=hidden]):not([readonly]), textarea, select');
+  modalOpts={persist:!!campo};
+  modalSaveBtn=[...modal.querySelectorAll('.form-actions button')].find(b=>!b.classList.contains('ghost') && !/excluir|cancelar|fechar|voltar/i.test(b.textContent)) || null;
+}
+function closeModal(){ document.getElementById('overlay').classList.remove('open'); modalMinimizado=false; modalOpts={persist:false}; modalSaveBtn=null; esconderPill(); const a=document.getElementById('askClose'); if(a) a.classList.remove('open'); }
+function minimizarModal(){ document.getElementById('overlay').classList.remove('open'); modalMinimizado=true; mostrarPill(); }
+function restaurarModal(){ if(!modalMinimizado) return; document.getElementById('overlay').classList.add('open'); modalMinimizado=false; esconderPill(); }
+function mostrarPill(){ let p=document.getElementById('modalPill'); if(!p){ p=document.createElement('div'); p.id='modalPill'; p.className='modal-pill'; p.innerHTML='📝 Continuar cadastro'; p.onclick=restaurarModal; document.body.appendChild(p); } p.style.display='flex'; }
+function esconderPill(){ const p=document.getElementById('modalPill'); if(p) p.style.display='none'; }
+function descartarModal(){ if(modalOpts.persist){ mostrarAskClose(); } else { closeModal(); } }
+function mostrarAskClose(){
+  let a=document.getElementById('askClose');
+  if(!a){ a=document.createElement('div'); a.id='askClose'; a.className='overlay'; document.body.appendChild(a); }
+  a.innerHTML=`<div class="modal" style="max-width:360px"><h3>Salvar as alterações?</h3>
+    <p class="sub">Você tem informações preenchidas neste cadastro.</p>
+    <div class="form-actions" style="flex-direction:column;align-items:stretch;gap:8px">
+      ${modalSaveBtn?`<button class="btn green" onclick="askSalvar()">💾 Salvar</button>`:''}
+      <button class="btn danger" onclick="askDescartar()">🗑️ Descartar</button>
+      <button class="btn ghost" onclick="askVoltar()">Voltar ao cadastro</button></div></div>`;
+  a.classList.add('open');
+}
+function askVoltar(){ const a=document.getElementById('askClose'); if(a) a.classList.remove('open'); }
+function askDescartar(){ const a=document.getElementById('askClose'); if(a) a.classList.remove('open'); closeModal(); }
+function askSalvar(){ const a=document.getElementById('askClose'); if(a) a.classList.remove('open'); if(modalSaveBtn){ modalSaveBtn.click(); } else { closeModal(); } }
 function confirmar(msg, onOk, okLabel, okClass){
   openModal(`<h3>Confirmar</h3><p class="sub" style="white-space:pre-line">${esc(msg)}</p>
     <div class="form-actions"><button class="btn ${okClass||'danger'}" id="__cfmOk">${esc(okLabel||'Confirmar')}</button>
       <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+  modalOpts={persist:false};
   const b=document.getElementById('__cfmOk'); if(b) b.onclick=function(){ closeModal(); setTimeout(function(){ if(onOk) onOk(); },40); };
 }
-document.getElementById('overlay').addEventListener('click',e=>{ if(e.target.id==='overlay') closeModal(); });
+document.getElementById('overlay').addEventListener('click',e=>{ if(e.target.id==='overlay'){ if(modalOpts.persist) minimizarModal(); else closeModal(); } });
+document.addEventListener('keydown',e=>{ if(e.key!=='Escape') return;
+  const ask=document.getElementById('askClose'); if(ask && ask.classList.contains('open')){ askVoltar(); return; }
+  if(document.getElementById('overlay').classList.contains('open')){ if(modalOpts.persist) minimizarModal(); else closeModal(); } });
 let toastT; function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2400); }
 
 /* ==================================================================
@@ -2173,7 +2206,7 @@ function movimentoModal(tipo,id){ const m=id?(state.caixa.find(x=>x.id===id)||{}
     <div class="field"><label>Descrição</label><input id="mvDesc" value="${esc(m.descricao||'')}" placeholder="${ent?'Ex: Venda de peça avulsa':'Ex: Compra de óleo / conta de luz'}"></div>
     <div class="form-actions"><button class="btn ${ent?'green':'danger'}" onclick='salvarMovimento(${id?`"${id}"`:'null'},"${tipo}")'>Salvar</button>
       ${id?`<button class="btn danger" onclick='excluirMovimento("${id}")'>Excluir</button>`:''}
-      <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+      <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
   mvToggleTaxa();
 }
 function mvToggleTaxa(){ const f=val('mvForma'); const w=document.getElementById('mvTaxaWrap'); if(w) w.style.display=(f==='cartao')?'':'none'; }
@@ -2210,7 +2243,7 @@ function editMecanico(id){ const m=id?(state.mecanicos.find(x=>x.id===id)||{}):{
     <div class="hint">O telefone é usado para enviar o aviso de agendamento ao mecânico (sem expor o telefone do cliente).</div>
     <div class="form-actions"><button class="btn gold" onclick='salvarMecanico(${id?`"${id}"`:'null'})'>Salvar</button>
       ${id?`<button class="btn danger" onclick='excluirMecanico("${id}")'>Excluir</button>`:''}
-      <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+      <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
 function salvarMecanico(id){ const nome=tc(val('mNome').trim()); if(!nome){ toast('Informe o nome'); return; }
   const perc=Math.max(0,Math.min(100,num('mPerc')||50)); const telefone=val('mTel').trim();
@@ -2421,7 +2454,7 @@ function adminCadastrar(){
       <div class="field"><label>Papel</label><select id="nuPapel"><option value="operador">Operador</option><option value="admin">Administrador</option></select></div></div>
     <div class="field"><label>Vincular a um mecânico (opcional)</label><select id="nuMec"><option value="">— não é mecânico —</option>${mecanicosAtivos().map(m=>`<option value="${m.id}">${esc(m.nome)}</option>`).join('')}</select>
       <div class="hint" style="margin-bottom:0">Se vincular, este usuário entra em <b>modo mecânico</b>: vê só as OS no nome dele, sem valores de peças, apenas a mão de obra dele.</div></div>
-    <div class="form-actions"><button class="btn gold" onclick="salvarNovoUsuario()">Salvar</button><button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+    <div class="form-actions"><button class="btn gold" onclick="salvarNovoUsuario()">Salvar</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
 async function salvarNovoUsuario(){
   const nome=val('nuNome').trim(), login=val('nuLogin').trim(), senha=val('nuSenha');
@@ -2435,7 +2468,7 @@ function adminPermissoes(id){
   const u=getUsuario(id); if(!u) return; const p=u.perms||permsPadrao();
   openModal(`<h3>Permissões — ${esc(u.nome)}</h3><p class="sub">Marque o que este usuário pode fazer.</p>
     ${PERMS.map(([k,r])=>`<label class="ent-row ${p[k]?'on':''}" style="grid-template-columns:22px 1fr" data-perm="${k}"><input type="checkbox" ${p[k]?'checked':''} onchange="this.closest('.ent-row').classList.toggle('on',this.checked)"><span class="en">${r}</span></label>`).join('')}
-    <div class="form-actions" style="margin-top:12px"><button class="btn gold" onclick='salvarPermissoes("${id}")'>Salvar permissões</button><button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+    <div class="form-actions" style="margin-top:12px"><button class="btn gold" onclick='salvarPermissoes("${id}")'>Salvar permissões</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
 function salvarPermissoes(id){
   const u=getUsuario(id); if(!u) return; const p={};
@@ -2447,7 +2480,7 @@ function salvarPermissoes(id){
 function adminVincularMec(id){ const u=getUsuario(id); if(!u) return;
   openModal(`<h3>Vincular a mecânico — ${esc(u.nome)}</h3><p class="sub">Ao vincular, o usuário entra em modo mecânico (vê só as OS dele, sem valores de peças).</p>
     <div class="field"><label>Mecânico</label><select id="vmMec"><option value="">— não é mecânico —</option>${mecanicosAtivos().map(m=>`<option value="${m.id}" ${u.mecanico_id===m.id?'selected':''}>${esc(m.nome)}</option>`).join('')}</select></div>
-    <div class="form-actions"><button class="btn gold" onclick='salvarVincMec("${id}")'>Salvar</button><button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+    <div class="form-actions"><button class="btn gold" onclick='salvarVincMec("${id}")'>Salvar</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
 function salvarVincMec(id){ const u=getUsuario(id); if(!u) return; const mid=val('vmMec')||''; u.mecanico_id=mid; if(mid) u.papel='operador'; u.atualizado=Date.now();
   salvar(); closeModal(); renderUsuariosAdmin(); if(usuarioAtual&&usuarioAtual.id===id) aplicarPermissoesUI(); toast('Vínculo atualizado'); }
