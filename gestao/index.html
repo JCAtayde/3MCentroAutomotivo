@@ -380,7 +380,7 @@
         <div class="field"><label>Antecedência do alerta (dias)</label><input id="cfgJanela" type="number" inputmode="numeric"></div>
         <div class="field"><label>Rodagem padrão (km/mês)</label><input id="cfgMedia" type="number" inputmode="numeric"></div></div></div>
       <div class="panel"><div class="field"><label>Mensagem de reativação (cliente sumido)</label><textarea id="cfgMsgReat" rows="6"></textarea></div>
-        <div class="grid2"><div class="field"><label>Considerar sumido após (meses)</label><input id="cfgReatMeses" type="number" inputmode="numeric" min="1"></div></div>
+        <div class="grid2"><div class="field"><label>Considerar sumido após (meses)</label><input id="cfgReatMeses" type="number" inputmode="numeric" min="0"></div></div>
         <div class="hint" style="margin-bottom:0">Variáveis: <b>{nome}</b> e <b>{brinde}</b>. Aparece no Painel a lista de quem não volta há esse tempo (contado da última OS executada).</div>
         <div class="form-actions" style="margin-top:6px"><button class="btn gold" onclick="salvarConfig()">Salvar mensagens</button></div></div>
     </div>
@@ -642,7 +642,7 @@ function zapNumero(t){ let d=(t||'').replace(/\D/g,''); if(d.startsWith('55')&&d
 function zapDoCliente(c){ if(!c) return ''; const pref=c.zap_num==='2'?c.telefone2:c.telefone1; return zapNumero(pref)||zapNumero(c.telefone1)||zapNumero(c.telefone2); }
 function ultimaExecutadaCliente(cid){ let ultima=null; veiculosDe(cid).forEach(v=>ordensDe(v.id).forEach(o=>{ if(osStatus(o)==='executado' && o.data){ if(!ultima||o.data>ultima) ultima=o.data; } })); return ultima; }
 function mesesDesde(iso){ if(!iso) return null; const d=parseISO(iso), n=hoje(); let m=(n.getFullYear()-d.getFullYear())*12+(n.getMonth()-d.getMonth()); if(n.getDate()<d.getDate()) m--; return m; }
-function reativacaoMeses(){ return parseInt((state.config&&state.config.reativacao_meses)||'3')||3; }
+function reativacaoMeses(){ const v=state.config&&state.config.reativacao_meses; const n=parseInt(v); return (v!=null&&v!==''&&!isNaN(n))?n:3; }
 function clientesParaReativar(){ const lim=reativacaoMeses(); const out=[];
   state.clientes.forEach(c=>{ const u=ultimaExecutadaCliente(c.id); if(!u) return; const m=mesesDesde(u); if(m!=null && m>=lim) out.push({c,ultima:u,meses:m}); });
   return out.sort((a,b)=>b.meses-a.meses); }
@@ -2059,7 +2059,7 @@ function saveRegra(id){ const nome=tc(val('fRNome').trim()),km=num('fRKm')||0,me
   salvar(); document.getElementById('regrasList').innerHTML=state.regras.map(r=>`<option value="${esc(r.nome)}">`).join(''); closeModal(); renderRegras(); toast('Regra salva'); }
 function delRegra(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } confirmar('Excluir esta regra?', function(){ state.regras=state.regras.filter(r=>r.id!==id); salvar(); closeModal(); renderRegras(); toast('Regra excluída'); }); }
 
-function carregarConfig(){ document.getElementById('cfgMsg').value=state.config.msg; document.getElementById('cfgJanela').value=state.config.janela_dias; document.getElementById('cfgMedia').value=state.config.media_km_mes_padrao; const l=document.getElementById('cfgLink'); if(l) l.value=state.config.link_manutencao||''; const mr=document.getElementById('cfgMsgReat'); if(mr) mr.value=state.config.msg_reativacao||CONFIG_PADRAO.msg_reativacao; const rm=document.getElementById('cfgReatMeses'); if(rm) rm.value=state.config.reativacao_meses||'3'; montarCfgTabs(); cfgTab(cfgAtiva); }
+function carregarConfig(){ document.getElementById('cfgMsg').value=state.config.msg; document.getElementById('cfgJanela').value=state.config.janela_dias; document.getElementById('cfgMedia').value=state.config.media_km_mes_padrao; const l=document.getElementById('cfgLink'); if(l) l.value=state.config.link_manutencao||''; const rm=document.getElementById('cfgMsgReat'); if(mr) mr.value=state.config.msg_reativacao||CONFIG_PADRAO.msg_reativacao; const rmv=document.getElementById('cfgReatMeses'); if(rmv) rmv.value=(state.config.reativacao_meses!=null&&state.config.reativacao_meses!=='')?state.config.reativacao_meses:'3'; montarCfgTabs(); cfgTab(cfgAtiva); }
 let cfgAtiva='mensagens';
 function montarCfgTabs(){
   const box=document.getElementById('cfgTabs'); if(!box) return;
@@ -2089,7 +2089,7 @@ function resetInatividade(){ if(inatividadeTimer) clearTimeout(inatividadeTimer)
   inatividadeTimer=setTimeout(function(){ if(usuarioAtual){ fazerLogout(); toast('Sessão encerrada por inatividade (30 min).'); } }, INATIVIDADE_MS); }
 let inatividadeLigada=false;
 function iniciarInatividade(){ if(!inatividadeLigada){ inatividadeLigada=true; ['click','keydown','touchstart','mousemove','scroll'].forEach(function(ev){ document.addEventListener(ev, resetInatividade, {passive:true}); }); } resetInatividade(); }
-function salvarConfig(){ state.config.msg=document.getElementById('cfgMsg').value; state.config.janela_dias=num('cfgJanela')||30; state.config.media_km_mes_padrao=num('cfgMedia')||1000; const l=document.getElementById('cfgLink'); if(l) state.config.link_manutencao=l.value.trim(); const mr=document.getElementById('cfgMsgReat'); if(mr) state.config.msg_reativacao=mr.value; const rm=document.getElementById('cfgReatMeses'); if(rm) state.config.reativacao_meses=String(num('cfgReatMeses')||3); salvar(); if(typeof refreshAtual==='function') refreshAtual(); toast('Ajustes salvos'); }
+function salvarConfig(){ state.config.msg=document.getElementById('cfgMsg').value; state.config.janela_dias=num('cfgJanela')||30; state.config.media_km_mes_padrao=num('cfgMedia')||1000; const l=document.getElementById('cfgLink'); if(l) state.config.link_manutencao=l.value.trim(); const mr=document.getElementById('cfgMsgReat'); if(mr) state.config.msg_reativacao=mr.value; const rm=document.getElementById('cfgReatMeses'); if(rm){ const v=num('cfgReatMeses'); state.config.reativacao_meses=String(v===''?3:v); } salvar(); if(typeof refreshAtual==='function') refreshAtual(); toast('Ajustes salvos'); }
 function exportar(){ const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='backup-oficina-'+toISO(hoje())+'.json'; a.click(); toast('Backup exportado'); }
 function importar(ev){ const f=ev.target.files[0]; if(!f) return; const rd=new FileReader();
   rd.onload=()=>{ try{ const d=JSON.parse(rd.result); if(!d.clientes||!d.veiculos){ toast('Arquivo inválido'); return; }
