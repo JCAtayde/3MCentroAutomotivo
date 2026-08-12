@@ -4,11 +4,21 @@
 
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-function pagina(titulo, corpo){
+function pagina(titulo, corpo, meta){
+  meta = meta || {};
+  const og = `
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="3M Centro Automotivo">
+    <meta property="og:title" content="${esc(meta.title||titulo)}">
+    <meta property="og:description" content="${esc(meta.desc||'Imagens e vídeos do serviço do seu veículo.')}">
+    ${meta.image ? `<meta property="og:image" content="${esc(meta.image)}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="${esc(meta.image)}">` : ''}
+    ${meta.url ? `<meta property="og:url" content="${esc(meta.url)}">` : ''}`;
   return `<!doctype html><html lang="pt-BR"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>${esc(titulo)}</title>
+<title>${esc(titulo)}</title>${og}
 <style>
   :root{--gold:#E8B23A}
   *{box-sizing:border-box}
@@ -31,37 +41,47 @@ function pagina(titulo, corpo){
 }
 
 export async function onRequest(context){
-  const { env, params } = context;
-  const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const { env, params, request } = context;
+  const cod = Array.isArray(params.id) ? params.id[0] : params.id;
   try{
     if(!env.DB) return new Response(pagina('Indisponível','<div class="empty">Serviço indisponível no momento.</div>'), {status:200, headers:{'Content-Type':'text/html; charset=utf-8'}});
-    const row = await env.DB.prepare('SELECT id, veiculo_id, midias FROM ordens WHERE id = ?').bind(id).first();
+    let row = await env.DB.prepare('SELECT id, veiculo_id, midias FROM ordens WHERE codigo = ?').bind(cod).first();
+    if(!row) row = await env.DB.prepare('SELECT id, veiculo_id, midias FROM ordens WHERE id = ?').bind(cod).first();
     if(!row){
       return new Response(pagina('Não encontrado','<div class="empty">Ordem de serviço não encontrada.</div>'), {status:404, headers:{'Content-Type':'text/html; charset=utf-8'}});
     }
     let midias = [];
     try{ midias = JSON.parse(row.midias || '[]'); }catch(e){ midias = []; }
 
-    // nome do veículo (sem dados sensíveis)
     let carro = '';
     try{
       const v = await env.DB.prepare('SELECT modelo, ano FROM veiculos WHERE id = ?').bind(row.veiculo_id).first();
       if(v) carro = [v.modelo, v.ano].filter(Boolean).join(' ');
     }catch(e){}
 
-    const itens = (midias || []).filter(m => (m.cat || 'defeito') === 'defeito').map(m => {
+    const defeito = (midias || []).filter(m => (m.cat || 'defeito') === 'defeito');
+    const itens = defeito.map(m => {
       const src = '/gestao/api/midia/' + m.key;
       return m.tipo === 'video'
         ? `<div class="item"><video src="${esc(src)}" controls preload="metadata"></video></div>`
         : `<div class="item"><a href="${esc(src)}" target="_blank"><img src="${esc(src)}" alt="foto do serviço"></a></div>`;
     }).join('');
 
+    const primeiraFoto = defeito.find(m => (m.tipo||'image') !== 'video');
+    const ogImage = primeiraFoto ? ('https://3mcentroautomotivo.com.br/gestao/api/midia/' + primeiraFoto.key) : '';
+
     const corpo = `
       <h1>Imagens e Vídeos dos Problemas Encontrados</h1>
       <p class="sub">${carro ? esc(carro) : 'Seu veículo'}</p>
       ${itens ? `<div class="grid">${itens}</div>` : '<div class="empty">Ainda não há imagens ou vídeos para este serviço.</div>'}`;
 
-    return new Response(pagina('Imagens e Vídeos dos Problemas Encontrados', corpo), {status:200, headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
+    const meta = {
+      title: 'Imagens e Vídeos dos Problemas Encontrados',
+      desc: (carro ? carro + ' · ' : '') + '3M Centro Automotivo',
+      image: ogImage,
+      url: request.url,
+    };
+    return new Response(pagina('Imagens e Vídeos dos Problemas Encontrados', corpo, meta), {status:200, headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
   }catch(e){
     return new Response(pagina('Erro','<div class="empty">Não foi possível carregar as imagens.</div>'), {status:200, headers:{'Content-Type':'text/html; charset=utf-8'}});
   }

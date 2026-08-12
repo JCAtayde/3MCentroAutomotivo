@@ -7,7 +7,7 @@
 const SCHEMA = {
   clientes: { cols:['id','nome','tipo','telefone1','telefone2','endereco','obs','contatos','nascimento','zap_num','lead','cpf','rua','setor','cidade','estado','cep','quadra','lote','numero','criado','atualizado'], json:['contatos'] },
   veiculos: { cols:['id','cliente_id','placa','modelo','ano','cor','km_atual','media_km_mes','entrevista','inspecao','cambio','criado','atualizado'], json:['entrevista','inspecao'] },
-  ordens:   { cols:['id','veiculo_id','data','km','reclamacao','obs_mecanico','obs_admin','itens','maodeobra','status','agenda_data','agenda_hora','mecanico_id','midias','criado','atualizado'], json:['itens','maodeobra','midias'] },
+  ordens:   { cols:['id','veiculo_id','data','km','reclamacao','obs_mecanico','obs_admin','itens','maodeobra','status','agenda_data','agenda_hora','mecanico_id','midias','codigo','criado','atualizado'], json:['itens','maodeobra','midias'] },
   regras:   { cols:['id','nome','km','meses','ordem'], json:[] },
   mecanicos:{ cols:['id','nome','percentual','ativo','telefone','criado','atualizado'], json:[] },
   caixa:    { cols:['id','tipo','data','valor','forma','taxa','liquido','descricao','ordem_id','parcelas','criado','atualizado'], json:[] },

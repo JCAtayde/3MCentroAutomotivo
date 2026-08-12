@@ -1158,7 +1158,7 @@ function textoFicha(vid,tipo,osId){
     if((o.itens||[]).length){ t+='\n*Peças:*\n'+o.itens.map(i=>{ const q=Number(i.qtde)||1; return `• ${i.nome}${q>1?(' ×'+q):''} — ${moneyFmt((Number(i.valor)||0)*q)}`; }).join('\n'); }
     if((o.maodeobra||[]).length){ t+='\n\n*Mão de obra:*\n'+o.maodeobra.map(m=>`• ${m.desc||'Serviço'} — ${moneyFmt(m.valor)}`).join('\n'); }
     t+=`\n\nPeças: ${moneyFmt(pecasTotal(o))}\nMão de obra: ${moneyFmt(osMdoTotal(o))}\n*Total: ${moneyFmt(osTotal(o))}*`;
-    if((o.midias||[]).some(m=>(m.cat||'defeito')==='defeito')){ t+=`\n\n📷 Imagens e vídeos dos problemas encontrados:\nhttps://3mcentroautomotivo.com.br/os/${o.id}`; } } }
+    if((o.midias||[]).some(m=>(m.cat||'defeito')==='defeito')){ t+=`\n\n📷 Imagens e vídeos dos problemas encontrados:\nhttps://3mcentroautomotivo.com.br/os/${o.codigo||o.id}`; } } }
   if(tipo==='vencidos'||tipo==='proximos'||tipo==='verificar'||tipo==='entrada') t+='\n'+linkManutencaoTxt();
   return t.trim();
 }
@@ -1316,6 +1316,7 @@ function blocoDiagnostico(o){
 function salvarDiagnostico(oid){ const o=getOS(oid); if(!o) return; o.obs_mecanico=val('diagBox'); o.atualizado=Date.now(); salvar(); toast('Diagnóstico salvo ✓'); }
 
 function podeMidiaOS(o){ const st=osStatus(o); return (st==='aguardando'||st==='andamento') && (ehMecanico()||pode('editar')); }
+function codigoOS(){ const ab='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let c; do{ c=''; for(let i=0;i<6;i++) c+=ab[Math.floor(Math.random()*ab.length)]; }while((state.ordens||[]).some(o=>o.codigo===c)); return c; }
 function midiaCat(o,cat){ return (o.midias||[]).filter(m=>(m.cat||'defeito')===cat); }
 function blocoMidias(o, cat, podeAdd){
   const titulo = cat==='entrada' ? '🚗 Entrada — como o carro chegou' : '🔧 Fotos e vídeos dos problemas encontrados';
@@ -1359,6 +1360,7 @@ async function enviarMidia(oid, input, tipo, cat){
     let d={}; try{ d=await r.json(); }catch(_){}
     if(!r.ok||!d.key){ throw new Error(d.error||('HTTP '+r.status)); }
     const o=getOS(oid); if(!o){ toast('OS não encontrada'); return; }
+    if(!o.codigo) o.codigo=codigoOS();
     o.midias=Array.isArray(o.midias)?o.midias:[]; o.midias.push({key:d.key,tipo:d.tipo||tipo,cat,criado:Date.now()}); o.atualizado=Date.now();
     cacheSave(); enviarMudancas();
     renderOsDet(oid); toast('Mídia adicionada ✓');
