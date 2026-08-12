@@ -29,7 +29,9 @@ export async function onRequest(context) {
     if (request.method === 'POST') {
       const tipo = request.headers.get('X-Tipo') || 'image';
       const ct = request.headers.get('Content-Type') || (tipo === 'video' ? 'video/mp4' : 'image/jpeg');
-      const ext = ct.includes('video') ? (ct.includes('webm') ? 'webm' : 'mp4') : (ct.includes('png') ? 'png' : 'jpg');
+      let ext = 'bin';
+      if (ct.includes('video')) ext = ct.includes('webm') ? 'webm' : (ct.includes('quicktime') ? 'mov' : 'mp4');
+      else if (ct.includes('image')) ext = ct.includes('png') ? 'png' : (ct.includes('webp') ? 'webp' : 'jpg');
       const novaKey = 'os/' + uid() + '.' + ext;
       const buf = await request.arrayBuffer();
       if (!buf || buf.byteLength === 0) return json({ error: 'arquivo vazio' }, 400);

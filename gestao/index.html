@@ -1347,24 +1347,37 @@ async function comprimirImagem(file){
     return blob||file;
   }catch(e){ return file; }
 }
+function uploadComProgresso(url, body, ct, tipo, onProg){
+  return new Promise(function(resolve,reject){
+    const xhr=new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.setRequestHeader('Content-Type', ct);
+    xhr.setRequestHeader('X-Tipo', tipo);
+    xhr.upload.onprogress=function(e){ if(e.lengthComputable && onProg) onProg(Math.round(e.loaded/e.total*100)); };
+    xhr.onload=function(){ let d={}; try{ d=JSON.parse(xhr.responseText); }catch(_){}
+      if(xhr.status>=200 && xhr.status<300 && d.key) resolve(d); else reject(new Error(d.error||('HTTP '+xhr.status))); };
+    xhr.onerror=function(){ reject(new Error('rede')); };
+    xhr.ontimeout=function(){ reject(new Error('tempo esgotado')); };
+    xhr.timeout=5*60*1000;
+    xhr.send(body);
+  });
+}
 async function enviarMidia(oid, input, tipo, cat){
   cat = cat||'defeito';
   const oIni=getOS(oid); if(!oIni) return; const file=input.files&&input.files[0]; input.value=''; if(!file) return;
   const st=document.getElementById('mdStatus-'+cat+'-'+oid);
-  if(tipo==='video' && file.size>60*1024*1024){ if(st){ st.textContent='Vídeo muito grande (máx ~60MB). Grave um clipe mais curto.'; st.style.color='var(--amber)'; } return; }
-  if(st){ st.textContent='Enviando… não feche a tela.'; st.style.color='var(--muted)'; }
+  if(tipo==='video' && file.size>95*1024*1024){ if(st){ st.textContent='Vídeo muito grande ('+Math.round(file.size/1048576)+' MB, máx 95 MB). No iPhone: abra o vídeo, toque em Editar, corte um trecho curto e salve como novo, depois envie.'; st.style.color='var(--amber)'; } return; }
+  if(st){ st.textContent = tipo==='video' ? ('Enviando vídeo ('+Math.round(file.size/1048576)+' MB)… pode demorar, não feche a tela.') : 'Enviando…'; st.style.color='var(--muted)'; }
   try{
     let body=file, ct=file.type||(tipo==='video'?'video/mp4':'image/jpeg');
     if(tipo==='image'){ const b=await comprimirImagem(file); body=b; ct=b.type||'image/jpeg'; }
-    const r=await fetch('/gestao/api/midia/upload',{method:'POST',headers:{'Content-Type':ct,'X-Tipo':tipo},body});
-    let d={}; try{ d=await r.json(); }catch(_){}
-    if(!r.ok||!d.key){ throw new Error(d.error||('HTTP '+r.status)); }
+    const d=await uploadComProgresso('/gestao/api/midia/upload', body, ct, tipo, function(pct){ if(st) st.textContent='Enviando… '+pct+'%'; });
     const o=getOS(oid); if(!o){ toast('OS não encontrada'); return; }
     if(!o.codigo) o.codigo=codigoOS();
-    o.midias=Array.isArray(o.midias)?o.midias:[]; o.midias.push({key:d.key,tipo:d.tipo||tipo,cat,criado:Date.now()}); o.atualizado=Date.now();
+    o.midias=Array.isArray(o.midias)?o.midias:[]; o.midias.push({key:d.key,tipo:d.tipo||tipo,ct:d.ct||ct,cat,criado:Date.now()}); o.atualizado=Date.now();
     cacheSave(); enviarMudancas();
     renderOsDet(oid); toast('Mídia adicionada ✓');
-  }catch(e){ if(st){ st.textContent='Falha ao enviar: '+(e&&e.message||e)+'. (Confira o binding R2 "MEDIA" no Pages e o deploy.)'; st.style.color='var(--amber)'; } }
+  }catch(e){ if(st){ st.textContent='Falha ao enviar: '+(e&&e.message||e)+'. Se for vídeo grande do iPhone, tente um trecho mais curto.'; st.style.color='var(--amber)'; } }
 }
 function removerMidia(oid,key){ confirmar('Remover esta mídia?', function(){
   const o=getOS(oid); if(!o) return;
