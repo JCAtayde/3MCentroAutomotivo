@@ -373,6 +373,9 @@
       <div class="panel"><div class="grid2">
         <div class="field"><label>Antecedência do alerta (dias)</label><input id="cfgJanela" type="number" inputmode="numeric"></div>
         <div class="field"><label>Rodagem padrão (km/mês)</label><input id="cfgMedia" type="number" inputmode="numeric"></div></div>
+      <div class="panel"><div class="field"><label>Mensagem de reativação (cliente sumido)</label><textarea id="cfgMsgReat" rows="6"></textarea></div>
+        <div class="grid2"><div class="field"><label>Considerar sumido após (meses)</label><input id="cfgReatMeses" type="number" inputmode="numeric" min="1"></div></div>
+        <div class="hint" style="margin-bottom:0">Variáveis: <b>{nome}</b> e <b>{brinde}</b>. Aparece no Painel a lista de quem não volta há esse tempo (contado da última OS executada).</div>
         <div class="form-actions" style="margin-top:6px"><button class="btn gold" onclick="salvarConfig()">Salvar mensagens</button></div></div>
     </div>
 
@@ -472,6 +475,8 @@ const REGRAS_PADRAO=[
 ];
 const CONFIG_PADRAO={janela_dias:30, media_km_mes_padrao:1000,
   link_manutencao:'https://3mcentroautomotivo.com.br/manutencao',
+  reativacao_meses:'3',
+  msg_reativacao:'Olá {nome}! 😊 Aqui é da *3M Centro Automotivo*.\n\nSentimos sua falta! Notamos que faz um tempinho desde a última vez que cuidamos do seu carro por aqui, e ficamos com você na lembrança. Está tudo bem com ele?\n\nPara te receber de volta, preparamos um mimo: *{brinde}*. 🎁\n\nÉ só passar aqui que a gente cuida de tudo pra você! 🔧',
   msg:'Olá {cliente}! Aqui é da 3M Centro Automotivo. 🔧\n\nPassando para lembrar que o seu *{veiculo}* (placa {placa}) está chegando na revisão de *{servico}*, prevista para *{data}* ou ao atingir *{km} km*.\n\nPodemos agendar um horário?'};
 
 function novoBanco(){ return {clientes:[],veiculos:[],ordens:[],
@@ -481,7 +486,22 @@ function normCliente(c){ c.contatos||=[]; c.tipo||='Preventiva'; c.telefone1||=c
 function fmtCPF(v){ const d=(v||'').replace(/\D/g,'').slice(0,11); if(d.length<=3) return d; if(d.length<=6) return d.slice(0,3)+'.'+d.slice(3); if(d.length<=9) return d.slice(0,3)+'.'+d.slice(3,6)+'.'+d.slice(6); return d.slice(0,3)+'.'+d.slice(3,6)+'.'+d.slice(6,9)+'-'+d.slice(9); }
 function fmtCEP(v){ const d=(v||'').replace(/\D/g,'').slice(0,8); return d.length<=5?d:d.slice(0,5)+'-'+d.slice(5); }
 function mascararCPF(el){ el.value=fmtCPF(el.value); }
-function mascararCEP(el){ el.value=fmtCEP(el.value); }
+function mascararCEP(el){ el.value=fmtCEP(el.value); if(el.value.replace(/\D/g,'').length===8) buscarCEP(); }
+async function buscarCEP(){
+  const cepEl=document.getElementById('fCep'); if(!cepEl) return;
+  const cep=(cepEl.value||'').replace(/\D/g,''); if(cep.length!==8){ toast('CEP incompleto'); return; }
+  const st=document.getElementById('cepStatus'); if(st){ st.textContent='Buscando endereço…'; st.style.color='var(--muted)'; }
+  try{
+    const r=await fetch('https://viacep.com.br/ws/'+cep+'/json/'); const d=await r.json();
+    if(d.erro){ if(st){ st.textContent='CEP não encontrado — preencha manualmente.'; st.style.color='var(--amber)'; } return; }
+    const setRua=document.getElementById('fRua'), setSetor=document.getElementById('fSetor'), setCidade=document.getElementById('fCidade'), setEstado=document.getElementById('fEstado');
+    if(setRua && d.logradouro && !setRua.value.trim()) setRua.value=tc(d.logradouro);
+    if(setSetor && d.bairro && !setSetor.value.trim()) setSetor.value=tc(d.bairro);
+    if(setCidade && d.localidade) setCidade.value=tc(d.localidade);
+    if(setEstado && d.uf) setEstado.value=d.uf.toUpperCase();
+    if(st){ st.textContent='Endereço preenchido pelo CEP ✓'; st.style.color='var(--green)'; }
+  }catch(e){ if(st){ st.textContent='Sem internet para buscar o CEP — preencha manualmente.'; st.style.color='var(--amber)'; } }
+}
 function normVeiculo(v){ if(v.entrevista===undefined) v.entrevista=null; v.cor||=''; v.inspecao||={}; v.cambio||=''; return v; }
 function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
 
@@ -609,6 +629,27 @@ function pagoOS(oid){ return pagamentosOS(oid).reduce((s,m)=>s+(Number(m.valor)|
 function restanteOS(o){ return Math.max(0, osTotal(o)-pagoOS(o.id)); }
 function zapNumero(t){ let d=(t||'').replace(/\D/g,''); if(d.startsWith('55')&&d.length>=12) return d; if(d.length===10||d.length===11) return '55'+d; return d; }
 function zapDoCliente(c){ if(!c) return ''; const pref=c.zap_num==='2'?c.telefone2:c.telefone1; return zapNumero(pref)||zapNumero(c.telefone1)||zapNumero(c.telefone2); }
+function ultimaExecutadaCliente(cid){ let ultima=null; veiculosDe(cid).forEach(v=>ordensDe(v.id).forEach(o=>{ if(osStatus(o)==='executado' && o.data){ if(!ultima||o.data>ultima) ultima=o.data; } })); return ultima; }
+function mesesDesde(iso){ if(!iso) return null; const d=parseISO(iso), n=hoje(); let m=(n.getFullYear()-d.getFullYear())*12+(n.getMonth()-d.getMonth()); if(n.getDate()<d.getDate()) m--; return m; }
+function reativacaoMeses(){ return parseInt((state.config&&state.config.reativacao_meses)||'3')||3; }
+function clientesParaReativar(){ const lim=reativacaoMeses(); const out=[];
+  state.clientes.forEach(c=>{ const u=ultimaExecutadaCliente(c.id); if(!u) return; const m=mesesDesde(u); if(m!=null && m>=lim) out.push({c,ultima:u,meses:m}); });
+  return out.sort((a,b)=>b.meses-a.meses); }
+function contatarReativar(cid){ const c=getCliente(cid); if(!c) return; const n=zapDoCliente(c); if(!n){ toast('Cliente sem WhatsApp'); return; }
+  openModal(`<h3>Reativar — ${esc(c.nome)}</h3><p class="sub">Escolha o mimo e envie a mensagem carinhosa.</p>
+    <div class="field"><label>Brinde de cortesia</label><select id="reatBrinde">
+      <option value="uma lavagem completa por nossa conta">Lavagem cortesia</option>
+      <option value="um rodízio de rodas por nossa conta">Rodízio de rodas</option>
+      <option value="uma checagem gratuita de segurança (freios, pneus e suspensão)">Check-up de segurança grátis</option>
+      <option value="um mimo especial preparado para você">Outro mimo</option></select></div>
+    <div class="form-actions"><button class="btn green" onclick='enviarReativar("${cid}")'>📲 Enviar WhatsApp</button>
+      <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+}
+function enviarReativar(cid){ const c=getCliente(cid); const n=zapDoCliente(c); if(!n){ toast('Cliente sem WhatsApp'); return; }
+  const brinde=val('reatBrinde')||'um mimo especial'; const nome=(c.nome||'').split(' ')[0];
+  const tmpl=(state.config&&state.config.msg_reativacao)||CONFIG_PADRAO.msg_reativacao;
+  const msg=tmpl.replace(/{nome}/g,nome).replace(/{brinde}/g,brinde);
+  window.open('https://wa.me/'+n+'?text='+encodeURIComponent(msg),'_blank'); closeModal(); }
 function chev(){ return '<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'; }
 
 function servicosFlat(){ const out=[]; state.ordens.forEach(o=>{ if(!osExecutada(o)) return; (o.itens||[]).forEach(i=>{ if(i.regra_id) out.push({veiculo_id:o.veiculo_id,regra_id:i.regra_id,km:o.km,data:o.data}); }); }); return out; }
@@ -861,7 +902,18 @@ function renderPainel(){
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 00-8.6 15l-1.3 4.7 4.8-1.3A10 10 0 1012 2zm0 18a8 8 0 01-4.1-1.1l-.3-.2-2.9.8.8-2.8-.2-.3A8 8 0 1112 20zm4.5-6c-.2-.1-1.4-.7-1.7-.8-.2-.1-.4-.1-.5.1l-.7.9c-.1.2-.3.2-.5.1a6.5 6.5 0 01-3.2-2.8c-.1-.2 0-.4.1-.5l.5-.6c.1-.2.1-.3 0-.5l-.7-1.7c-.2-.4-.4-.4-.5-.4h-.5c-.2 0-.4.1-.6.3a3 3 0 00-.9 2.2c0 1.3 1 2.6 1.1 2.8.1.2 1.9 3 4.6 4.1 2.7 1.1 2.7.8 3.1.7.6-.1 1.4-.6 1.6-1.1.2-.6.2-1 .1-1.1z"/></svg>WhatsApp</button>
         <button class="btn sm ghost" onclick='verMensagem("${i.veiculo.id}","${i.regra.id}")'>Ver texto</button></div></div>`;
   }).join('');
-  box.innerHTML=gpHtml+lista;
+  box.innerHTML=gpHtml+renderReativarPainel()+lista;
+}
+function renderReativarPainel(){
+  if(ehMecanico()) return '';
+  const lim=reativacaoMeses(); const reat=clientesParaReativar();
+  if(!reat.length) return '';
+  const linhas=reat.slice(0,30).map(({c,ultima,meses})=>`<div class="row"><div class="main"><div class="t">${esc(c.nome)}</div>
+      <div class="s">Última visita: ${fmtBR(parseISO(ultima))} · sumido há <b style="color:var(--amber)">${meses} ${meses===1?'mês':'meses'}</b></div></div>
+      <div class="acts"><button class="btn sm green" onclick='contatarReativar("${c.id}")'>🎁 Contatar</button></div></div>`).join('');
+  return `<div class="section-label" style="color:var(--amber)">💜 Reativação — sumidos há ${lim}+ meses (${reat.length})</div>
+    <div class="hint">Clientes sem serviço executado há ${lim} meses ou mais. Chame com carinho e ofereça um mimo (lavagem, rodízio de rodas…).</div>
+    <div class="rows">${linhas}</div>`;
 }
 
 /* ==================================================================
@@ -1366,7 +1418,8 @@ function openCliente(id){ if(!pode('editar')){ toast('Sem permissão para editar
     <div class="field"><label>Aniversário (dd/mm)</label><input id="fNasc" value="${esc(c.nascimento||'')}" placeholder="25/12" inputmode="numeric"></div>
     <div class="field"><label>Rua / nº</label><input id="fRua" value="${esc(c.rua||c.endereco||'')}" placeholder="Rua das Flores, 123"></div>
     <div class="grid2"><div class="field"><label>Setor / bairro</label><input id="fSetor" value="${esc(c.setor||'')}" placeholder="Setor Garavelo"></div>
-      <div class="field"><label>CEP</label><input id="fCep" value="${esc(c.cep||'')}" placeholder="00000-000" inputmode="numeric" oninput="mascararCEP(this)"></div></div>
+      <div class="field"><label>CEP</label><div class="dt-wrap"><input id="fCep" value="${esc(c.cep||'')}" placeholder="00000-000" inputmode="numeric" oninput="mascararCEP(this)"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); buscarCEP()">🔍</button></div>
+        <div class="hint" id="cepStatus" style="margin-bottom:0">Digite o CEP para preencher o endereço automaticamente.</div></div></div>
     <div class="grid2"><div class="field"><label>Cidade</label><input id="fCidade" value="${esc(c.cidade||'')}" placeholder="Aparecida de Goiânia"></div>
       <div class="field"><label>Estado (UF)</label><input id="fEstado" value="${esc(c.estado||'')}" placeholder="GO" maxlength="2" style="text-transform:uppercase"></div></div>
     <div class="field" style="margin-bottom:8px"><label>Contatos autorizados (quem pode buscar/trazer o carro)</label></div>
@@ -1904,7 +1957,7 @@ function saveRegra(id){ const nome=tc(val('fRNome').trim()),km=num('fRKm')||0,me
   salvar(); document.getElementById('regrasList').innerHTML=state.regras.map(r=>`<option value="${esc(r.nome)}">`).join(''); closeModal(); renderRegras(); toast('Regra salva'); }
 function delRegra(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } confirmar('Excluir esta regra?', function(){ state.regras=state.regras.filter(r=>r.id!==id); salvar(); closeModal(); renderRegras(); toast('Regra excluída'); }); }
 
-function carregarConfig(){ document.getElementById('cfgMsg').value=state.config.msg; document.getElementById('cfgJanela').value=state.config.janela_dias; document.getElementById('cfgMedia').value=state.config.media_km_mes_padrao; const l=document.getElementById('cfgLink'); if(l) l.value=state.config.link_manutencao||''; montarCfgTabs(); cfgTab(cfgAtiva); }
+function carregarConfig(){ document.getElementById('cfgMsg').value=state.config.msg; document.getElementById('cfgJanela').value=state.config.janela_dias; document.getElementById('cfgMedia').value=state.config.media_km_mes_padrao; const l=document.getElementById('cfgLink'); if(l) l.value=state.config.link_manutencao||''; const mr=document.getElementById('cfgMsgReat'); if(mr) mr.value=state.config.msg_reativacao||CONFIG_PADRAO.msg_reativacao; const rm=document.getElementById('cfgReatMeses'); if(rm) rm.value=state.config.reativacao_meses||'3'; montarCfgTabs(); cfgTab(cfgAtiva); }
 let cfgAtiva='mensagens';
 function montarCfgTabs(){
   const box=document.getElementById('cfgTabs'); if(!box) return;
@@ -1929,7 +1982,7 @@ const PERMS=[['editar','Cadastrar e editar'],['excluir','Excluir registros'],['v
 function permsPadrao(){ return {editar:true, excluir:false, valores:true, config:false}; }
 function pode(perm){ if(!usuarioAtual) return false; if(usuarioAtual.papel==='admin') return true; const p=usuarioAtual.perms||permsPadrao(); return !!p[perm]; }
 function aplicarPermissoesUI(){ document.body.classList.toggle('sem-valores', !pode('valores') && !ehMecanico()); document.body.classList.toggle('modo-mecanico', ehMecanico()); montarNav(); if(ehMecanico()){ osFiltroStatus='aguardando'; } }
-function salvarConfig(){ state.config.msg=document.getElementById('cfgMsg').value; state.config.janela_dias=num('cfgJanela')||30; state.config.media_km_mes_padrao=num('cfgMedia')||1000; const l=document.getElementById('cfgLink'); if(l) state.config.link_manutencao=l.value.trim(); salvar(); toast('Ajustes salvos'); }
+function salvarConfig(){ state.config.msg=document.getElementById('cfgMsg').value; state.config.janela_dias=num('cfgJanela')||30; state.config.media_km_mes_padrao=num('cfgMedia')||1000; const l=document.getElementById('cfgLink'); if(l) state.config.link_manutencao=l.value.trim(); const mr=document.getElementById('cfgMsgReat'); if(mr) state.config.msg_reativacao=mr.value; const rm=document.getElementById('cfgReatMeses'); if(rm) state.config.reativacao_meses=String(num('cfgReatMeses')||3); salvar(); if(typeof refreshAtual==='function') refreshAtual(); toast('Ajustes salvos'); }
 function exportar(){ const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='backup-oficina-'+toISO(hoje())+'.json'; a.click(); toast('Backup exportado'); }
 function importar(ev){ const f=ev.target.files[0]; if(!f) return; const rd=new FileReader();
   rd.onload=()=>{ try{ const d=JSON.parse(rd.result); if(!d.clientes||!d.veiculos){ toast('Arquivo inválido'); return; }
