@@ -1409,23 +1409,23 @@ function openCliente(id){ if(!pode('editar')){ toast('Sem permissão para editar
   const c=id?getCliente(id):{nome:'',tipo:'Preventiva',telefone1:'',telefone2:'',endereco:'',obs:'',contatos:[],nascimento:'',zap_num:'1',cpf:'',rua:'',setor:'',cidade:'',estado:'',cep:''};
   contatoRows=(c.contatos||[]).map(x=>({id:uid(),nome:x.nome||'',relacao:x.relacao||RELACOES[0],telefone:x.telefone||'',nascimento:x.nascimento||''}));
   openModal(`<h3>${id?'Editar cliente':'Novo cliente'}</h3><p class="sub">Dados, contatos autorizados e perfil.</p>
-    <div class="grid2"><div class="field"><label>Nome</label><input id="fNome" value="${esc(c.nome)}" placeholder="Carlos Souza"></div>
-      <div class="field"><label>CPF</label><input id="fCPF" value="${esc(c.cpf||'')}" placeholder="000.000.000-00" inputmode="numeric" oninput="mascararCPF(this)"></div></div>
-    <div class="grid2"><div class="field"><label>Telefone 1</label><input id="fTel1" value="${esc(c.telefone1)}" placeholder="62 99999-8888" inputmode="tel"></div>
-      <div class="field"><label>Telefone 2</label><input id="fTel2" value="${esc(c.telefone2)}" placeholder="opcional" inputmode="tel"></div></div>
+    <div class="grid2"><div class="field"><label>Nome</label><input autocomplete="off" id="fNome" value="${esc(c.nome)}" placeholder="Carlos Souza"></div>
+      <div class="field"><label>CPF</label><input autocomplete="off" id="fCPF" value="${esc(c.cpf||'')}" placeholder="000.000.000-00" inputmode="numeric" oninput="mascararCPF(this)"></div></div>
+    <div class="grid2"><div class="field"><label>Telefone 1</label><input autocomplete="off" id="fTel1" value="${esc(c.telefone1)}" placeholder="62 99999-8888" inputmode="tel"></div>
+      <div class="field"><label>Telefone 2</label><input autocomplete="off" id="fTel2" value="${esc(c.telefone2)}" placeholder="opcional" inputmode="tel"></div></div>
     <div class="grid2"><div class="field"><label>Qual é o WhatsApp?</label><select id="fZap"><option value="1" ${c.zap_num!=='2'?'selected':''}>Telefone 1</option><option value="2" ${c.zap_num==='2'?'selected':''}>Telefone 2</option></select></div>
       <div class="field"><label>Perfil</label><select id="fTipo">${TIPOS.map(t=>`<option ${t===c.tipo?'selected':''}>${t}</option>`).join('')}</select></div></div>
-    <div class="field"><label>Aniversário (dd/mm)</label><input id="fNasc" value="${esc(c.nascimento||'')}" placeholder="25/12" inputmode="numeric"></div>
-    <div class="field"><label>Rua / nº</label><input id="fRua" value="${esc(c.rua||c.endereco||'')}" placeholder="Rua das Flores, 123"></div>
-    <div class="grid2"><div class="field"><label>Setor / bairro</label><input id="fSetor" value="${esc(c.setor||'')}" placeholder="Setor Garavelo"></div>
-      <div class="field"><label>CEP</label><div class="dt-wrap"><input id="fCep" value="${esc(c.cep||'')}" placeholder="00000-000" inputmode="numeric" oninput="mascararCEP(this)"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); buscarCEP()">🔍</button></div>
+    <div class="field"><label>Aniversário (dd/mm)</label><input autocomplete="off" id="fNasc" value="${esc(c.nascimento||'')}" placeholder="25/12" inputmode="numeric"></div>
+    <div class="field"><label>Rua / nº</label><input autocomplete="off" id="fRua" value="${esc(c.rua||c.endereco||'')}" placeholder="Rua das Flores, 123"></div>
+    <div class="grid2"><div class="field"><label>Setor / bairro</label><input autocomplete="off" id="fSetor" value="${esc(c.setor||'')}" placeholder="Setor Garavelo"></div>
+      <div class="field"><label>CEP</label><div class="dt-wrap"><input autocomplete="off" id="fCep" value="${esc(c.cep||'')}" placeholder="00000-000" inputmode="numeric" oninput="mascararCEP(this)"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); buscarCEP()">🔍</button></div>
         <div class="hint" id="cepStatus" style="margin-bottom:0">Digite o CEP para preencher o endereço automaticamente.</div></div></div>
-    <div class="grid2"><div class="field"><label>Cidade</label><input id="fCidade" value="${esc(c.cidade||'')}" placeholder="Aparecida de Goiânia"></div>
-      <div class="field"><label>Estado (UF)</label><input id="fEstado" value="${esc(c.estado||'')}" placeholder="GO" maxlength="2" style="text-transform:uppercase"></div></div>
+    <div class="grid2"><div class="field"><label>Cidade</label><input autocomplete="off" id="fCidade" value="${esc(c.cidade||'')}" placeholder="Aparecida de Goiânia"></div>
+      <div class="field"><label>Estado (UF)</label><input autocomplete="off" id="fEstado" value="${esc(c.estado||'')}" placeholder="GO" maxlength="2" style="text-transform:uppercase"></div></div>
     <div class="field" style="margin-bottom:8px"><label>Contatos autorizados (quem pode buscar/trazer o carro)</label></div>
     <div id="contatosBox"></div>
     <button class="btn sm ghost" id="addContatoBtn" onclick="addContato()" style="margin-bottom:12px">+ Adicionar contato</button>
-    <div class="field"><label>Observações</label><input id="fObs" value="${esc(c.obs)}" placeholder="opcional"></div>
+    <div class="field"><label>Observações</label><input autocomplete="off" id="fObs" value="${esc(c.obs)}" placeholder="opcional"></div>
     <div class="form-actions"><button class="btn gold" onclick='saveCliente(${id?`"${id}"`:'null'})'>Salvar</button>
       ${id?`<button class="btn danger" onclick='delCliente("${id}")'>Excluir</button>`:''}
       <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
