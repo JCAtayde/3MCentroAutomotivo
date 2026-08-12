@@ -477,7 +477,11 @@ const CONFIG_PADRAO={janela_dias:30, media_km_mes_padrao:1000,
 function novoBanco(){ return {clientes:[],veiculos:[],ordens:[],
   regras:REGRAS_PADRAO.map(r=>({id:uid(),nome:r.nome,km:+r.km,meses:+r.meses})), config:{...CONFIG_PADRAO}}; }
 
-function normCliente(c){ c.contatos||=[]; c.tipo||='Preventiva'; c.telefone1||=c.telefone||''; c.telefone2||=''; c.endereco||=''; c.obs||=''; c.nascimento||=''; c.zap_num||='1'; c.lead||=''; return c; }
+function normCliente(c){ c.contatos||=[]; c.tipo||='Preventiva'; c.telefone1||=c.telefone||''; c.telefone2||=''; c.endereco||=''; c.obs||=''; c.nascimento||=''; c.zap_num||='1'; c.lead||=''; c.cpf||=''; c.rua||=''; c.setor||=''; c.cidade||=''; c.estado||=''; c.cep||=''; return c; }
+function fmtCPF(v){ const d=(v||'').replace(/\D/g,'').slice(0,11); if(d.length<=3) return d; if(d.length<=6) return d.slice(0,3)+'.'+d.slice(3); if(d.length<=9) return d.slice(0,3)+'.'+d.slice(3,6)+'.'+d.slice(6); return d.slice(0,3)+'.'+d.slice(3,6)+'.'+d.slice(6,9)+'-'+d.slice(9); }
+function fmtCEP(v){ const d=(v||'').replace(/\D/g,'').slice(0,8); return d.length<=5?d:d.slice(0,5)+'-'+d.slice(5); }
+function mascararCPF(el){ el.value=fmtCPF(el.value); }
+function mascararCEP(el){ el.value=fmtCEP(el.value); }
 function normVeiculo(v){ if(v.entrevista===undefined) v.entrevista=null; v.cor||=''; v.inspecao||={}; v.cambio||=''; return v; }
 function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
 
@@ -895,10 +899,12 @@ function renderClienteDet(id){
     ${c.lead==='novo'?`<div class="lead-banner">🔔 <b>Novo cadastro do site</b> — aguardando contato. <button class="btn sm green" onclick='chamarLead("${c.id}")'>WhatsApp</button> <button class="btn sm ghost" onclick='concluirLead("${c.id}")'>✔ Concluir (sair da fila)</button></div>`:''}
     <div class="panel" style="margin-top:8px">
       <div class="kv">
+        <span class="k">CPF</span><span class="v">${esc(c.cpf||'—')}</span>
         <span class="k">Telefone 1</span><span class="v">${tel1}</span>
         <span class="k">Telefone 2</span><span class="v">${tel2}</span>
         <span class="k">Aniversário</span><span class="v">${c.nascimento?('🎂 '+esc(c.nascimento)):'—'}</span>
-        <span class="k">Endereço</span><span class="v">${esc(c.endereco||'—')}</span>
+        <span class="k">Endereço</span><span class="v">${esc([c.rua,c.setor].filter(Boolean).join(', ')||c.endereco||'—')}</span>
+        <span class="k">Cidade / UF</span><span class="v">${esc([c.cidade,c.estado].filter(Boolean).join(' / ')||'—')}${c.cep?(' · CEP '+esc(c.cep)):''}</span>
       </div>${c.obs?`<div class="note-label">Observações</div><div class="note">${esc(c.obs)}</div>`:''}${contatos}
     </div>
     <div class="section-label"><span>Veículos (${vs.length})</span><button class="btn sm gold" onclick='openVeiculo(null,"${c.id}")'>+ Novo veículo</button></div>
@@ -1251,7 +1257,33 @@ function renderPagamentosOS(o){
 
 /* ---- transições de fase ---- */
 function carroChegou(oid){ const o=getOS(oid); if(!o) return; confirmar('Confirmar que o carro chegou? A OS vai para "Aguardando orçamento".', function(){ o.status='aguardando'; if(!o.data||o.status==='agendamento') o.data=toISO(hoje()); o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; renderOsDet(oid); toast('Em Aguardando orçamento'); }, 'Confirmar', 'green'); }
-function aprovarOrcamento(oid){ const o=getOS(oid); if(!o) return; confirmar('Cliente aprovou o orçamento?\nA OS vai para "Em andamento".', function(){ o.status='andamento'; o.atualizado=Date.now(); salvar(); osFiltroStatus='andamento'; renderOsDet(oid); toast('Em andamento ✓'); }, 'Aprovar', 'green'); }
+function cadastroCompleto(o){
+  const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const faltas=[];
+  if(!c){ faltas.push('cliente'); return {ok:false,faltas,c:null,v}; }
+  if(!(c.nome||'').trim()) faltas.push('nome do cliente');
+  if(!(c.cpf||'').replace(/\D/g,'')) faltas.push('CPF');
+  if(!(c.telefone1||'').trim()) faltas.push('telefone');
+  if(!(c.rua||c.endereco||'').trim()) faltas.push('rua/endereço');
+  if(!(c.cidade||'').trim()) faltas.push('cidade');
+  if(!(c.estado||'').trim()) faltas.push('estado (UF)');
+  if(!(c.cep||'').replace(/\D/g,'')) faltas.push('CEP');
+  if(!v){ faltas.push('veículo'); }
+  else { if(!(v.placa||'').trim()) faltas.push('placa do carro'); if(!(v.modelo||'').trim()) faltas.push('modelo do carro'); if(!(v.ano||'').toString().trim()) faltas.push('ano do carro'); }
+  return {ok:faltas.length===0, faltas, c, v};
+}
+function aprovarOrcamento(oid){ const o=getOS(oid); if(!o) return;
+  const chk=cadastroCompleto(o);
+  if(!chk.ok){
+    openModal(`<h3>Complete o cadastro antes de aprovar</h3>
+      <p class="sub">Para o carro entrar em andamento, o cadastro do cliente e do carro precisa estar completo. Falta:</p>
+      <div class="note" style="color:var(--amber)">${chk.faltas.map(f=>'• '+f).join('<br>')}</div>
+      <div class="form-actions" style="margin-top:12px">
+        ${chk.c?`<button class="btn gold" onclick='closeModal(); openCliente("${chk.c.id}")'>Completar cliente</button>`:''}
+        ${chk.v?`<button class="btn gold" onclick='closeModal(); openVeiculo("${chk.v.id}")'>Completar carro</button>`:''}
+        <button class="btn ghost" onclick="closeModal()">Fechar</button></div>`);
+    return;
+  }
+  confirmar('Cliente aprovou o orçamento?\nA OS vai para "Em andamento".', function(){ o.status='andamento'; o.atualizado=Date.now(); salvar(); osFiltroStatus='andamento'; renderOsDet(oid); toast('Em andamento ✓'); }, 'Aprovar', 'green'); }
 function rejeitarOS(oid){ const o=getOS(oid); if(!o) return; confirmar('Rejeitar o orçamento? O carro é entregue sem o serviço, mas fica o registro da passagem.', function(){ o.status='rejeitado'; o.atualizado=Date.now(); salvar(); osFiltroStatus='rejeitado'; renderOsDet(oid); toast('Orçamento rejeitado'); }); }
 function reabrirOrcamento(oid){ if(!ehAdmin()){ toast('Apenas o gestor geral pode reabrir'); return; } const o=getOS(oid); if(!o) return; confirmar('Reabrir esta ordem? Ela volta para "Aguardando orçamento".', function(){ o.status='aguardando'; o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; renderOsDet(oid); toast('Reaberta em Aguardando'); }, 'Reabrir'); }
 function finalizarOS(oid){ const o=getOS(oid); if(!o) return; pagamentoModal(oid,'final'); }
@@ -1322,16 +1354,21 @@ function setContato(id,k,v){ const r=contatoRows.find(x=>x.id===id); if(r) r[k]=
 function addContato(){ if(contatoRows.length>=2) return; contatoRows.push({id:uid(),nome:'',relacao:RELACOES[0],telefone:'',nascimento:''}); renderContatos(); }
 function removeContato(id){ contatoRows=contatoRows.filter(x=>x.id!==id); renderContatos(); }
 function openCliente(id){ if(!pode('editar')){ toast('Sem permissão para editar'); return; }
-  const c=id?getCliente(id):{nome:'',tipo:'Preventiva',telefone1:'',telefone2:'',endereco:'',obs:'',contatos:[],nascimento:'',zap_num:'1'};
+  const c=id?getCliente(id):{nome:'',tipo:'Preventiva',telefone1:'',telefone2:'',endereco:'',obs:'',contatos:[],nascimento:'',zap_num:'1',cpf:'',rua:'',setor:'',cidade:'',estado:'',cep:''};
   contatoRows=(c.contatos||[]).map(x=>({id:uid(),nome:x.nome||'',relacao:x.relacao||RELACOES[0],telefone:x.telefone||'',nascimento:x.nascimento||''}));
   openModal(`<h3>${id?'Editar cliente':'Novo cliente'}</h3><p class="sub">Dados, contatos autorizados e perfil.</p>
     <div class="grid2"><div class="field"><label>Nome</label><input id="fNome" value="${esc(c.nome)}" placeholder="Carlos Souza"></div>
-      <div class="field"><label>Perfil</label><select id="fTipo">${TIPOS.map(t=>`<option ${t===c.tipo?'selected':''}>${t}</option>`).join('')}</select></div></div>
+      <div class="field"><label>CPF</label><input id="fCPF" value="${esc(c.cpf||'')}" placeholder="000.000.000-00" inputmode="numeric" oninput="mascararCPF(this)"></div></div>
     <div class="grid2"><div class="field"><label>Telefone 1</label><input id="fTel1" value="${esc(c.telefone1)}" placeholder="62 99999-8888" inputmode="tel"></div>
       <div class="field"><label>Telefone 2</label><input id="fTel2" value="${esc(c.telefone2)}" placeholder="opcional" inputmode="tel"></div></div>
     <div class="grid2"><div class="field"><label>Qual é o WhatsApp?</label><select id="fZap"><option value="1" ${c.zap_num!=='2'?'selected':''}>Telefone 1</option><option value="2" ${c.zap_num==='2'?'selected':''}>Telefone 2</option></select></div>
-      <div class="field"><label>Aniversário (dd/mm)</label><input id="fNasc" value="${esc(c.nascimento||'')}" placeholder="25/12" inputmode="numeric"></div></div>
-    <div class="field"><label>Endereço</label><input id="fEnd" value="${esc(c.endereco)}" placeholder="Rua, nº, bairro, cidade"></div>
+      <div class="field"><label>Perfil</label><select id="fTipo">${TIPOS.map(t=>`<option ${t===c.tipo?'selected':''}>${t}</option>`).join('')}</select></div></div>
+    <div class="field"><label>Aniversário (dd/mm)</label><input id="fNasc" value="${esc(c.nascimento||'')}" placeholder="25/12" inputmode="numeric"></div>
+    <div class="field"><label>Rua / nº</label><input id="fRua" value="${esc(c.rua||c.endereco||'')}" placeholder="Rua das Flores, 123"></div>
+    <div class="grid2"><div class="field"><label>Setor / bairro</label><input id="fSetor" value="${esc(c.setor||'')}" placeholder="Setor Garavelo"></div>
+      <div class="field"><label>CEP</label><input id="fCep" value="${esc(c.cep||'')}" placeholder="00000-000" inputmode="numeric" oninput="mascararCEP(this)"></div></div>
+    <div class="grid2"><div class="field"><label>Cidade</label><input id="fCidade" value="${esc(c.cidade||'')}" placeholder="Aparecida de Goiânia"></div>
+      <div class="field"><label>Estado (UF)</label><input id="fEstado" value="${esc(c.estado||'')}" placeholder="GO" maxlength="2" style="text-transform:uppercase"></div></div>
     <div class="field" style="margin-bottom:8px"><label>Contatos autorizados (quem pode buscar/trazer o carro)</label></div>
     <div id="contatosBox"></div>
     <button class="btn sm ghost" id="addContatoBtn" onclick="addContato()" style="margin-bottom:12px">+ Adicionar contato</button>
@@ -1343,7 +1380,10 @@ function openCliente(id){ if(!pode('editar')){ toast('Sem permissão para editar
 }
 function saveCliente(id){
   const nome=val('fNome').trim(); if(!nome){ toast('Informe o nome'); return; }
-  const dados={nome:tc(nome),tipo:val('fTipo'),telefone1:val('fTel1').trim(),telefone2:val('fTel2').trim(),zap_num:val('fZap'),nascimento:val('fNasc').trim(),endereco:tc(val('fEnd').trim()),obs:val('fObs').trim(),
+  const rua=tc(val('fRua').trim());
+  const dados={nome:tc(nome),tipo:val('fTipo'),telefone1:val('fTel1').trim(),telefone2:val('fTel2').trim(),zap_num:val('fZap'),nascimento:val('fNasc').trim(),
+    cpf:fmtCPF(val('fCPF')),rua,setor:tc(val('fSetor').trim()),cidade:tc(val('fCidade').trim()),estado:val('fEstado').trim().toUpperCase().slice(0,2),cep:fmtCEP(val('fCep')),
+    endereco:[rua,tc(val('fSetor').trim()),tc(val('fCidade').trim())].filter(Boolean).join(', '),obs:val('fObs').trim(),
     contatos:contatoRows.filter(r=>r.nome.trim()||r.telefone.trim()).map(r=>({nome:tc(r.nome.trim()),relacao:r.relacao,telefone:r.telefone.trim(),nascimento:(r.nascimento||'').trim()}))};
   if(id) Object.assign(getCliente(id),dados); else state.clientes.push({id:uid(),...dados,criado:Date.now()});
   salvar(); closeModal(); refreshAtual(); toast('Cliente salvo');
