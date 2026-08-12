@@ -1157,7 +1157,8 @@ function textoFicha(vid,tipo,osId){
   else if(tipo==='os'){ const o=getOS(osId); if(o){ t+=`\nOS ${fmtBR(parseISO(o.data))} · ${o.km?nfmt(o.km)+' km':''}\n`; if(o.reclamacao) t+=`Reclamação: ${o.reclamacao}\n`;
     if((o.itens||[]).length){ t+='\n*Peças:*\n'+o.itens.map(i=>{ const q=Number(i.qtde)||1; return `• ${i.nome}${q>1?(' ×'+q):''} — ${moneyFmt((Number(i.valor)||0)*q)}`; }).join('\n'); }
     if((o.maodeobra||[]).length){ t+='\n\n*Mão de obra:*\n'+o.maodeobra.map(m=>`• ${m.desc||'Serviço'} — ${moneyFmt(m.valor)}`).join('\n'); }
-    t+=`\n\nPeças: ${moneyFmt(pecasTotal(o))}\nMão de obra: ${moneyFmt(osMdoTotal(o))}\n*Total: ${moneyFmt(osTotal(o))}*`; } }
+    t+=`\n\nPeças: ${moneyFmt(pecasTotal(o))}\nMão de obra: ${moneyFmt(osMdoTotal(o))}\n*Total: ${moneyFmt(osTotal(o))}*`;
+    if((o.midias||[]).length){ t+=`\n\n📷 Fotos e vídeos do serviço:\nhttps://3mcentroautomotivo.com.br/os/${o.id}`; } } }
   if(tipo==='vencidos'||tipo==='proximos'||tipo==='verificar'||tipo==='entrada') t+='\n'+linkManutencaoTxt();
   return t.trim();
 }
