@@ -161,6 +161,19 @@
   .cx-mini{font-size:12px; color:var(--muted); padding:2px 0}
   .pg-info{font-size:13px; color:var(--muted); background:var(--panel); border:1px solid var(--line2); border-radius:9px; padding:9px 11px; margin-bottom:12px}
   .peca-inline{border:1px dashed var(--line2); border-radius:11px; padding:10px; margin-top:8px; background:var(--bg2)}
+  .os-serv.combo{position:relative; display:block}
+  .os-nome{width:100%; padding-right:30px}
+  .combo-arrow{position:absolute; right:4px; top:6px; width:24px; height:30px; border:0; background:transparent; color:var(--muted); font-size:14px; cursor:pointer}
+  .combo-list{position:absolute; top:calc(100% + 3px); left:0; right:0; z-index:60; background:var(--panel); border:1px solid var(--line2); border-radius:10px; max-height:230px; overflow:auto; box-shadow:0 14px 34px rgba(0,0,0,.45); display:none}
+  .combo-list.open{display:block}
+  .combo-opt{padding:10px 12px; cursor:pointer; font-size:14px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; gap:8px; align-items:center}
+  .combo-opt:last-child{border-bottom:0}
+  .combo-opt:active,.combo-opt:hover{background:var(--bg2)}
+  .combo-preco{color:var(--green); font-size:12.5px; white-space:nowrap}
+  .combo-empty{padding:10px 12px; font-size:12.5px; color:var(--muted)}
+  .dt-wrap{position:relative}
+  .dt-wrap input{width:100%; padding-right:40px}
+  .dt-btn{position:absolute; right:4px; top:50%; transform:translateY(-50%); width:32px; height:32px; border:0; background:transparent; font-size:17px; cursor:pointer; opacity:.85}
   .os-row input{padding:10px 11px; font-size:14px}
   .os-total{display:flex; justify-content:space-between; align-items:center; margin-top:6px; padding:12px 14px; background:var(--panel2); border:1px solid var(--line); border-radius:var(--radius-s)}
   .os-total .l{color:var(--muted); font-size:13px; font-weight:600}
@@ -565,6 +578,9 @@ function esc(s){ return (s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<
 function tc(s){ const min=['de','da','do','das','dos','e','com','para','por','em','no','na','nos','nas','ao','aos','a','o','as','os','à','às'];
   return String(s||'').trim().replace(/\s+/g,' ').split(' ').map((w,i)=>{ if(!w) return w; const lw=w.toLowerCase(); if(i>0 && min.includes(lw)) return lw; return w.charAt(0).toUpperCase()+w.slice(1); }).join(' '); }
 function val(id){ const e=document.getElementById(id); return e?e.value:''; }
+function dtField(id,tipo,valor,label){ const ic=tipo==='time'?'🕐':'📅';
+  return `<div class="field"><label>${label}</label><div class="dt-wrap"><input id="${id}" type="${tipo}" value="${valor||''}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('${id}')">${ic}</button></div></div>`; }
+function abrirPicker(id){ const el=document.getElementById(id); if(!el) return; try{ el.showPicker(); }catch(e){ el.focus(); el.click&&el.click(); } }
 function num(id){ const v=document.getElementById(id).value.replace(/\D/g,''); return v?Number(v):''; }
 function moneyParse(s){ if(s==null||s==='') return 0; s=(''+s).replace(/[^\d,.-]/g,''); if(s.includes(',')) s=s.replace(/\./g,'').replace(',','.'); return parseFloat(s)||0; }
 function moneyFmt(n){ return (Number(n)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
@@ -1247,7 +1263,7 @@ function pagamentoModal(oid,modo){ const o=getOS(oid); if(!o) return; if(!pode('
   const rest=restanteOS(o); const valPad = modo==='final'? rest : rest;
   openModal(`<h3>${modo==='final'?'Finalizar OS':'Registrar entrada / adiantamento'}</h3>
     <div class="pg-info">Total ${moneyFmt(osTotal(o))} · Pago ${moneyFmt(pagoOS(o.id))} · <b>Restante ${moneyFmt(rest)}</b></div>
-    <div class="grid2"><div class="field"><label>Data</label><input id="pgData" type="date" value="${toISO(hoje())}"></div>
+    <div class="grid2">${dtField('pgData','date',toISO(hoje()),'Data')}
       <div class="field"><label>Valor</label><input id="pgValor" inputmode="decimal" value="${valPad>0?String(valPad.toFixed(2)).replace('.',','):''}" placeholder="0,00" oninput="pgCalc()"></div></div>
     <div class="field"><label>Forma de pagamento</label><select id="pgForma" onchange="pgToggle()">${FORMAS.map(f=>`<option value="${f[0]}">${f[1]}</option>`).join('')}</select></div>
     <div id="pgCartao" style="display:none">
@@ -1643,24 +1659,29 @@ function copiarTexto(t){ if(navigator.clipboard&&navigator.clipboard.writeText){
 ================================================================== */
 let osItens=[], osFixoVeiculo=null;
 function renderOsItens(){ const box=document.getElementById('osItensBox');
-  const cat=catalogoOS();
-  const opcoes=cat.map(r=>`<option value="${esc(r.nome)}">${esc(r.nome)}</option>`).join('');
-  box.innerHTML=osItens.map(row=>{
-    const known=cat.some(r=>r.nome===row.nome);
-    return `<div class="os-row">
-    <div class="os-serv">
-      <select class="os-sel" onchange="selServico('${row.id}',this.value)"><option value="">Escolher peça/serviço…</option>${opcoes}<option value="__manter__" ${(!known&&row.nome)?'selected':''} ${(!known&&row.nome)?'':'hidden'}>${esc(row.nome||'')}</option></select>
-      <input list="regrasList" placeholder="ou digite a peça/serviço" value="${esc(row.nome)}" oninput="setOsItem('${row.id}','nome',this.value); marcarSelect(this)">
+  box.innerHTML=osItens.map(row=>`<div class="os-row">
+    <div class="os-serv combo">
+      <input class="os-nome" autocomplete="off" placeholder="Peça/serviço — clique ▾ ou digite" value="${esc(row.nome)}"
+        oninput="comboInput('${row.id}',this.value)" onfocus="comboRender('${row.id}',this.value)" onblur="comboBlur('${row.id}')">
+      <button type="button" class="combo-arrow" onmousedown="event.preventDefault(); comboToggle('${row.id}')">▾</button>
+      <div class="combo-list" id="combo-${row.id}"></div>
     </div>
     <input class="os-qtd" inputmode="numeric" title="Quantidade" placeholder="Qtd" value="${esc(row.qtde||'1')}" oninput="setOsItem('${row.id}','qtde',this.value)">
     <input class="os-val" inputmode="decimal" placeholder="Unit. 0,00" value="${esc(row.valor)}" oninput="setOsItem('${row.id}','valor',this.value)">
-    <button class="rm" onclick="removeOsItem('${row.id}')">✕</button></div>`;
-  }).join('');
-  box.querySelectorAll('.os-row').forEach((rowEl,i)=>{ const nome=osItens[i].nome; const sel=rowEl.querySelector('.os-sel');
-    if(sel){ const opt=[...sel.options].find(o=>o.value===nome); sel.value = opt?nome:(nome?'__manter__':''); } });
+    <button class="rm" onclick="removeOsItem('${row.id}')">✕</button></div>`).join('');
   atualizaTotal(); calcOsPrevia(); }
-function selServico(id,v){ if(v==='__manter__'||v==='') return; const r=osItens.find(x=>x.id===id); if(r){ r.nome=v; const p=pecaPorNome(v); if(p&&p.preco&&!moneyParse(r.valor)) r.valor=String(p.preco).replace('.',','); renderOsItens(); } }
-function marcarSelect(inp){ const sel=inp.parentElement.querySelector('.os-sel'); if(!sel) return; const opt=[...sel.options].find(o=>o.value===inp.value&&o.value); sel.value=opt?inp.value:''; }
+function comboRender(id, filtro){
+  const el=document.getElementById('combo-'+id); if(!el) return;
+  const f=(filtro||'').trim().toLowerCase();
+  const list=catalogoOS().filter(r=>!f || r.nome.toLowerCase().includes(f));
+  if(!list.length){ el.innerHTML='<div class="combo-empty">Nada no catálogo com esse nome — pode digitar livremente ou usar "Cadastrar peça".</div>'; el.classList.add('open'); return; }
+  el.innerHTML=list.slice(0,60).map(r=>`<div class="combo-opt" onmousedown="event.preventDefault(); comboPick('${id}',this.dataset.n)" data-n="${esc(r.nome)}">${esc(r.nome)}${r.preco?` <span class="combo-preco">${moneyFmt(r.preco)}</span>`:''}</div>`).join('');
+  el.classList.add('open');
+}
+function comboToggle(id){ const el=document.getElementById('combo-'+id); if(!el) return; if(el.classList.contains('open')){ el.classList.remove('open'); } else { const r=osItens.find(x=>x.id===id); comboRender(id, ''); } }
+function comboInput(id,v){ const r=osItens.find(x=>x.id===id); if(r) r.nome=v; calcOsPrevia(); comboRender(id,v); }
+function comboBlur(id){ setTimeout(function(){ const el=document.getElementById('combo-'+id); if(el) el.classList.remove('open'); }, 180); }
+function comboPick(id,nome){ const r=osItens.find(x=>x.id===id); if(r){ r.nome=nome; const p=pecaPorNome(nome); if(p&&p.preco&&!moneyParse(r.valor)) r.valor=String(p.preco).replace('.',','); } const el=document.getElementById('combo-'+id); if(el) el.classList.remove('open'); renderOsItens(); }
 function setOsItem(id,k,v){ const r=osItens.find(x=>x.id===id); if(r) r[k]=v; if(k==='valor'||k==='qtde') atualizaTotal(); else calcOsPrevia(); }
 function addOsItem(){ osItens.push({id:uid(),nome:'',qtde:'1',valor:''}); renderOsItens(); }
 function togglePecaInline(){ const box=document.getElementById('pcInline'); if(!box) return;
@@ -1715,8 +1736,8 @@ function openAgendamento(id){ if(!pode('editar')){ toast('Sem permissão para ed
     <div class="grid2"><div class="field"><label>Carro (modelo)</label><input id="agModelo" value="${esc(v?v.modelo:'')}" placeholder="Ex: Onix"></div>
       <div class="field"><label>Ano</label><input id="agAno" value="${esc(v?v.ano:'')}" inputmode="numeric" placeholder="2018"></div></div>
     <div class="field"><label>Prévia do problema / serviço</label><textarea id="agRec" rows="2" placeholder="O que será feito / relato do cliente">${o?esc(o.reclamacao):''}</textarea></div>
-    <div class="grid2"><div class="field"><label>Dia do agendamento</label><input id="agData" type="date" value="${o&&o.agenda_data?o.agenda_data:toISO(hoje())}"></div>
-      <div class="field"><label>Hora</label><input id="agHora" type="time" value="${o&&o.agenda_hora?o.agenda_hora:''}"></div></div>
+    <div class="grid2">${dtField('agData','date',(o&&o.agenda_data?o.agenda_data:toISO(hoje())),'Dia do agendamento')}
+      ${dtField('agHora','time',(o&&o.agenda_hora?o.agenda_hora:''),'Hora')}</div>
     <div class="field"><label>Mecânico responsável</label><select id="agMec"><option value="">—</option>${mecOpts}</select></div>
     <div class="form-actions"><button class="btn gold" onclick='saveAgendamento(${id?`"${id}"`:'null'})'>Salvar agendamento</button>
       <button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
@@ -1911,8 +1932,8 @@ function renderCaixa(){
   box.innerHTML=`<div class="section-label"><span>Controle de caixa</span>
       <span><button class="btn sm green" onclick="movimentoModal('entrada',null)">+ Entrada</button>
         <button class="btn sm danger" onclick="movimentoModal('saida',null)">+ Saída</button></span></div>
-    <div class="grid2"><div class="field"><label>De</label><input id="cxDe" type="date" value="${cxDe||''}" onchange="cxFiltrar()"></div>
-      <div class="field"><label>Até</label><input id="cxAte" type="date" value="${cxAte||''}" onchange="cxFiltrar()"></div></div>
+    <div class="grid2"><div class="field"><label>De</label><div class="dt-wrap"><input id="cxDe" type="date" value="${cxDe||''}" onchange="cxFiltrar()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('cxDe')">📅</button></div></div>
+      <div class="field"><label>Até</label><div class="dt-wrap"><input id="cxAte" type="date" value="${cxAte||''}" onchange="cxFiltrar()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('cxAte')">📅</button></div></div></div>
     <div id="caixaResumo"></div><div id="caixaLista"></div>`;
   cxFiltrar();
 }
@@ -1945,7 +1966,7 @@ function cxFiltrar(){ cxDe=val('cxDe')||''; cxAte=val('cxAte')||''; const de=cxD
 function movimentoModal(tipo,id){ const m=id?(state.caixa.find(x=>x.id===id)||{}):{tipo,data:toISO(hoje()),forma:'pix',valor:'',taxa:0,descricao:''};
   const ent=tipo==='entrada';
   openModal(`<h3>${id?'Editar':ent?'Nova entrada':'Nova saída'}</h3>
-    <div class="grid2"><div class="field"><label>Data</label><input id="mvData" type="date" value="${m.data||toISO(hoje())}"></div>
+    <div class="grid2">${dtField('mvData','date',(m.data||toISO(hoje())),'Data')}
       <div class="field"><label>Valor</label><input id="mvValor" inputmode="decimal" value="${m.valor?String(m.valor).replace('.',','):''}" placeholder="0,00"></div></div>
     <div class="field"><label>Forma</label><select id="mvForma" onchange="mvToggleTaxa()">${FORMAS.map(f=>`<option value="${f[0]}" ${m.forma===f[0]?'selected':''}>${f[1]}</option>`).join('')}</select></div>
     <div class="field" id="mvTaxaWrap" style="display:${ent&&m.forma==='cartao'?'':'none'}"><label>Taxa do cartão (R$)</label><input id="mvTaxa" inputmode="decimal" value="${m.taxa?String(m.taxa).replace('.',','):''}" placeholder="0,00"></div>
@@ -2006,8 +2027,8 @@ function renderFinanceiro(){
   const mecs=(state.mecanicos||[]).slice().sort((a,b)=>a.nome.localeCompare(b.nome));
   if(!finAte) finAte=toISO(hoje());
   box.innerHTML=`<div class="section-label">Relatório de mão de obra</div>
-    <div class="grid2"><div class="field"><label>De</label><input id="finDe" type="date" value="${finDe||''}"></div>
-      <div class="field"><label>Até</label><input id="finAte" type="date" value="${finAte||''}"></div></div>
+    <div class="grid2">${dtField('finDe','date',(finDe||''),'De')}
+      ${dtField('finAte','date',(finAte||''),'Até')}</div>
     <div class="grid2"><div class="field"><label>Mecânico</label><select id="finMec"><option value="">Todos os mecânicos</option>${mecs.map(m=>`<option value="${m.id}" ${finMec===m.id?'selected':''}>${esc(m.nome)}</option>`).join('')}</select></div>
       <div class="field"><label>Situação</label><select id="finStatus">
         <option value="executado" ${finStatus==='executado'?'selected':''}>Executados (finalizados)</option>
