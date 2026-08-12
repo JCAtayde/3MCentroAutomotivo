@@ -1332,8 +1332,8 @@ function blocoMidias(o, cat, podeAdd){
     ${podeAdd?`<div class="form-actions" style="margin-top:8px">
       <button class="btn sm ghost" onclick='document.getElementById("mdFoto-${cat}-${o.id}").click()'>📷 Adicionar foto</button>
       <button class="btn sm ghost" onclick='document.getElementById("mdVideo-${cat}-${o.id}").click()'>🎥 Adicionar vídeo</button></div>
-    <input type="file" id="mdFoto-${cat}-${o.id}" accept="image/*" capture="environment" style="display:none" onchange='enviarMidia("${o.id}",this,"image","${cat}")'>
-    <input type="file" id="mdVideo-${cat}-${o.id}" accept="video/*" capture="environment" style="display:none" onchange='enviarMidia("${o.id}",this,"video","${cat}")'>
+    <input type="file" id="mdFoto-${cat}-${o.id}" accept="image/*" style="display:none" onchange='enviarMidia("${o.id}",this,"image","${cat}")'>
+    <input type="file" id="mdVideo-${cat}-${o.id}" accept="video/*" style="display:none" onchange='enviarMidia("${o.id}",this,"video","${cat}")'>
     <div class="hint" id="mdStatus-${cat}-${o.id}" style="margin-top:6px"></div>`:''}`;
 }
 async function comprimirImagem(file){
@@ -2070,7 +2070,12 @@ function cfgTab(k){
 const PERMS=[['editar','Cadastrar e editar'],['excluir','Excluir registros'],['valores','Ver valores (R$)'],['config','Acessar Configuração']];
 function permsPadrao(){ return {editar:true, excluir:false, valores:true, config:false}; }
 function pode(perm){ if(!usuarioAtual) return false; if(usuarioAtual.papel==='admin') return true; const p=usuarioAtual.perms||permsPadrao(); return !!p[perm]; }
-function aplicarPermissoesUI(){ document.body.classList.toggle('sem-valores', !pode('valores') && !ehMecanico()); document.body.classList.toggle('modo-mecanico', ehMecanico()); montarNav(); if(ehMecanico()){ osFiltroStatus='aguardando'; } }
+function aplicarPermissoesUI(){ document.body.classList.toggle('sem-valores', !pode('valores') && !ehMecanico()); document.body.classList.toggle('modo-mecanico', ehMecanico()); montarNav(); if(ehMecanico()){ osFiltroStatus='aguardando'; } iniciarInatividade(); }
+let inatividadeTimer=null; const INATIVIDADE_MS=30*60*1000;
+function resetInatividade(){ if(inatividadeTimer) clearTimeout(inatividadeTimer); if(!usuarioAtual) return;
+  inatividadeTimer=setTimeout(function(){ if(usuarioAtual){ fazerLogout(); toast('Sessão encerrada por inatividade (30 min).'); } }, INATIVIDADE_MS); }
+let inatividadeLigada=false;
+function iniciarInatividade(){ if(!inatividadeLigada){ inatividadeLigada=true; ['click','keydown','touchstart','mousemove','scroll'].forEach(function(ev){ document.addEventListener(ev, resetInatividade, {passive:true}); }); } resetInatividade(); }
 function salvarConfig(){ state.config.msg=document.getElementById('cfgMsg').value; state.config.janela_dias=num('cfgJanela')||30; state.config.media_km_mes_padrao=num('cfgMedia')||1000; const l=document.getElementById('cfgLink'); if(l) state.config.link_manutencao=l.value.trim(); const mr=document.getElementById('cfgMsgReat'); if(mr) state.config.msg_reativacao=mr.value; const rm=document.getElementById('cfgReatMeses'); if(rm) state.config.reativacao_meses=String(num('cfgReatMeses')||3); salvar(); if(typeof refreshAtual==='function') refreshAtual(); toast('Ajustes salvos'); }
 function exportar(){ const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='backup-oficina-'+toISO(hoje())+'.json'; a.click(); toast('Backup exportado'); }
 function importar(ev){ const f=ev.target.files[0]; if(!f) return; const rd=new FileReader();
@@ -2266,7 +2271,7 @@ function esconderGate(){ gateEl().style.display='none'; }
 function authMsg(txt,pref){ const el=document.getElementById((pref||'')+'authMsg'); if(el) el.textContent=txt||''; }
 
 function verificarAuth(){
-  const id=localStorage.getItem(AUTH_KEY);
+  const id=sessionStorage.getItem(AUTH_KEY);
   const u=id?getUsuario(id):null;
   if(u && u.status==='ativo'){ usuarioAtual=u; esconderGate(); atualizarHeaderUser(); aplicarPermissoesUI(); refreshAtual(); checarPendencias(); return; }
   if(u && u.status!=='ativo'){ usuarioAtual=null; atualizarHeaderUser(); mostrarEspera(u); return; }
@@ -2345,7 +2350,7 @@ async function fazerLogin(){
   if(!u){ authMsg('Usuário não encontrado'); return; }
   const h=await hashSenha(senha,u.salt);
   if(h!==u.senha_hash){ authMsg('Senha incorreta'); return; }
-  localStorage.setItem(AUTH_KEY,u.id);
+  sessionStorage.setItem(AUTH_KEY,u.id);
   if(u.status!=='ativo'){ mostrarEspera(u); return; }
   usuarioAtual=u; esconderGate(); atualizarHeaderUser(); aplicarPermissoesUI(); refreshAtual(); checarPendencias();
 }
@@ -2357,11 +2362,11 @@ async function fazerCadastro(){
   const primeiro = state.usuarios.length===0;
   const u={id:uid(),nome,login,email:val('regEmail').trim(),senha_hash:hash,salt,status:primeiro?'ativo':'pendente',papel:primeiro?'admin':'operador',perms:permsPadrao(),reset:'',criado:Date.now()};
   state.usuarios.push(u); salvar();
-  localStorage.setItem(AUTH_KEY,u.id);
+  sessionStorage.setItem(AUTH_KEY,u.id);
   if(primeiro){ usuarioAtual=u; esconderGate(); atualizarHeaderUser(); aplicarPermissoesUI(); refreshAtual(); toast('Bem-vindo! Você é o administrador.'); }
   else { mostrarEspera(u); }
 }
-function fazerLogout(){ localStorage.removeItem(AUTH_KEY); usuarioAtual=null; pendJaMostrada=false; document.body.classList.remove('sem-valores'); atualizarHeaderUser(); mostrarLogin(); }
+function fazerLogout(){ sessionStorage.removeItem(AUTH_KEY); usuarioAtual=null; pendJaMostrada=false; if(inatividadeTimer) clearTimeout(inatividadeTimer); document.body.classList.remove('sem-valores'); atualizarHeaderUser(); mostrarLogin(); }
 function atualizarHeaderUser(){
   const el=document.getElementById('authUser'); if(!el) return;
   if(usuarioAtual){ el.innerHTML=`<b>${esc(usuarioAtual.nome.split(' ')[0])}</b>${usuarioAtual.papel==='admin'?' · admin':''} <a onclick="fazerLogout()" style="color:var(--gold);cursor:pointer;font-weight:600">Sair</a>`; }
