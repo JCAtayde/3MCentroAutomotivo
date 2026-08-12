@@ -1349,12 +1349,12 @@ async function enviarMidia(oid, input, tipo){
   try{
     let body=file, ct=file.type||(tipo==='video'?'video/mp4':'image/jpeg');
     if(tipo==='image'){ const b=await comprimirImagem(file); body=b; ct=b.type||'image/jpeg'; }
-    const r=await fetch('/gestao/api/midia',{method:'POST',headers:{'Content-Type':ct,'X-Tipo':tipo},body});
-    const d=await r.json();
-    if(!r.ok||!d.key){ throw new Error(d.error||'falha'); }
+    const r=await fetch('/gestao/api/midia/upload',{method:'POST',headers:{'Content-Type':ct,'X-Tipo':tipo},body});
+    let d={}; try{ d=await r.json(); }catch(_){}
+    if(!r.ok||!d.key){ throw new Error(d.error||('HTTP '+r.status)); }
     o.midias=o.midias||[]; o.midias.push({key:d.key,tipo:d.tipo||tipo,criado:Date.now()}); o.atualizado=Date.now(); salvar();
     renderOsDet(oid); toast('Mídia adicionada ✓');
-  }catch(e){ if(st){ st.textContent='Falha ao enviar. Verifique a internet e a configuração do R2 (binding MEDIA).'; st.style.color='var(--amber)'; } }
+  }catch(e){ if(st){ st.textContent='Falha ao enviar: '+(e&&e.message||e)+'. (Confira o binding R2 "MEDIA" no Pages e o deploy.)'; st.style.color='var(--amber)'; } }
 }
 function removerMidia(oid,key){ const o=getOS(oid); if(!o) return; confirmar('Remover esta mídia?', function(){
   o.midias=(o.midias||[]).filter(m=>m.key!==key); o.atualizado=Date.now(); salvar(); renderOsDet(oid);
