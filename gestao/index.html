@@ -1158,7 +1158,7 @@ function textoFicha(vid,tipo,osId){
     if((o.itens||[]).length){ t+='\n*Peças:*\n'+o.itens.map(i=>{ const q=Number(i.qtde)||1; return `• ${i.nome}${q>1?(' ×'+q):''} — ${moneyFmt((Number(i.valor)||0)*q)}`; }).join('\n'); }
     if((o.maodeobra||[]).length){ t+='\n\n*Mão de obra:*\n'+o.maodeobra.map(m=>`• ${m.desc||'Serviço'} — ${moneyFmt(m.valor)}`).join('\n'); }
     t+=`\n\nPeças: ${moneyFmt(pecasTotal(o))}\nMão de obra: ${moneyFmt(osMdoTotal(o))}\n*Total: ${moneyFmt(osTotal(o))}*`;
-    if((o.midias||[]).length){ t+=`\n\n📷 Fotos e vídeos do serviço:\nhttps://3mcentroautomotivo.com.br/os/${o.id}`; } } }
+    if((o.midias||[]).some(m=>(m.cat||'defeito')==='defeito')){ t+=`\n\n📷 Imagens e vídeos dos problemas encontrados:\nhttps://3mcentroautomotivo.com.br/os/${o.id}`; } } }
   if(tipo==='vencidos'||tipo==='proximos'||tipo==='verificar'||tipo==='entrada') t+='\n'+linkManutencaoTxt();
   return t.trim();
 }
@@ -1267,7 +1267,8 @@ function renderOsDet(id){
     ? blocoDiagnostico(o)
     : `<div class="note-label">Observação do mecânico</div><div class="note ${o.obs_mecanico?'':'empty-note'}">${o.obs_mecanico?esc(o.obs_mecanico):'—'}</div>`;
   corpo += `
-    ${blocoMidias(o)}
+    ${blocoMidias(o,'entrada',podeMidiaOS(o))}
+    ${blocoMidias(o,'defeito',podeMidiaOS(o))}
     ${(o.itens||[]).length?`<div class="section-label">Peças / produtos</div><div class="rows">${o.itens.map(linhaPeca).join('')}</div>`:''}
     ${(o.maodeobra&&o.maodeobra.length)?`<div class="section-label">Mão de obra</div><div class="rows">${o.maodeobra.map(m=>{ const mec=(state.mecanicos||[]).find(x=>x.id===m.mecanico_id);
       return `<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div><div class="s">${mec?('👨‍🔧 '+esc(mec.nome)):'<span style=\"color:var(--amber)\">sem mecânico</span>'}</div></div><span class="valor-tag">${moneyFmt(m.valor)}</span></div>`; }).join('')}</div>`:''}
@@ -1301,7 +1302,7 @@ function renderOsDetMecanico(o,mid){
       ${st==='agendamento'?`<span class="k">Agendado</span><span class="v">${o.agenda_data?fmtBR(parseISO(o.agenda_data)):'—'}${o.agenda_hora?(' às '+o.agenda_hora):''}</span>`:`<span class="k">KM</span><span class="v">${o.km?nfmt(o.km)+' km':'—'}</span>`}</div></div>
     <div class="note-label">${st==='agendamento'?'Prévia do serviço':'Reclamação / serviço'}</div><div class="note ${o.reclamacao?'':'empty-note'}">${o.reclamacao?esc(o.reclamacao):'—'}</div>
     ${(st==='aguardando'||st==='andamento')?blocoDiagnostico(o):(o.obs_mecanico?`<div class="note-label">Diagnóstico</div><div class="note">${esc(o.obs_mecanico)}</div>`:'')}
-    ${(st==='aguardando'||st==='andamento')?blocoMidias(o):''}
+    ${(st==='aguardando'||st==='andamento')?(blocoMidias(o,'entrada',podeMidiaOS(o))+blocoMidias(o,'defeito',podeMidiaOS(o))):''}
     ${pecas?`<div class="section-label">Peças / itens do serviço</div><div class="rows">${pecas}</div>`:''}
     <div class="section-label">Sua mão de obra</div>
     ${minhas.length?`<div class="rows">${minhas.map(m=>`<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div></div><span class="valor-tag">${moneyFmt(m.valor)}</span></div>`).join('')}</div>
@@ -1314,22 +1315,25 @@ function blocoDiagnostico(o){
 }
 function salvarDiagnostico(oid){ const o=getOS(oid); if(!o) return; o.obs_mecanico=val('diagBox'); o.atualizado=Date.now(); salvar(); toast('Diagnóstico salvo ✓'); }
 
-function blocoMidias(o){
-  const ms=o.midias||[];
+function podeMidiaOS(o){ const st=osStatus(o); return (st==='aguardando'||st==='andamento') && (ehMecanico()||pode('editar')); }
+function midiaCat(o,cat){ return (o.midias||[]).filter(m=>(m.cat||'defeito')===cat); }
+function blocoMidias(o, cat, podeAdd){
+  const titulo = cat==='entrada' ? '🚗 Entrada — como o carro chegou' : '🔧 Fotos e vídeos dos problemas encontrados';
+  const ms=midiaCat(o,cat);
   const thumbs=ms.map(m=>{ const src='/gestao/api/midia/'+m.key;
     const el = m.tipo==='video'
       ? `<video src="${src}" class="midia-el" controls preload="metadata"></video>`
       : `<img src="${src}" class="midia-el" onclick="window.open('${src}','_blank')">`;
-    return `<div class="midia-item">${el}<button class="midia-del" onclick='removerMidia("${o.id}","${m.key}")'>✕</button></div>`;
+    return `<div class="midia-item">${el}${podeAdd?`<button class="midia-del" onclick='removerMidia("${o.id}","${m.key}")'>✕</button>`:''}</div>`;
   }).join('');
-  return `<div class="section-label">📷 Fotos e vídeos dos defeitos</div>
+  return `<div class="section-label">${titulo}</div>
     <div class="midia-grid">${thumbs||'<div class="note empty-note" style="margin:0">Nenhuma mídia ainda.</div>'}</div>
-    <div class="form-actions" style="margin-top:8px">
-      <button class="btn sm ghost" onclick='document.getElementById("mdFoto-${o.id}").click()'>📷 Adicionar foto</button>
-      <button class="btn sm ghost" onclick='document.getElementById("mdVideo-${o.id}").click()'>🎥 Adicionar vídeo</button></div>
-    <input type="file" id="mdFoto-${o.id}" accept="image/*" capture="environment" style="display:none" onchange='enviarMidia("${o.id}",this,"image")'>
-    <input type="file" id="mdVideo-${o.id}" accept="video/*" capture="environment" style="display:none" onchange='enviarMidia("${o.id}",this,"video")'>
-    <div class="hint" id="mdStatus-${o.id}" style="margin-top:6px"></div>`;
+    ${podeAdd?`<div class="form-actions" style="margin-top:8px">
+      <button class="btn sm ghost" onclick='document.getElementById("mdFoto-${cat}-${o.id}").click()'>📷 Adicionar foto</button>
+      <button class="btn sm ghost" onclick='document.getElementById("mdVideo-${cat}-${o.id}").click()'>🎥 Adicionar vídeo</button></div>
+    <input type="file" id="mdFoto-${cat}-${o.id}" accept="image/*" capture="environment" style="display:none" onchange='enviarMidia("${o.id}",this,"image","${cat}")'>
+    <input type="file" id="mdVideo-${cat}-${o.id}" accept="video/*" capture="environment" style="display:none" onchange='enviarMidia("${o.id}",this,"video","${cat}")'>
+    <div class="hint" id="mdStatus-${cat}-${o.id}" style="margin-top:6px"></div>`:''}`;
 }
 async function comprimirImagem(file){
   try{
@@ -1342,9 +1346,10 @@ async function comprimirImagem(file){
     return blob||file;
   }catch(e){ return file; }
 }
-async function enviarMidia(oid, input, tipo){
+async function enviarMidia(oid, input, tipo, cat){
+  cat = cat||'defeito';
   const oIni=getOS(oid); if(!oIni) return; const file=input.files&&input.files[0]; input.value=''; if(!file) return;
-  const st=document.getElementById('mdStatus-'+oid);
+  const st=document.getElementById('mdStatus-'+cat+'-'+oid);
   if(tipo==='video' && file.size>60*1024*1024){ if(st){ st.textContent='Vídeo muito grande (máx ~60MB). Grave um clipe mais curto.'; st.style.color='var(--amber)'; } return; }
   if(st){ st.textContent='Enviando… não feche a tela.'; st.style.color='var(--muted)'; }
   try{
@@ -1353,9 +1358,9 @@ async function enviarMidia(oid, input, tipo){
     const r=await fetch('/gestao/api/midia/upload',{method:'POST',headers:{'Content-Type':ct,'X-Tipo':tipo},body});
     let d={}; try{ d=await r.json(); }catch(_){}
     if(!r.ok||!d.key){ throw new Error(d.error||('HTTP '+r.status)); }
-    const o=getOS(oid); if(!o){ toast('OS não encontrada'); return; }   // pega a OS ATUAL (pode ter sido trocada por sincronização)
-    o.midias=Array.isArray(o.midias)?o.midias:[]; o.midias.push({key:d.key,tipo:d.tipo||tipo,criado:Date.now()}); o.atualizado=Date.now();
-    cacheSave(); enviarMudancas();   // salva e empurra na hora, antes de qualquer nova sincronização
+    const o=getOS(oid); if(!o){ toast('OS não encontrada'); return; }
+    o.midias=Array.isArray(o.midias)?o.midias:[]; o.midias.push({key:d.key,tipo:d.tipo||tipo,cat,criado:Date.now()}); o.atualizado=Date.now();
+    cacheSave(); enviarMudancas();
     renderOsDet(oid); toast('Mídia adicionada ✓');
   }catch(e){ if(st){ st.textContent='Falha ao enviar: '+(e&&e.message||e)+'. (Confira o binding R2 "MEDIA" no Pages e o deploy.)'; st.style.color='var(--amber)'; } }
 }

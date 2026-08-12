@@ -49,7 +49,7 @@ export async function onRequest(context){
       if(v) carro = [v.modelo, v.ano].filter(Boolean).join(' ');
     }catch(e){}
 
-    const itens = (midias || []).map(m => {
+    const itens = (midias || []).filter(m => (m.cat || 'defeito') === 'defeito').map(m => {
       const src = '/gestao/api/midia/' + m.key;
       return m.tipo === 'video'
         ? `<div class="item"><video src="${esc(src)}" controls preload="metadata"></video></div>`
@@ -57,11 +57,11 @@ export async function onRequest(context){
     }).join('');
 
     const corpo = `
-      <h1>Fotos e vídeos do serviço</h1>
+      <h1>Imagens e Vídeos dos Problemas Encontrados</h1>
       <p class="sub">${carro ? esc(carro) : 'Seu veículo'}</p>
-      ${itens ? `<div class="grid">${itens}</div>` : '<div class="empty">Ainda não há fotos ou vídeos para este serviço.</div>'}`;
+      ${itens ? `<div class="grid">${itens}</div>` : '<div class="empty">Ainda não há imagens ou vídeos para este serviço.</div>'}`;
 
-    return new Response(pagina('Fotos do serviço — 3M', corpo), {status:200, headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
+    return new Response(pagina('Imagens e Vídeos dos Problemas Encontrados', corpo), {status:200, headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
   }catch(e){
     return new Response(pagina('Erro','<div class="empty">Não foi possível carregar as imagens.</div>'), {status:200, headers:{'Content-Type':'text/html; charset=utf-8'}});
   }
