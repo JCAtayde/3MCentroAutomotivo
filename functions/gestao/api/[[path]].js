@@ -5,7 +5,7 @@
  */
 
 const SCHEMA = {
-  clientes: { cols:['id','nome','tipo','telefone1','telefone2','endereco','obs','contatos','nascimento','zap_num','lead','cpf','rua','setor','cidade','estado','cep','criado','atualizado'], json:['contatos'] },
+  clientes: { cols:['id','nome','tipo','telefone1','telefone2','endereco','obs','contatos','nascimento','zap_num','lead','cpf','rua','setor','cidade','estado','cep','quadra','lote','numero','criado','atualizado'], json:['contatos'] },
   veiculos: { cols:['id','cliente_id','placa','modelo','ano','cor','km_atual','media_km_mes','entrevista','inspecao','cambio','criado','atualizado'], json:['entrevista','inspecao'] },
   ordens:   { cols:['id','veiculo_id','data','km','reclamacao','obs_mecanico','obs_admin','itens','maodeobra','status','agenda_data','agenda_hora','mecanico_id','criado','atualizado'], json:['itens','maodeobra'] },
   regras:   { cols:['id','nome','km','meses','ordem'], json:[] },

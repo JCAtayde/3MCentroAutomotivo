@@ -119,6 +119,7 @@
   input:focus,select:focus,textarea:focus{border-color:var(--gold); box-shadow:0 0 0 3px rgba(232,178,58,.12)}
   textarea{resize:vertical; min-height:64px; line-height:1.55}
   .grid2{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+  .grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px}
   .grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px}
   @media(max-width:520px){ .grid3{grid-template-columns:1fr 1fr} }
   select{appearance:none; background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' stroke='%239AA0A9' stroke-width='1.6' fill='none' stroke-linecap='round'/></svg>"); background-repeat:no-repeat; background-position:right 12px center; padding-right:32px}
@@ -482,26 +483,31 @@ const CONFIG_PADRAO={janela_dias:30, media_km_mes_padrao:1000,
 function novoBanco(){ return {clientes:[],veiculos:[],ordens:[],
   regras:REGRAS_PADRAO.map(r=>({id:uid(),nome:r.nome,km:+r.km,meses:+r.meses})), config:{...CONFIG_PADRAO}}; }
 
-function normCliente(c){ c.contatos||=[]; c.tipo||='Preventiva'; c.telefone1||=c.telefone||''; c.telefone2||=''; c.endereco||=''; c.obs||=''; c.nascimento||=''; c.zap_num||='1'; c.lead||=''; c.cpf||=''; c.rua||=''; c.setor||=''; c.cidade||=''; c.estado||=''; c.cep||=''; return c; }
+function normCliente(c){ c.contatos||=[]; c.tipo||='Preventiva'; c.telefone1||=c.telefone||''; c.telefone2||=''; c.endereco||=''; c.obs||=''; c.nascimento||=''; c.zap_num||='1'; c.lead||=''; c.cpf||=''; c.rua||=''; c.setor||=''; c.cidade||=''; c.estado||=''; c.cep||=''; c.quadra||=''; c.lote||=''; c.numero||=''; return c; }
 function fmtCPF(v){ const d=(v||'').replace(/\D/g,'').slice(0,11); if(d.length<=3) return d; if(d.length<=6) return d.slice(0,3)+'.'+d.slice(3); if(d.length<=9) return d.slice(0,3)+'.'+d.slice(3,6)+'.'+d.slice(6); return d.slice(0,3)+'.'+d.slice(3,6)+'.'+d.slice(6,9)+'-'+d.slice(9); }
 function fmtCEP(v){ const d=(v||'').replace(/\D/g,'').slice(0,8); return d.length<=5?d:d.slice(0,5)+'-'+d.slice(5); }
 function mascararCPF(el){ el.value=fmtCPF(el.value); }
-function mascararCEP(el){ el.value=fmtCEP(el.value); if(el.value.replace(/\D/g,'').length===8) buscarCEP(); }
+let ultimoCepBuscado='';
+function mascararCEP(el){ el.value=fmtCEP(el.value); const d=el.value.replace(/\D/g,'');
+  if(d.length<8){ ultimoCepBuscado=''; const st=document.getElementById('cepStatus'); if(st&&d.length===0){ st.textContent='Digite o CEP para preencher o endereço automaticamente.'; st.style.color='var(--muted)'; } return; }
+  if(d.length===8 && d!==ultimoCepBuscado){ buscarCEP(); } }
 async function buscarCEP(){
   const cepEl=document.getElementById('fCep'); if(!cepEl) return;
   const cep=(cepEl.value||'').replace(/\D/g,''); if(cep.length!==8){ toast('CEP incompleto'); return; }
+  ultimoCepBuscado=cep;
   const st=document.getElementById('cepStatus'); if(st){ st.textContent='Buscando endereço…'; st.style.color='var(--muted)'; }
   try{
     const r=await fetch('https://viacep.com.br/ws/'+cep+'/json/'); const d=await r.json();
-    if(d.erro){ if(st){ st.textContent='CEP não encontrado — preencha manualmente.'; st.style.color='var(--amber)'; } return; }
+    if(d.erro){ ultimoCepBuscado=''; if(st){ st.textContent='CEP não encontrado — confira ou preencha manualmente.'; st.style.color='var(--amber)'; } return; }
     const setRua=document.getElementById('fRua'), setSetor=document.getElementById('fSetor'), setCidade=document.getElementById('fCidade'), setEstado=document.getElementById('fEstado');
-    if(setRua && d.logradouro && !setRua.value.trim()) setRua.value=tc(d.logradouro);
-    if(setSetor && d.bairro && !setSetor.value.trim()) setSetor.value=tc(d.bairro);
+    if(setRua && d.logradouro) setRua.value=tc(d.logradouro);
+    if(setSetor && d.bairro) setSetor.value=tc(d.bairro);
     if(setCidade && d.localidade) setCidade.value=tc(d.localidade);
     if(setEstado && d.uf) setEstado.value=d.uf.toUpperCase();
     if(st){ st.textContent='Endereço preenchido pelo CEP ✓'; st.style.color='var(--green)'; }
-  }catch(e){ if(st){ st.textContent='Sem internet para buscar o CEP — preencha manualmente.'; st.style.color='var(--amber)'; } }
+  }catch(e){ ultimoCepBuscado=''; if(st){ st.textContent='Sem internet para buscar o CEP — preencha manualmente.'; st.style.color='var(--amber)'; } }
 }
+function mascararCEP_legacy(){}
 function normVeiculo(v){ if(v.entrevista===undefined) v.entrevista=null; v.cor||=''; v.inspecao||={}; v.cambio||=''; return v; }
 function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
 
@@ -955,7 +961,7 @@ function renderClienteDet(id){
         <span class="k">Telefone 1</span><span class="v">${tel1}</span>
         <span class="k">Telefone 2</span><span class="v">${tel2}</span>
         <span class="k">Aniversário</span><span class="v">${c.nascimento?('🎂 '+esc(c.nascimento)):'—'}</span>
-        <span class="k">Endereço</span><span class="v">${esc([c.rua,c.setor].filter(Boolean).join(', ')||c.endereco||'—')}</span>
+        <span class="k">Endereço</span><span class="v">${esc((function(){ const p=[c.rua]; if(c.quadra)p.push('Qd '+c.quadra); if(c.lote)p.push('Lt '+c.lote); if(c.numero)p.push('nº '+c.numero); if(c.setor)p.push(c.setor); return p.filter(Boolean).join(', ')||c.endereco||'—'; })())}</span>
         <span class="k">Cidade / UF</span><span class="v">${esc([c.cidade,c.estado].filter(Boolean).join(' / ')||'—')}${c.cep?(' · CEP '+esc(c.cep)):''}</span>
       </div>${c.obs?`<div class="note-label">Observações</div><div class="note">${esc(c.obs)}</div>`:''}${contatos}
     </div>
@@ -1406,7 +1412,8 @@ function setContato(id,k,v){ const r=contatoRows.find(x=>x.id===id); if(r) r[k]=
 function addContato(){ if(contatoRows.length>=2) return; contatoRows.push({id:uid(),nome:'',relacao:RELACOES[0],telefone:'',nascimento:''}); renderContatos(); }
 function removeContato(id){ contatoRows=contatoRows.filter(x=>x.id!==id); renderContatos(); }
 function openCliente(id){ if(!pode('editar')){ toast('Sem permissão para editar'); return; }
-  const c=id?getCliente(id):{nome:'',tipo:'Preventiva',telefone1:'',telefone2:'',endereco:'',obs:'',contatos:[],nascimento:'',zap_num:'1',cpf:'',rua:'',setor:'',cidade:'',estado:'',cep:''};
+  ultimoCepBuscado='';
+  const c=id?getCliente(id):{nome:'',tipo:'Preventiva',telefone1:'',telefone2:'',endereco:'',obs:'',contatos:[],nascimento:'',zap_num:'1',cpf:'',rua:'',setor:'',cidade:'',estado:'',cep:'',quadra:'',lote:'',numero:''};
   contatoRows=(c.contatos||[]).map(x=>({id:uid(),nome:x.nome||'',relacao:x.relacao||RELACOES[0],telefone:x.telefone||'',nascimento:x.nascimento||''}));
   openModal(`<h3>${id?'Editar cliente':'Novo cliente'}</h3><p class="sub">Dados, contatos autorizados e perfil.</p>
     <div class="grid2"><div class="field"><label>Nome</label><input autocomplete="off" id="fNome" value="${esc(c.nome)}" placeholder="Carlos Souza"></div>
@@ -1416,7 +1423,10 @@ function openCliente(id){ if(!pode('editar')){ toast('Sem permissão para editar
     <div class="grid2"><div class="field"><label>Qual é o WhatsApp?</label><select id="fZap"><option value="1" ${c.zap_num!=='2'?'selected':''}>Telefone 1</option><option value="2" ${c.zap_num==='2'?'selected':''}>Telefone 2</option></select></div>
       <div class="field"><label>Perfil</label><select id="fTipo">${TIPOS.map(t=>`<option ${t===c.tipo?'selected':''}>${t}</option>`).join('')}</select></div></div>
     <div class="field"><label>Aniversário (dd/mm)</label><input autocomplete="off" id="fNasc" value="${esc(c.nascimento||'')}" placeholder="25/12" inputmode="numeric"></div>
-    <div class="field"><label>Rua / nº</label><input autocomplete="off" id="fRua" value="${esc(c.rua||c.endereco||'')}" placeholder="Rua das Flores, 123"></div>
+    <div class="field"><label>Rua / Avenida</label><input autocomplete="off" id="fRua" value="${esc(c.rua||c.endereco||'')}" placeholder="Rua das Flores"></div>
+    <div class="grid3"><div class="field"><label>Quadra</label><input autocomplete="off" id="fQuadra" value="${esc(c.quadra||'')}" placeholder="Qd"></div>
+      <div class="field"><label>Lote</label><input autocomplete="off" id="fLote" value="${esc(c.lote||'')}" placeholder="Lt"></div>
+      <div class="field"><label>Número</label><input autocomplete="off" id="fNumero" value="${esc(c.numero||'')}" placeholder="nº" inputmode="numeric"></div></div>
     <div class="grid2"><div class="field"><label>Setor / bairro</label><input autocomplete="off" id="fSetor" value="${esc(c.setor||'')}" placeholder="Setor Garavelo"></div>
       <div class="field"><label>CEP</label><div class="dt-wrap"><input autocomplete="off" id="fCep" value="${esc(c.cep||'')}" placeholder="00000-000" inputmode="numeric" oninput="mascararCEP(this)"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); buscarCEP()">🔍</button></div>
         <div class="hint" id="cepStatus" style="margin-bottom:0">Digite o CEP para preencher o endereço automaticamente.</div></div></div>
@@ -1433,10 +1443,12 @@ function openCliente(id){ if(!pode('editar')){ toast('Sem permissão para editar
 }
 function saveCliente(id){
   const nome=val('fNome').trim(); if(!nome){ toast('Informe o nome'); return; }
-  const rua=tc(val('fRua').trim());
+  const rua=tc(val('fRua').trim()); const quadra=val('fQuadra').trim().toUpperCase(); const lote=val('fLote').trim().toUpperCase(); const numero=val('fNumero').trim();
+  const setor=tc(val('fSetor').trim()); const cidade=tc(val('fCidade').trim());
+  const partes=[rua]; if(quadra) partes.push('Qd '+quadra); if(lote) partes.push('Lt '+lote); if(numero) partes.push('nº '+numero); if(setor) partes.push(setor); if(cidade) partes.push(cidade);
   const dados={nome:tc(nome),tipo:val('fTipo'),telefone1:val('fTel1').trim(),telefone2:val('fTel2').trim(),zap_num:val('fZap'),nascimento:val('fNasc').trim(),
-    cpf:fmtCPF(val('fCPF')),rua,setor:tc(val('fSetor').trim()),cidade:tc(val('fCidade').trim()),estado:val('fEstado').trim().toUpperCase().slice(0,2),cep:fmtCEP(val('fCep')),
-    endereco:[rua,tc(val('fSetor').trim()),tc(val('fCidade').trim())].filter(Boolean).join(', '),obs:val('fObs').trim(),
+    cpf:fmtCPF(val('fCPF')),rua,quadra,lote,numero,setor,cidade,estado:val('fEstado').trim().toUpperCase().slice(0,2),cep:fmtCEP(val('fCep')),
+    endereco:partes.filter(Boolean).join(', '),obs:val('fObs').trim(),
     contatos:contatoRows.filter(r=>r.nome.trim()||r.telefone.trim()).map(r=>({nome:tc(r.nome.trim()),relacao:r.relacao,telefone:r.telefone.trim(),nascimento:(r.nascimento||'').trim()}))};
   if(id) Object.assign(getCliente(id),dados); else state.clientes.push({id:uid(),...dados,criado:Date.now()});
   salvar(); closeModal(); refreshAtual(); toast('Cliente salvo');
