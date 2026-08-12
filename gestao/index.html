@@ -1342,7 +1342,7 @@ async function comprimirImagem(file){
   }catch(e){ return file; }
 }
 async function enviarMidia(oid, input, tipo){
-  const o=getOS(oid); if(!o) return; const file=input.files&&input.files[0]; input.value=''; if(!file) return;
+  const oIni=getOS(oid); if(!oIni) return; const file=input.files&&input.files[0]; input.value=''; if(!file) return;
   const st=document.getElementById('mdStatus-'+oid);
   if(tipo==='video' && file.size>60*1024*1024){ if(st){ st.textContent='Vídeo muito grande (máx ~60MB). Grave um clipe mais curto.'; st.style.color='var(--amber)'; } return; }
   if(st){ st.textContent='Enviando… não feche a tela.'; st.style.color='var(--muted)'; }
@@ -1352,12 +1352,15 @@ async function enviarMidia(oid, input, tipo){
     const r=await fetch('/gestao/api/midia/upload',{method:'POST',headers:{'Content-Type':ct,'X-Tipo':tipo},body});
     let d={}; try{ d=await r.json(); }catch(_){}
     if(!r.ok||!d.key){ throw new Error(d.error||('HTTP '+r.status)); }
-    o.midias=o.midias||[]; o.midias.push({key:d.key,tipo:d.tipo||tipo,criado:Date.now()}); o.atualizado=Date.now(); salvar();
+    const o=getOS(oid); if(!o){ toast('OS não encontrada'); return; }   // pega a OS ATUAL (pode ter sido trocada por sincronização)
+    o.midias=Array.isArray(o.midias)?o.midias:[]; o.midias.push({key:d.key,tipo:d.tipo||tipo,criado:Date.now()}); o.atualizado=Date.now();
+    cacheSave(); enviarMudancas();   // salva e empurra na hora, antes de qualquer nova sincronização
     renderOsDet(oid); toast('Mídia adicionada ✓');
   }catch(e){ if(st){ st.textContent='Falha ao enviar: '+(e&&e.message||e)+'. (Confira o binding R2 "MEDIA" no Pages e o deploy.)'; st.style.color='var(--amber)'; } }
 }
-function removerMidia(oid,key){ const o=getOS(oid); if(!o) return; confirmar('Remover esta mídia?', function(){
-  o.midias=(o.midias||[]).filter(m=>m.key!==key); o.atualizado=Date.now(); salvar(); renderOsDet(oid);
+function removerMidia(oid,key){ confirmar('Remover esta mídia?', function(){
+  const o=getOS(oid); if(!o) return;
+  o.midias=(o.midias||[]).filter(m=>m.key!==key); o.atualizado=Date.now(); cacheSave(); enviarMudancas(); renderOsDet(oid);
   fetch('/gestao/api/midia/'+key,{method:'DELETE'}).catch(function(){});
   toast('Mídia removida'); }); }
 
