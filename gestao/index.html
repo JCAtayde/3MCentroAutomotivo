@@ -120,6 +120,11 @@
   textarea{resize:vertical; min-height:64px; line-height:1.55}
   .grid2{display:grid; grid-template-columns:1fr 1fr; gap:12px}
   .grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px}
+  .diag-area{width:100%; background:var(--panel); border:1px solid var(--line2); border-radius:11px; color:var(--text); padding:11px; font:inherit; resize:vertical}
+  .midia-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:8px}
+  .midia-item{position:relative; border:1px solid var(--line2); border-radius:10px; overflow:hidden; background:#000; aspect-ratio:1/1}
+  .midia-el{width:100%; height:100%; object-fit:cover; display:block; cursor:pointer}
+  .midia-del{position:absolute; top:3px; right:3px; width:22px; height:22px; border:0; border-radius:50%; background:rgba(0,0,0,.6); color:#fff; font-size:12px; cursor:pointer; line-height:1}
   .grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px}
   @media(max-width:520px){ .grid3{grid-template-columns:1fr 1fr} }
   select{appearance:none; background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' stroke='%239AA0A9' stroke-width='1.6' fill='none' stroke-linecap='round'/></svg>"); background-repeat:no-repeat; background-position:right 12px center; padding-right:32px}
@@ -509,7 +514,7 @@ async function buscarCEP(){
 }
 function mascararCEP_legacy(){}
 function normVeiculo(v){ if(v.entrevista===undefined) v.entrevista=null; v.cor||=''; v.inspecao||={}; v.cambio||=''; return v; }
-function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
+function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; o.midias||=[]; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
 
 function upgradeV2toV3(v2){
   const db=novoBanco();
@@ -1256,8 +1261,12 @@ function renderOsDet(id){
     <div class="form-actions"><button class="btn gold" onclick='carroChegou("${o.id}")'>🚗 Carro chegou → Aguardando</button></div>`; return; }
 
   // Demais fases: peças/mão de obra/totais
-  let corpo=`
-    <div class="note-label">Observação do mecânico</div><div class="note ${o.obs_mecanico?'':'empty-note'}">${o.obs_mecanico?esc(o.obs_mecanico):'—'}</div>
+  const editavel = (st==='aguardando'||st==='andamento');
+  let corpo = editavel
+    ? blocoDiagnostico(o)
+    : `<div class="note-label">Observação do mecânico</div><div class="note ${o.obs_mecanico?'':'empty-note'}">${o.obs_mecanico?esc(o.obs_mecanico):'—'}</div>`;
+  corpo += `
+    ${blocoMidias(o)}
     ${(o.itens||[]).length?`<div class="section-label">Peças / produtos</div><div class="rows">${o.itens.map(linhaPeca).join('')}</div>`:''}
     ${(o.maodeobra&&o.maodeobra.length)?`<div class="section-label">Mão de obra</div><div class="rows">${o.maodeobra.map(m=>{ const mec=(state.mecanicos||[]).find(x=>x.id===m.mecanico_id);
       return `<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div><div class="s">${mec?('👨‍🔧 '+esc(mec.nome)):'<span style=\"color:var(--amber)\">sem mecânico</span>'}</div></div><span class="valor-tag">${moneyFmt(m.valor)}</span></div>`; }).join('')}</div>`:''}
@@ -1290,11 +1299,68 @@ function renderOsDetMecanico(o,mid){
       <span class="k">Veículo</span><span class="v">${esc(v?nomeVeiculo(v):'—')} · ${esc(v?.placa||'')}</span>
       ${st==='agendamento'?`<span class="k">Agendado</span><span class="v">${o.agenda_data?fmtBR(parseISO(o.agenda_data)):'—'}${o.agenda_hora?(' às '+o.agenda_hora):''}</span>`:`<span class="k">KM</span><span class="v">${o.km?nfmt(o.km)+' km':'—'}</span>`}</div></div>
     <div class="note-label">${st==='agendamento'?'Prévia do serviço':'Reclamação / serviço'}</div><div class="note ${o.reclamacao?'':'empty-note'}">${o.reclamacao?esc(o.reclamacao):'—'}</div>
+    ${(st==='aguardando'||st==='andamento')?blocoDiagnostico(o):(o.obs_mecanico?`<div class="note-label">Diagnóstico</div><div class="note">${esc(o.obs_mecanico)}</div>`:'')}
+    ${(st==='aguardando'||st==='andamento')?blocoMidias(o):''}
     ${pecas?`<div class="section-label">Peças / itens do serviço</div><div class="rows">${pecas}</div>`:''}
     <div class="section-label">Sua mão de obra</div>
     ${minhas.length?`<div class="rows">${minhas.map(m=>`<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div></div><span class="valor-tag">${moneyFmt(m.valor)}</span></div>`).join('')}</div>
       <div class="os-total"><span class="l"><b>Seu total de mão de obra</b></span><span class="v"><b>${moneyFmt(meuTotal)}</b></span></div>`:'<div class="note empty-note">Nenhuma mão de obra sua nesta OS ainda.</div>'}`;
 }
+function blocoDiagnostico(o){
+  return `<div class="section-label">🔧 O que o mecânico encontrou</div>
+    <textarea id="diagBox" class="diag-area" rows="3" placeholder="Descreva os defeitos/problemas encontrados no carro…">${esc(o.obs_mecanico||'')}</textarea>
+    <div class="form-actions" style="margin-top:6px"><button class="btn sm gold" onclick='salvarDiagnostico("${o.id}")'>Salvar diagnóstico</button></div>`;
+}
+function salvarDiagnostico(oid){ const o=getOS(oid); if(!o) return; o.obs_mecanico=val('diagBox'); o.atualizado=Date.now(); salvar(); toast('Diagnóstico salvo ✓'); }
+
+function blocoMidias(o){
+  const ms=o.midias||[];
+  const thumbs=ms.map(m=>{ const src='/gestao/api/midia/'+m.key;
+    const el = m.tipo==='video'
+      ? `<video src="${src}" class="midia-el" controls preload="metadata"></video>`
+      : `<img src="${src}" class="midia-el" onclick="window.open('${src}','_blank')">`;
+    return `<div class="midia-item">${el}<button class="midia-del" onclick='removerMidia("${o.id}","${m.key}")'>✕</button></div>`;
+  }).join('');
+  return `<div class="section-label">📷 Fotos e vídeos dos defeitos</div>
+    <div class="midia-grid">${thumbs||'<div class="note empty-note" style="margin:0">Nenhuma mídia ainda.</div>'}</div>
+    <div class="form-actions" style="margin-top:8px">
+      <button class="btn sm ghost" onclick='document.getElementById("mdFoto-${o.id}").click()'>📷 Adicionar foto</button>
+      <button class="btn sm ghost" onclick='document.getElementById("mdVideo-${o.id}").click()'>🎥 Adicionar vídeo</button></div>
+    <input type="file" id="mdFoto-${o.id}" accept="image/*" capture="environment" style="display:none" onchange='enviarMidia("${o.id}",this,"image")'>
+    <input type="file" id="mdVideo-${o.id}" accept="video/*" capture="environment" style="display:none" onchange='enviarMidia("${o.id}",this,"video")'>
+    <div class="hint" id="mdStatus-${o.id}" style="margin-top:6px"></div>`;
+}
+async function comprimirImagem(file){
+  try{
+    const bmp=await createImageBitmap(file);
+    const max=1280; let {width:w,height:h}=bmp;
+    if(w>max||h>max){ const r=Math.min(max/w,max/h); w=Math.round(w*r); h=Math.round(h*r); }
+    const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+    cv.getContext('2d').drawImage(bmp,0,0,w,h);
+    const blob=await new Promise(res=>cv.toBlob(res,'image/jpeg',0.6));
+    return blob||file;
+  }catch(e){ return file; }
+}
+async function enviarMidia(oid, input, tipo){
+  const o=getOS(oid); if(!o) return; const file=input.files&&input.files[0]; input.value=''; if(!file) return;
+  const st=document.getElementById('mdStatus-'+oid);
+  if(tipo==='video' && file.size>60*1024*1024){ if(st){ st.textContent='Vídeo muito grande (máx ~60MB). Grave um clipe mais curto.'; st.style.color='var(--amber)'; } return; }
+  if(st){ st.textContent='Enviando… não feche a tela.'; st.style.color='var(--muted)'; }
+  try{
+    let body=file, ct=file.type||(tipo==='video'?'video/mp4':'image/jpeg');
+    if(tipo==='image'){ const b=await comprimirImagem(file); body=b; ct=b.type||'image/jpeg'; }
+    const r=await fetch('/gestao/api/midia',{method:'POST',headers:{'Content-Type':ct,'X-Tipo':tipo},body});
+    const d=await r.json();
+    if(!r.ok||!d.key){ throw new Error(d.error||'falha'); }
+    o.midias=o.midias||[]; o.midias.push({key:d.key,tipo:d.tipo||tipo,criado:Date.now()}); o.atualizado=Date.now(); salvar();
+    renderOsDet(oid); toast('Mídia adicionada ✓');
+  }catch(e){ if(st){ st.textContent='Falha ao enviar. Verifique a internet e a configuração do R2 (binding MEDIA).'; st.style.color='var(--amber)'; } }
+}
+function removerMidia(oid,key){ const o=getOS(oid); if(!o) return; confirmar('Remover esta mídia?', function(){
+  o.midias=(o.midias||[]).filter(m=>m.key!==key); o.atualizado=Date.now(); salvar(); renderOsDet(oid);
+  fetch('/gestao/api/midia/'+key,{method:'DELETE'}).catch(function(){});
+  toast('Mídia removida'); }); }
+
 function acoesFase(o,st){
   if(st==='aguardando') return `<button class="btn sm green" onclick='aprovarOrcamento("${o.id}")'>✓ Aprovado</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>✕ Rejeitar</button>`;
   if(st==='andamento') return `${pode('valores')?`<button class="btn sm green" onclick='finalizarOS("${o.id}")'>✓ Finalizar</button>`:''}<button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>Rejeitar</button>`;
