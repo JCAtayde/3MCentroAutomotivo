@@ -1422,14 +1422,15 @@ function alertaCadastro(o,st){
     <div class="hint" style="margin:6px 0 0">O sistema só avança (aprovar/executar) com esses dados completos.</div>
     <div class="form-actions" style="margin-top:8px">
       <button class="btn sm gold" onclick='pedirDadosCliente("${o.id}")'>📲 Pedir dados que faltam ao cliente</button>
-      ${chk.c?`<button class="btn sm ghost" onclick='openCliente("${chk.c.id}")'>Completar agora</button>`:''}</div></div>`;
+      ${chk.c?`<button class="btn sm ghost" onclick='openCliente("${chk.c.id}")'>Completar cliente</button>`:''}
+      ${!(Number(o.km)>0)?`<button class="btn sm ghost" onclick='openOS("${o.id}")'>Informar KM</button>`:''}</div></div>`;
 }
 function pedirDadosCliente(oid){
   const o=getOS(oid); if(!o) return; const chk=cadastroCompleto(o); const c=chk.c;
   if(!c){ toast('Cliente não encontrado'); return; }
   const n=zapDoCliente(c);
   if(!n){ toast('Cliente sem WhatsApp cadastrado. Adicione o telefone dele primeiro (Completar agora).'); return; }
-  const faltas=chk.faltas.filter(f=>f!=='telefone').map(f=>'• '+f.charAt(0).toUpperCase()+f.slice(1));
+  const faltas=chk.faltas.filter(f=>f!=='telefone' && f!=='KM atual do carro').map(f=>'• '+f.charAt(0).toUpperCase()+f.slice(1));
   if(!faltas.length){ toast('Só falta o telefone, que você já tem. Complete no cadastro.'); return; }
   const nome=(c.nome||'').split(' ')[0]||'';
   const msg=`Olá ${nome}! 😊 Aqui é da *3M Centro Automotivo*.\n\nPara concluir o cadastro do seu veículo no nosso sistema e mantermos o *histórico completo* dos serviços do seu carro, faltam alguns dados:\n\n${faltas.join('\n')}\n\nEsses dados são importantes para registrarmos, de forma segura e eficaz, todo o histórico do seu carro em nossa empresa — e o nosso sistema só avança com o atendimento após tê-los. 🙏\n\nPode nos enviar por aqui mesmo? Obrigado! 🔧`;
@@ -1447,6 +1448,7 @@ function cadastroCompleto(o){
   if(!(c.cep||'').replace(/\D/g,'')) faltas.push('CEP');
   if(!v){ faltas.push('veículo'); }
   else { if(!(v.placa||'').trim()) faltas.push('placa do carro'); if(!(v.modelo||'').trim()) faltas.push('modelo do carro'); if(!(v.ano||'').toString().trim()) faltas.push('ano do carro'); }
+  if(!(Number(o.km)>0)) faltas.push('KM atual do carro');
   return {ok:faltas.length===0, faltas, c, v};
 }
 function aprovarOrcamento(oid){ const o=getOS(oid); if(!o) return;
@@ -1459,6 +1461,7 @@ function aprovarOrcamento(oid){ const o=getOS(oid); if(!o) return;
         <button class="btn gold" onclick='closeModal(); pedirDadosCliente("${oid}")'>📲 Pedir dados ao cliente</button>
         ${chk.c?`<button class="btn ghost" onclick='closeModal(); openCliente("${chk.c.id}")'>Completar cliente</button>`:''}
         ${chk.v?`<button class="btn ghost" onclick='closeModal(); openVeiculo("${chk.v.id}")'>Completar carro</button>`:''}
+        <button class="btn ghost" onclick='closeModal(); openOS("${oid}")'>Informar KM (editar OS)</button>
         <button class="btn ghost" onclick="closeModal()">Fechar</button></div>`);
     return;
   }
