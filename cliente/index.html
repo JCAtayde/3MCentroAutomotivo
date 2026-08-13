@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Área do Cliente · 3M Centro Automotivo</title>
+<style>
+  :root{--gold:#E8B23A;--bg:#0d0f12;--card:#14181d;--line:#242a31;--muted:#9aa3af;--green:#48B98A;--txt:#e9edf2}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;line-height:1.45}
+  .top{padding:16px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+  .logo{font-weight:800;color:var(--gold);letter-spacing:.5px;font-size:15px}
+  .wrap{max-width:820px;margin:0 auto;padding:18px 16px 60px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
+  h1{font-size:20px;margin:2px 0 4px}
+  h2{font-size:15px;margin:0 0 10px;color:var(--gold)}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 16px}
+  label{display:block;font-size:12.5px;color:var(--muted);margin:10px 0 5px}
+  input{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:#0f1216;color:var(--txt);font-size:15px}
+  input:focus{outline:none;border-color:var(--gold)}
+  .btn{width:100%;padding:13px;border:none;border-radius:10px;background:var(--gold);color:#1a1206;font-weight:800;font-size:15px;cursor:pointer;margin-top:16px}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--txt);font-weight:600}
+  .btn.sm{width:auto;padding:8px 12px;font-size:13px;margin:0}
+  .msg{margin-top:12px;padding:10px 12px;border-radius:9px;font-size:13.5px;display:none}
+  .msg.err{display:block;background:rgba(229,103,92,.12);border:1px solid #E5675C;color:#f2b8b2}
+  .msg.ok{display:block;background:rgba(72,185,138,.12);border:1px solid var(--green);color:#bfe6d4}
+  .hide{display:none}
+  .os{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;background:#0f1216}
+  .os-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
+  .badge{display:inline-block;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;border:1px solid var(--gold);color:var(--gold);white-space:nowrap}
+  .steps{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+  .step{font-size:11px;padding:4px 8px;border-radius:16px;background:#1a1f26;color:var(--muted)}
+  .step.on{background:var(--gold);color:#1a1206;font-weight:700}
+  .step.done{background:rgba(72,185,138,.18);color:#bfe6d4}
+  .lin{display:flex;justify-content:space-between;font-size:13.5px;padding:3px 0;border-bottom:1px dashed #1c2128}
+  .tot{display:flex;justify-content:space-between;font-weight:800;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+  .veic{display:inline-block;background:#1a1f26;border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:0 8px 8px 0;font-size:13.5px}
+  .link-fotos{display:inline-block;margin-top:10px;color:var(--gold);text-decoration:none;font-weight:700;font-size:13px;border:1px solid var(--gold);border-radius:8px;padding:7px 12px}
+  .foot{color:#6b7280;font-size:12px;text-align:center;padding:20px 10px}
+  .kv{font-size:13.5px;margin:4px 0}.kv b{color:var(--txt)}
+  .center{text-align:center}
+  .spin{color:var(--muted);text-align:center;padding:30px}
+</style></head>
+<body>
+<div class="top"><span class="logo">3M · ÁREA DO CLIENTE</span><button id="btnSair" class="btn ghost sm hide" onclick="sair()">Sair</button></div>
+<div class="wrap">
+
+  <!-- LOGIN -->
+  <div id="telaLogin" class="card hide">
+    <h1>Entrar</h1>
+    <p class="sub">Acompanhe o serviço do seu carro e o histórico completo, na palma da mão.</p>
+    <label>CPF</label>
+    <input id="loginCpf" inputmode="numeric" placeholder="Somente números" autocomplete="username">
+    <label>Senha</label>
+    <input id="loginSenha" type="password" placeholder="Sua senha" autocomplete="current-password" onkeydown="if(event.key==='Enter')fazerLogin()">
+    <button class="btn" onclick="fazerLogin()">Entrar</button>
+    <div id="msgLogin" class="msg"></div>
+    <p class="sub center" style="margin:16px 0 0">Ainda não tem acesso? Peça seu convite à 3M Centro Automotivo.</p>
+  </div>
+
+  <!-- ATIVAÇÃO (via convite) -->
+  <div id="telaAtivar" class="card hide">
+    <h1 id="ativarOla">Criar meu acesso</h1>
+    <p class="sub">Confirme seus dados para liberar sua Área do Cliente. É rápido e seguro.</p>
+    <label>CPF</label>
+    <input id="atCpf" inputmode="numeric" placeholder="Somente números">
+    <label>WhatsApp (com DDD)</label>
+    <input id="atZap" inputmode="tel" placeholder="Ex: 62 99999-8888">
+    <label>Crie uma senha</label>
+    <input id="atSenha" type="password" placeholder="Mínimo 4 dígitos" autocomplete="new-password">
+    <label>Repita a senha</label>
+    <input id="atSenha2" type="password" placeholder="Repita a senha" autocomplete="new-password">
+    <button class="btn" onclick="ativar()">Criar meu acesso</button>
+    <div id="msgAtivar" class="msg"></div>
+  </div>
+
+  <!-- CARREGANDO -->
+  <div id="telaLoad" class="spin hide">Carregando…</div>
+
+  <!-- PAINEL -->
+  <div id="telaPainel" class="hide">
+    <div class="card">
+      <h1 id="ola">Olá!</h1>
+      <p class="sub" id="subPainel">Aqui está tudo sobre o seu veículo na 3M Centro Automotivo.</p>
+      <h2>Meus dados</h2>
+      <div id="ficha"></div>
+      <div id="veiculos" style="margin-top:10px"></div>
+    </div>
+    <div class="card">
+      <h2>Histórico e acompanhamento</h2>
+      <div id="ordens"></div>
+    </div>
+    <p class="sub center">Este espaço é apenas para consulta. Para alterações ou orçamentos, fale com a 3M.</p>
+  </div>
+
+</div>
+<div class="foot">3M Centro Automotivo · Área do Cliente</div>
+
+<script>
+const API='/cliente/api';
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>'R$ '+(Number(n)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const dataBR=iso=>{ if(!iso) return '—'; const p=String(iso).split('-'); return p.length===3?(p[2]+'/'+p[1]+'/'+p[0]):iso; };
+const FLUXO=[['agendamento','Agendado'],['aguardando','Aguardando'],['andamento','Em andamento'],['liberado','Carro liberado'],['executado','Concluído']];
+function show(id){ ['telaLogin','telaAtivar','telaLoad','telaPainel'].forEach(t=>document.getElementById(t).classList.toggle('hide',t!==id)); document.getElementById('btnSair').classList.toggle('hide', id!=='telaPainel'); }
+function msg(el,txt,ok){ const e=document.getElementById(el); e.className='msg '+(ok?'ok':'err'); e.textContent=txt; }
+
+async function api(path, method, body){
+  const opt={ method:method||'GET', headers:{}, credentials:'same-origin' };
+  if(body){ opt.headers['Content-Type']='application/json'; opt.body=JSON.stringify(body); }
+  const r=await fetch(API+path,opt); let d={}; try{ d=await r.json(); }catch(e){}
+  return { ok:r.ok, status:r.status, d };
+}
+
+function tokenConvite(){ const u=new URL(location.href); return u.searchParams.get('c'); }
+
+async function boot(){
+  const tk=tokenConvite();
+  if(tk){
+    show('telaLoad');
+    const r=await api('/convite-info?token='+encodeURIComponent(tk));
+    if(r.d && r.d.ok){ document.getElementById('ativarOla').textContent = r.d.nome? ('Olá, '+r.d.nome+'!') : 'Criar meu acesso'; show('telaAtivar'); }
+    else { msg('msgLogin','Este convite não é mais válido. Peça um novo à oficina.',false); show('telaLogin'); }
+    return;
+  }
+  show('telaLoad');
+  const r=await api('/dados');
+  if(r.ok && r.d && r.d.ok){ pintarPainel(r.d); show('telaPainel'); }
+  else show('telaLogin');
+}
+
+async function fazerLogin(){
+  const cpf=(document.getElementById('loginCpf').value||'').replace(/\D/g,'');
+  const senha=document.getElementById('loginSenha').value||'';
+  if(cpf.length!==11){ msg('msgLogin','Digite os 11 números do CPF.',false); return; }
+  msg('msgLogin','Entrando…',true);
+  const r=await api('/login','POST',{cpf,senha});
+  if(r.ok && r.d.ok){ const d=await api('/dados'); if(d.ok&&d.d.ok){ pintarPainel(d.d); show('telaPainel'); } }
+  else msg('msgLogin', (r.d&&r.d.error)||'Não foi possível entrar.', false);
+}
+
+async function ativar(){
+  const cpf=(document.getElementById('atCpf').value||'').replace(/\D/g,'');
+  const zap=(document.getElementById('atZap').value||'');
+  const senha=document.getElementById('atSenha').value||'';
+  const senha2=document.getElementById('atSenha2').value||'';
+  if(cpf.length!==11){ msg('msgAtivar','Digite os 11 números do CPF.',false); return; }
+  if((zap.replace(/\D/g,'')).length<10){ msg('msgAtivar','Digite seu WhatsApp com DDD.',false); return; }
+  if(senha.length<4){ msg('msgAtivar','Crie uma senha de pelo menos 4 dígitos.',false); return; }
+  if(senha!==senha2){ msg('msgAtivar','As senhas não são iguais.',false); return; }
+  msg('msgAtivar','Confirmando…',true);
+  const r=await api('/ativar','POST',{ token:tokenConvite(), cpf, zap, senha });
+  if(r.ok && r.d.ok){
+    history.replaceState({},'',location.pathname);
+    const d=await api('/dados'); if(d.ok&&d.d.ok){ pintarPainel(d.d); show('telaPainel'); }
+  } else msg('msgAtivar', (r.d&&r.d.error)||'Não foi possível criar o acesso.', false);
+}
+
+async function sair(){ await api('/sair','POST'); location.href=location.pathname; }
+
+function stepsHTML(statusKey){
+  if(statusKey==='rejeitado') return '<div class="steps"><span class="step" style="background:rgba(229,103,92,.18);color:#f2b8b2">Orçamento não aprovado</span></div>';
+  const idx=FLUXO.findIndex(f=>f[0]===statusKey);
+  return '<div class="steps">'+FLUXO.map((f,i)=>{ const cls=i<idx?'done':(i===idx?'on':''); return '<span class="step '+cls+'">'+esc(f[1])+'</span>'; }).join('')+'</div>';
+}
+
+function pintarPainel(d){
+  const c=d.cliente||{};
+  document.getElementById('ola').textContent='Olá, '+((c.nome||'').split(' ')[0]||'')+'!';
+  document.getElementById('ficha').innerHTML =
+    '<div class="kv"><b>'+esc(c.nome||'')+'</b></div>'+
+    (c.telefone?'<div class="kv">'+esc(c.telefone)+'</div>':'')+
+    (c.endereco?'<div class="kv">'+esc(c.endereco)+'</div>':'')+
+    (c.cidade?'<div class="kv">'+esc(c.cidade)+'</div>':'');
+  document.getElementById('veiculos').innerHTML = (d.veiculos||[]).map(v=>
+    '<span class="veic">🚗 <b>'+esc(v.modelo||'')+'</b>'+(v.placa?' · '+esc(v.placa):'')+(v.ano?' · '+esc(v.ano):'')+'</span>').join('') || '';
+
+  const ord=d.ordens||[];
+  document.getElementById('ordens').innerHTML = ord.length ? ord.map(o=>{
+    const itens=(o.itens||[]).map(i=>'<div class="lin"><span>'+esc(i.nome)+(i.qtde>1?(' ×'+i.qtde):'')+'</span><span>'+(i.valor?money(i.valor*(i.qtde||1)):'—')+'</span></div>').join('');
+    return '<div class="os"><div class="os-head"><div><b>'+esc(o.veiculo||'Veículo')+'</b><div class="sub" style="margin:2px 0 0">'+dataBR(o.data)+(o.km?(' · '+Number(o.km).toLocaleString('pt-BR')+' km'):'')+'</div></div>'+
+      '<span class="badge">'+esc(o.status)+'</span></div>'+
+      stepsHTML(o.statusKey)+
+      (o.diagnostico?('<div class="kv" style="margin:8px 0"><span style="color:var(--muted)">Diagnóstico:</span> '+esc(o.diagnostico)+'</div>'):'')+
+      (itens?('<div style="margin-top:8px">'+itens+(o.maodeobra?('<div class="lin"><span>Mão de obra</span><span>'+money(o.maodeobra)+'</span></div>'):'')+'<div class="tot"><span>Total</span><span>'+money(o.total)+'</span></div></div>'):'')+
+      (o.link?('<a class="link-fotos" href="'+esc(o.link)+'" target="_blank">📷 Ver fotos e vídeos</a>'):'')+
+    '</div>';
+  }).join('') : '<div class="sub">Ainda não há serviços registrados para o seu veículo.</div>';
+}
+
+boot();
+</script>
+</body></html>
