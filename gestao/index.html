@@ -617,7 +617,7 @@ function diasEntre(a,b){ return Math.round((parseISO(b)-parseISO(a))/86400000); 
 function nfmt(n){ return Number(n).toLocaleString('pt-BR'); }
 function esc(s){ return (s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function tc(s){ const min=['de','da','do','das','dos','e','com','para','por','em','no','na','nos','nas','ao','aos','a','o','as','os','à','às'];
-  return String(s||'').trim().replace(/\s+/g,' ').split(' ').map((w,i)=>{ if(!w) return w; const lw=w.toLowerCase(); if(i>0 && min.includes(lw)) return lw; return w.charAt(0).toUpperCase()+w.slice(1); }).join(' '); }
+  return String(s||'').trim().replace(/\s+/g,' ').split(' ').map((w,i)=>{ if(!w) return w; const lw=w.toLowerCase(); if(i>0 && min.includes(lw)) return lw; return lw.charAt(0).toUpperCase()+lw.slice(1); }).join(' '); }
 function val(id){ const e=document.getElementById(id); return e?e.value:''; }
 function dtField(id,tipo,valor,label){ const ic=tipo==='time'?'🕐':'📅';
   return `<div class="field"><label>${label}</label><div class="dt-wrap"><input id="${id}" type="${tipo}" value="${valor||''}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('${id}')">${ic}</button></div></div>`; }
