@@ -1317,7 +1317,7 @@ function renderOsDet(id){
     ${(st==='aguardando'||st==='andamento')?`<button class="btn sm ghost" onclick='avisarMecanico("${o.id}")'>🔧 Avisar mecânico</button>`:''}</div>`; }
 
   // Pagamentos (andamento/executado)
-  if(st==='andamento'||st==='liberado'||st==='executado'){ corpo+=renderPagamentosOS(o); }
+  if(st==='liberado'||st==='executado'){ corpo+=renderPagamentosOS(o); }
 
   box.innerHTML=head+corpo;
 }
@@ -1447,8 +1447,8 @@ function acoesFase(o,st){
 }
 function renderPagamentosOS(o){
   const pgs=pagamentosOS(o.id); const pago=pagoOS(o.id); const rest=restanteOS(o);
-  const linhas=pgs.map(m=>`<div class="row"><div class="main"><div class="t">${formaLabel(m.forma)}${m.forma==='cartao'&&(m.parcelas>1)?(' '+m.parcelas+'x'):''}</div><div class="s">${fmtBR(parseISO(m.data))}${m.forma==='cartao'&&m.taxa?(' · taxa '+moneyFmt(m.taxa)):''}</div></div><div class="acts"><span class="valor-tag" style="color:var(--green)">+${moneyFmt(m.valor)}</span>${pode('valores')?`<button class="btn sm ghost" onclick='removerPagamento("${m.id}","${o.id}")'>✕</button>`:''}</div></div>`).join('');
-  const podeVal=pode('valores'); const fase=osStatus(o); const ativa=(fase==='andamento'||fase==='liberado'||fase==='executado');
+  const linhas=pgs.map(m=>`<div class="row"><div class="main"><div class="t">${formaLabel(m.forma)}${m.forma==='cartao'?(' '+cartaoLabel(m)):''}</div><div class="s">${fmtBR(parseISO(m.data))}${m.forma==='cartao'&&m.taxa?(' · taxa '+moneyFmt(m.taxa)):''}</div></div><div class="acts"><span class="valor-tag" style="color:var(--green)">+${moneyFmt(m.valor)}</span>${pode('valores')?`<button class="btn sm ghost" onclick='removerPagamento("${m.id}","${o.id}")'>✕</button>`:''}</div></div>`).join('');
+  const podeVal=pode('valores'); const fase=osStatus(o); const ativa=(fase==='liberado'||fase==='executado');
   const descs=o.descontos||[];
   let bloco='';
   if(descs.length || (ativa&&podeVal)){
@@ -1461,9 +1461,10 @@ function renderPagamentosOS(o){
   if(descontoTotal(o)>0) bloco+=`<div class="os-total"><span class="l">Subtotal</span><span class="v">${moneyFmt(osTotalBruto(o))}</span></div><div class="os-total"><span class="l">Descontos</span><span class="v" style="color:var(--amber)">− ${moneyFmt(descontoTotal(o))}</span></div><div class="os-total"><span class="l"><b>Total com desconto</b></span><span class="v"><b>${moneyFmt(osTotal(o))}</b></span></div>`;
   bloco+=`<div class="os-total"><span class="l">Pago</span><span class="v" style="color:var(--green)">${moneyFmt(pago)}</span></div>
     <div class="os-total"><span class="l"><b>Restante</b></span><span class="v"><b style="color:${rest>0?'var(--red)':'var(--green)'}">${moneyFmt(rest)}</b></span></div>`;
-  if(ativa && podeVal && rest>0) bloco+=`<div class="form-actions" style="margin-top:8px"><button class="btn" onclick='pagamentoModal("${o.id}","adiantamento")'>💵 Registrar pagamento</button></div>`;
+  if(ativa && podeVal && rest>0) bloco+=`<div class="form-actions" style="margin-top:8px"><button class="btn" onclick='pagamentoModal("${o.id}","adiantamento")'>💵 Pagamento Parcial</button></div>`;
   return bloco;
 }
+function cartaoLabel(m){ const t=m.cartao_tipo; if(t==='debito') return '(Débito)'; if(t==='credito') return '(Crédito)'; if(t==='parcelado'||(m.parcelas>1)) return (m.parcelas>1?(m.parcelas+'x'):'(Parcelado)'); return ''; }
 function descAlvoLabel(o,d){
   if(d.tipo==='peca'){ const i=(o.itens||[]).find(x=>x.id===d.ref); return 'Peça: '+(i?i.nome:'—'); }
   if(d.tipo==='mdo'){ const m=(o.maodeobra||[]).find(x=>x.id===d.ref); const mec=(state.mecanicos||[]).find(x=>x.id===(m&&m.mecanico_id)); return 'Mão de obra'+(mec?(' — '+mec.nome):(m&&m.desc?(' — '+m.desc):'')); }
@@ -1571,29 +1572,34 @@ function voltarAndamento(oid){ if(!ehAdmin()){ toast('Apenas o gestor geral'); r
 const FORMAS=[['pix','PIX'],['dinheiro','Dinheiro'],['cartao','Cartão']];
 function formaLabel(f){ const x=FORMAS.find(y=>y[0]===f); return x?x[1]:(f||'—'); }
 function pagamentoModal(oid,modo){ const o=getOS(oid); if(!o) return; if(!pode('valores')){ toast('Sem permissão'); return; }
-  const rest=restanteOS(o); const valPad = modo==='final'? rest : rest;
-  openModal(`<h3>${modo==='final'?'Finalizar OS':'Registrar entrada / adiantamento'}</h3>
+  const rest=restanteOS(o); const valPad = rest;
+  openModal(`<h3>${modo==='final'?'Receber / Finalizar':'Pagamento Parcial'}</h3>
     <div class="pg-info">Total ${moneyFmt(osTotal(o))} · Pago ${moneyFmt(pagoOS(o.id))} · <b>Restante ${moneyFmt(rest)}</b></div>
+    <div class="form-actions" style="margin-top:0;margin-bottom:4px"><button class="btn sm ghost" onclick='closeModal(); descontoModal("${oid}")'>− Aplicar desconto</button></div>
     <div class="grid2">${dtField('pgData','date',toISO(hoje()),'Data')}
       <div class="field"><label>Valor</label><input id="pgValor" inputmode="decimal" value="${valPad>0?String(valPad.toFixed(2)).replace('.',','):''}" placeholder="0,00" oninput="pgCalc()"></div></div>
     <div class="field"><label>Forma de pagamento</label><select id="pgForma" onchange="pgToggle()">${FORMAS.map(f=>`<option value="${f[0]}">${f[1]}</option>`).join('')}</select></div>
     <div id="pgCartao" style="display:none">
-      <div class="grid2"><div class="field"><label>Valor a receber (líquido)</label><input id="pgLiquido" inputmode="decimal" placeholder="0,00" oninput="pgCalc()"></div>
-        <div class="field"><label>Parcelas</label><input id="pgParc" inputmode="numeric" value="1"></div></div>
+      <div class="field"><label>Tipo do cartão</label><select id="pgCartaoTipo" onchange="pgToggle()">
+        <option value="debito">Débito</option><option value="credito">Crédito à vista</option><option value="parcelado">Parcelado</option></select></div>
+      <div class="field" id="pgParcWrap" style="display:none"><label>Quantas vezes (parcelas)</label><input id="pgParc" inputmode="numeric" value="2"></div>
+      <div class="field"><label>Valor a receber (líquido — o que cai na conta)</label><input id="pgLiquido" inputmode="decimal" placeholder="0,00" oninput="pgCalc()"></div>
       <div class="hint" id="pgTaxaInfo" style="margin-bottom:0"></div></div>
-    ${modo==='final'?`<div class="hint">A OS só vai para <b>Executado</b> quando <b>não houver valor em aberto</b>. Se ainda faltar, o recebimento é registrado e a OS continua em "Carro liberado". No cartão, informe o <b>valor que cai na conta</b> — o sistema calcula a taxa.</div>`:`<div class="hint">No cartão, informe o <b>valor que cai na conta</b> — o sistema mostra a taxa.</div>`}
-    <div class="form-actions"><button class="btn green" onclick='salvarPagamento("${oid}","${modo}")'>${modo==='final'?'Finalizar':'Registrar'}</button>
+    ${modo==='final'?`<div class="hint">A OS só vai para <b>Executado</b> quando <b>não houver valor em aberto</b>. Se ainda faltar, o recebimento é registrado e a OS continua em "Carro liberado".</div>`:`<div class="hint">Recebimento parcial: o restante continua em aberto.</div>`}
+    <div class="form-actions"><button class="btn green" onclick='salvarPagamento("${oid}","${modo}")'>${modo==='final'?'Receber / Finalizar':'Registrar pagamento parcial'}</button>
       <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
+  pgToggle();
 }
 function pgToggle(){ const f=val('pgForma'); const w=document.getElementById('pgCartao'); if(w) w.style.display=f==='cartao'?'':'none';
+  const pw=document.getElementById('pgParcWrap'); if(pw) pw.style.display=(f==='cartao'&&val('pgCartaoTipo')==='parcelado')?'':'none';
   if(f==='cartao'){ const liq=document.getElementById('pgLiquido'); if(liq && !liq.value.trim()) liq.value=val('pgValor'); } pgCalc(); }
 function pgCalc(){ const v=moneyParse(val('pgValor')); const liqRaw=val('pgLiquido'); const liq=liqRaw.trim()?moneyParse(liqRaw):v; const taxa=Math.max(0,v-liq);
   const el=document.getElementById('pgTaxaInfo'); if(el) el.innerHTML=`Taxa (desconto do cartão): <b>${moneyFmt(taxa)}</b> · Você recebe <b>${moneyFmt(Math.min(v,liq))}</b>`; }
 function salvarPagamento(oid,modo){ const o=getOS(oid); if(!o) return; const forma=val('pgForma'); const valor=moneyParse(val('pgValor'));
   const liq=forma==='cartao'?(val('pgLiquido').trim()?moneyParse(val('pgLiquido')):valor):valor; const taxa=forma==='cartao'?Math.max(0,valor-liq):0;
-  const parcelas=forma==='cartao'?(parseInt(val('pgParc'))||1):1; const data=val('pgData')||toISO(hoje());
+  const cartaoTipo=forma==='cartao'?val('pgCartaoTipo'):''; const parcelas=(forma==='cartao'&&cartaoTipo==='parcelado')?(parseInt(val('pgParc'))||2):1; const data=val('pgData')||toISO(hoje());
   const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
-  if(valor>0){ state.caixa.push({id:uid(),tipo:'entrada',data,valor,forma,taxa,liquido:valor-taxa,parcelas,descricao:(modo==='final'?'OS (final) ':'OS (adiant.) ')+(c?c.nome:'')+(v?(' — '+nomeVeiculo(v)):''),ordem_id:oid,criado:Date.now()}); }
+  if(valor>0){ state.caixa.push({id:uid(),tipo:'entrada',data,valor,forma,taxa,liquido:valor-taxa,parcelas,cartao_tipo:cartaoTipo,descricao:(modo==='final'?'OS (final) ':'OS (parcial) ')+(c?c.nome:'')+(v?(' — '+nomeVeiculo(v)):''),ordem_id:oid,criado:Date.now()}); }
   if(modo==='final'){
     const rest=restanteOS(o);
     if(rest>0.005){ o.atualizado=Date.now(); salvar(); closeModal(); renderOsDet(oid); toast('Recebimento registrado. Ainda faltam '+moneyFmt(rest)+' — só finaliza quando estiver quitado.'); return; }
