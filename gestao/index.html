@@ -1434,7 +1434,6 @@ function renderPagamentosOS(o){
 
 /* ---- transições de fase ---- */
 function carroChegou(oid){ const o=getOS(oid); if(!o) return;
-  if(!midiaCat(o,'entrada').length){ toast('Registre foto ou vídeo da ENTRADA do veículo antes de avançar.'); return; }
   confirmar('Confirmar que o carro chegou? A OS vai para "Aguardando orçamento".', function(){ o.status='aguardando'; o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; renderOsDet(oid); toast('Em Aguardando orçamento'); }, 'Confirmar', 'green'); }
 function alertaCadastro(o,st){
   if(ehMecanico()) return '';
@@ -1475,8 +1474,6 @@ function cadastroCompleto(o){
 }
 function faltasAprovacao(o){
   const chk=cadastroCompleto(o); const faltas=[...chk.faltas];
-  if(!midiaCat(o,'entrada').length) faltas.push('foto/vídeo da entrada do veículo');
-  if(!midiaCat(o,'defeito').length) faltas.push('foto/vídeo do problema (posição do mecânico)');
   if(!(o.obs_mecanico||'').trim()) faltas.push('relato do problema por escrito (diagnóstico)');
   return {ok:faltas.length===0, faltas, c:chk.c, v:chk.v};
 }
