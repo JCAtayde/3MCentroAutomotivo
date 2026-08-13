@@ -669,7 +669,7 @@ function enviarReativar(cid){ const c=getCliente(cid); const n=zapDoCliente(c); 
   window.open('https://wa.me/'+n+'?text='+encodeURIComponent(msg),'_blank'); closeModal(); }
 function chev(){ return '<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'; }
 
-function servicosFlat(){ const out=[]; state.ordens.forEach(o=>{ if(!osExecutada(o)) return; (o.itens||[]).forEach(i=>{ if(i.regra_id) out.push({veiculo_id:o.veiculo_id,regra_id:i.regra_id,km:o.km,data:o.data}); }); }); return out; }
+function servicosFlat(){ const out=[]; state.ordens.forEach(o=>{ if(!osExecutada(o)) return; (o.itens||[]).forEach(i=>{ let rid=i.regra_id; if(!rid){ const r=regraPorNome(i.nome); rid=r?r.id:null; } if(rid) out.push({veiculo_id:o.veiculo_id,regra_id:rid,km:o.km,data:o.data}); }); }); return out; }
 
 /* ==================================================================
    PREVISÃO
@@ -1247,7 +1247,7 @@ function renderOsDet(id){
   const mecResp=(state.mecanicos||[]).find(x=>x.id===o.mecanico_id);
   const stBadge=`<span class="badge" style="border-color:${faseCor(st)};color:${faseCor(st)}">${faseLabel(st)}</span>`;
   const linhaPeca=i=>{ const q=Number(i.qtde)||1; const sub=(Number(i.valor)||0)*q;
-    return `<div class="row"><div class="main"><div class="t">${esc(i.nome)}${i.regra_id?' <span class="badge prev">gera retorno</span>':''}</div>
+    return `<div class="row"><div class="main"><div class="t">${esc(i.nome)}${(i.regra_id||regraPorNome(i.nome))?' <span class="badge prev">gera retorno</span>':''}</div>
       <div class="s">${q} × ${i.valor?moneyFmt(i.valor):'—'}</div></div><span class="valor-tag">${moneyFmt(sub)}</span></div>`; };
 
   // Cabeçalho comum
@@ -1964,7 +1964,8 @@ function salvarPecaCatalogo(){ const nome=tc(val('pcNome').trim()); if(!nome){ t
   else if(jaPeca){ jaPeca.preco=preco; }
   else { state.pecas.push({id:uid(),nome,preco,criado:Date.now()}); }
   salvar(); atualizarRegrasList();
-  const b=document.getElementById('pcInline'); if(b) b.innerHTML=''; renderOsItens(); toast('Peça salva ✓'); }
+  const geraRet = jaRegra || km>0 || meses>0;
+  const b=document.getElementById('pcInline'); if(b) b.innerHTML=''; renderOsItens(); toast(geraRet?'Peça salva — vai gerar retorno ✓':'Peça salva (produto, sem retorno)'); }
 function removeOsItem(id){ osItens=osItens.filter(x=>x.id!==id); renderOsItens(); }
 function atualizaTotal(){ const pecas=osItens.reduce((s,i)=>s+moneyParse(i.valor)*(parseInt(i.qtde)||1),0);
   const mdo=(osMdo||[]).reduce((s,m)=>s+moneyParse(m.valor),0);
