@@ -1508,17 +1508,20 @@ function pagamentoModal(oid,modo){ const o=getOS(oid); if(!o) return; if(!pode('
       <div class="field"><label>Valor</label><input id="pgValor" inputmode="decimal" value="${valPad>0?String(valPad.toFixed(2)).replace('.',','):''}" placeholder="0,00" oninput="pgCalc()"></div></div>
     <div class="field"><label>Forma de pagamento</label><select id="pgForma" onchange="pgToggle()">${FORMAS.map(f=>`<option value="${f[0]}">${f[1]}</option>`).join('')}</select></div>
     <div id="pgCartao" style="display:none">
-      <div class="grid2"><div class="field"><label>Taxa do cartão (R$)</label><input id="pgTaxa" inputmode="decimal" placeholder="0,00" oninput="pgCalc()"></div>
+      <div class="grid2"><div class="field"><label>Valor a receber (líquido)</label><input id="pgLiquido" inputmode="decimal" placeholder="0,00" oninput="pgCalc()"></div>
         <div class="field"><label>Parcelas</label><input id="pgParc" inputmode="numeric" value="1"></div></div>
-      <div class="hint" id="pgLiq" style="margin-bottom:0"></div></div>
+      <div class="hint" id="pgTaxaInfo" style="margin-bottom:0"></div></div>
     ${modo==='final'?`<div class="hint">Ao finalizar, o valor entra no caixa do dia e a OS vai para <b>Executados</b>. Se já estiver tudo pago, deixe o valor 0.</div>`:''}
     <div class="form-actions"><button class="btn green" onclick='salvarPagamento("${oid}","${modo}")'>${modo==='final'?'Finalizar':'Registrar'}</button>
       <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
-function pgToggle(){ const f=val('pgForma'); const w=document.getElementById('pgCartao'); if(w) w.style.display=f==='cartao'?'':'none'; pgCalc(); }
-function pgCalc(){ const v=moneyParse(val('pgValor')); const t=moneyParse(val('pgTaxa')); const el=document.getElementById('pgLiq'); if(el) el.innerHTML=`Líquido a receber: <b>${moneyFmt(Math.max(0,v-t))}</b>`; }
+function pgToggle(){ const f=val('pgForma'); const w=document.getElementById('pgCartao'); if(w) w.style.display=f==='cartao'?'':'none';
+  if(f==='cartao'){ const liq=document.getElementById('pgLiquido'); if(liq && !liq.value.trim()) liq.value=val('pgValor'); } pgCalc(); }
+function pgCalc(){ const v=moneyParse(val('pgValor')); const liqRaw=val('pgLiquido'); const liq=liqRaw.trim()?moneyParse(liqRaw):v; const taxa=Math.max(0,v-liq);
+  const el=document.getElementById('pgTaxaInfo'); if(el) el.innerHTML=`Taxa (desconto do cartão): <b>${moneyFmt(taxa)}</b> · Você recebe <b>${moneyFmt(Math.min(v,liq))}</b>`; }
 function salvarPagamento(oid,modo){ const o=getOS(oid); if(!o) return; const forma=val('pgForma'); const valor=moneyParse(val('pgValor'));
-  const taxa=forma==='cartao'?moneyParse(val('pgTaxa')):0; const parcelas=forma==='cartao'?(parseInt(val('pgParc'))||1):1; const data=val('pgData')||toISO(hoje());
+  const liq=forma==='cartao'?(val('pgLiquido').trim()?moneyParse(val('pgLiquido')):valor):valor; const taxa=forma==='cartao'?Math.max(0,valor-liq):0;
+  const parcelas=forma==='cartao'?(parseInt(val('pgParc'))||1):1; const data=val('pgData')||toISO(hoje());
   const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
   if(valor>0){ state.caixa.push({id:uid(),tipo:'entrada',data,valor,forma,taxa,liquido:valor-taxa,parcelas,descricao:(modo==='final'?'OS (final) ':'OS (adiant.) ')+(c?c.nome:'')+(v?(' — '+nomeVeiculo(v)):''),ordem_id:oid,criado:Date.now()}); }
   if(modo==='final'){ o.status='executado'; o.data=toISO(hoje()); o.atualizado=Date.now(); osFiltroStatus='executado'; }
@@ -2296,7 +2299,7 @@ function movimentoModal(tipo,id){ const m=id?(state.caixa.find(x=>x.id===id)||{}
     <div class="grid2">${dtField('mvData','date',(m.data||toISO(hoje())),'Data')}
       <div class="field"><label>Valor</label><input id="mvValor" inputmode="decimal" value="${m.valor?String(m.valor).replace('.',','):''}" placeholder="0,00"></div></div>
     <div class="field"><label>Forma</label><select id="mvForma" onchange="mvToggleTaxa()">${FORMAS.map(f=>`<option value="${f[0]}" ${m.forma===f[0]?'selected':''}>${f[1]}</option>`).join('')}</select></div>
-    <div class="field" id="mvTaxaWrap" style="display:${ent&&m.forma==='cartao'?'':'none'}"><label>Taxa do cartão (R$)</label><input id="mvTaxa" inputmode="decimal" value="${m.taxa?String(m.taxa).replace('.',','):''}" placeholder="0,00"></div>
+    <div class="field" id="mvTaxaWrap" style="display:${ent&&m.forma==='cartao'?'':'none'}"><label>Valor a receber (líquido)</label><input id="mvLiquido" inputmode="decimal" value="${(m.taxa&&m.valor)?String(m.valor-m.taxa).replace('.',','):''}" placeholder="0,00" oninput="mvCalcTaxa()"><div class="hint" id="mvTaxaInfo" style="margin:4px 0 0"></div></div>
     ${!ent?`<div class="field"><label>Tipo de saída</label><select id="mvCat" onchange="mvToggleFunc()">${CAT_SAIDA.map(c=>`<option value="${c[0]}" ${m.categoria===c[0]?'selected':''}>${c[1]}</option>`).join('')}</select></div>
     <div class="field" id="mvFuncWrap" style="display:${m.categoria==='adiantamento'?'':'none'}"><label>Funcionário</label><select id="mvFunc"><option value="">—</option>${(state.mecanicos||[]).map(x=>`<option value="${x.id}" ${m.funcionario_id===x.id?'selected':''}>${esc(x.nome)}</option>`).join('')}</select></div>`:''}
     <div class="field"><label>Descrição</label><input id="mvDesc" value="${esc(m.descricao||'')}" placeholder="${ent?'Ex: Venda de peça avulsa':'Ex: Aluguel, óleo, adiantamento…'}"></div>
@@ -2305,10 +2308,11 @@ function movimentoModal(tipo,id){ const m=id?(state.caixa.find(x=>x.id===id)||{}
       <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
   mvToggleTaxa();
 }
-function mvToggleTaxa(){ const f=val('mvForma'); const w=document.getElementById('mvTaxaWrap'); if(w) w.style.display=(f==='cartao')?'':'none'; }
+function mvToggleTaxa(){ const f=val('mvForma'); const w=document.getElementById('mvTaxaWrap'); if(w) w.style.display=(f==='cartao')?'':'none'; mvCalcTaxa(); }
+function mvCalcTaxa(){ const v=moneyParse(val('mvValor')); const liqRaw=val('mvLiquido'); const liq=liqRaw&&liqRaw.trim()?moneyParse(liqRaw):v; const taxa=Math.max(0,v-liq); const el=document.getElementById('mvTaxaInfo'); if(el) el.innerHTML=`Taxa (desconto): <b>${moneyFmt(taxa)}</b>`; }
 function mvToggleFunc(){ const c=val('mvCat'); const w=document.getElementById('mvFuncWrap'); if(w) w.style.display=(c==='adiantamento')?'':'none'; }
 function salvarMovimento(id,tipo){ const data=val('mvData')||toISO(hoje()); const valor=moneyParse(val('mvValor')); const forma=val('mvForma');
-  const taxa=(tipo==='entrada'&&forma==='cartao')?moneyParse(val('mvTaxa')):0; const descricao=val('mvDesc').trim();
+  const taxa=(tipo==='entrada'&&forma==='cartao')?Math.max(0,valor-(val('mvLiquido').trim()?moneyParse(val('mvLiquido')):valor)):0; const descricao=val('mvDesc').trim();
   const categoria=tipo==='saida'?(val('mvCat')||'outros'):''; const funcionario_id=(categoria==='adiantamento')?(val('mvFunc')||''):'';
   if(valor<=0){ toast('Informe o valor'); return; }
   if(categoria==='adiantamento' && !funcionario_id){ toast('Escolha o funcionário do adiantamento'); return; }
