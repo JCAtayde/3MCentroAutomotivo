@@ -31,6 +31,11 @@ function pagina(titulo, corpo, meta){
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
   .item{background:#000;border:1px solid #22262c;border-radius:12px;overflow:hidden;aspect-ratio:1/1}
   .item img,.item video{width:100%;height:100%;object-fit:cover;display:block}
+  .item.vid{aspect-ratio:auto;background:#111}
+  .item.vid video{height:auto;max-height:70vh;object-fit:contain}
+  .vopen{display:block;text-align:center;padding:9px;background:var(--gold);color:#1a1206;font-weight:800;text-decoration:none;font-size:13px}
+  .dica{color:#c9d0d8;background:#1a1f26;border:1px solid #22262c;border-radius:10px;padding:10px 12px;font-size:13px;margin:0 0 14px}
+  .sec{font-size:15px;margin:20px 0 8px;color:var(--gold)}
   .empty{color:#9aa3af;text-align:center;padding:40px 10px}
   .foot{color:#6b7280;font-size:12px;text-align:center;padding:22px 10px}
 </style></head>
@@ -59,21 +64,28 @@ export async function onRequest(context){
       if(v) carro = [v.modelo, v.ano].filter(Boolean).join(' ');
     }catch(e){}
 
-    const defeito = (midias || []).filter(m => (m.cat || 'defeito') === 'defeito');
-    const itens = defeito.map(m => {
+    function cardMidia(m){
       const src = '/gestao/api/midia/' + m.key;
       return m.tipo === 'video'
-        ? `<div class="item"><video src="${esc(src)}" controls preload="metadata"></video></div>`
+        ? `<div class="item vid"><video src="${esc(src)}#t=0.1" controls playsinline preload="metadata"></video><a class="vopen" href="${esc(src)}" target="_blank">▶ Abrir vídeo</a></div>`
         : `<div class="item"><a href="${esc(src)}" target="_blank"><img src="${esc(src)}" alt="foto do serviço"></a></div>`;
-    }).join('');
+    }
+    const entrada = (midias || []).filter(m => (m.cat || 'defeito') === 'entrada');
+    const defeito = (midias || []).filter(m => (m.cat || 'defeito') === 'defeito');
+    const itensEntrada = entrada.map(cardMidia).join('');
+    const itensDefeito = defeito.map(cardMidia).join('');
+    const temVideo = [...entrada, ...defeito].some(m => m.tipo === 'video');
 
-    const primeiraFoto = defeito.find(m => (m.tipo||'image') !== 'video');
+    const primeiraFoto = [...defeito, ...entrada].find(m => (m.tipo||'image') !== 'video');
     const ogImage = primeiraFoto ? ('https://3mcentroautomotivo.com.br/gestao/api/midia/' + primeiraFoto.key) : '';
 
+    const secEntrada = itensEntrada ? `<h2 class="sec">🚗 Como o seu carro chegou</h2><div class="grid">${itensEntrada}</div>` : '';
+    const secDefeito = itensDefeito ? `<h2 class="sec">🔧 Problemas encontrados</h2><div class="grid">${itensDefeito}</div>` : '';
     const corpo = `
-      <h1>Imagens e Vídeos dos Problemas Encontrados</h1>
+      <h1>Imagens e Vídeos do seu Serviço</h1>
       <p class="sub">${carro ? esc(carro) : 'Seu veículo'}</p>
-      ${itens ? `<div class="grid">${itens}</div>` : '<div class="empty">Ainda não há imagens ou vídeos para este serviço.</div>'}`;
+      ${temVideo ? '<p class="dica">Se algum vídeo não abrir direto, toque em <b>“▶ Abrir vídeo”</b>.</p>' : ''}
+      ${(secEntrada||secDefeito) ? (secEntrada+secDefeito) : '<div class="empty">Ainda não há imagens ou vídeos para este serviço.</div>'}`;
 
     const meta = {
       title: 'Imagens e Vídeos dos Problemas Encontrados',
