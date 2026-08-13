@@ -1869,11 +1869,21 @@ function prevCalc(v, base, last){
   const prox=(o.faltamKm!=null&&o.faltamKm<=1500)||(o.faltamMeses!=null&&o.faltamMeses<=1);
   o.st=venc?'vencida':(prox?'proxima':'emdia'); return o;
 }
+function regraDaBasePrev(base){
+  const bn=(base.nome||'').toLowerCase();
+  let r=(state.regras||[]).find(x=>(x.nome||'').toLowerCase()===bn);
+  if(!r) r=(state.regras||[]).find(x=>prevNomeDeServico(x.nome)===base.nome);
+  return r;
+}
 function fichaPrevencao(vid){
   const v=getVeiculo(vid); const r={vencidos:[],proximos:[],emdia:[],verificar:[]};
   ENTREVISTA_ITENS.forEach(base=>{
+    const rg=regraDaBasePrev(base);
+    const baseEf={ nome:base.nome,
+      km:(rg && Number(rg.km)>0) ? Number(rg.km) : (base.km||0),
+      meses:(rg && Number(rg.meses)>0) ? Number(rg.meses) : (base.meses||0) };
     const last=ultimaTrocaPrev(v, base.nome);
-    const o=prevCalc(v, base, last);
+    const o=prevCalc(v, baseEf, last);
     o.situacao=(v.inspecao&&v.inspecao[base.nome])||null;
     if(o.st==='vencida') r.vencidos.push(o); else if(o.st==='proxima') r.proximos.push(o); else if(o.st==='emdia') r.emdia.push(o); else r.verificar.push(o);
   });
