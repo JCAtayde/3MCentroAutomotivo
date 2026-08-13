@@ -954,6 +954,22 @@ function renderClientes(){
 }
 
 /* CLIENTE detalhe */
+async function enviarConviteCliente(id){
+  const c=getCliente(id); if(!c) return;
+  const cpf=(c.cpf||'').replace(/\D/g,'');
+  if(cpf.length!==11){ toast('Cadastre o CPF do cliente antes de enviar o acesso.'); openCliente(id); return; }
+  const zap=zapDoCliente(c); if(!zap){ toast('Cliente sem WhatsApp cadastrado.'); return; }
+  toast('Gerando convite…');
+  try{
+    const r=await fetch('/cliente/api/convite',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cliente_id:id,cpf})});
+    let d={}; try{ d=await r.json(); }catch(_){}
+    if(!r.ok||!d.url){ toast((d&&d.error)||'Falha ao gerar convite'); return; }
+    const nome=(c.nome||'').split(' ')[0]||'';
+    const msg=`Olá, ${nome}! 🔧\nSua *Área do Cliente* na 3M Centro Automotivo está pronta.\nAcompanhe o serviço do seu carro em tempo real e tenha todo o histórico dele na palma da mão, a qualquer hora.\nCrie seu acesso aqui (é rápido e seguro):\n${d.url}`;
+    window.open('https://wa.me/'+zap+'?text='+encodeURIComponent(msg),'_blank');
+    toast('Convite pronto — envie no WhatsApp ✓');
+  }catch(e){ toast('Erro de conexão ao gerar convite'); }
+}
 function renderClienteDet(id){
   const c=getCliente(id); const box=document.getElementById('clienteDet');
   if(!c){ box.innerHTML=emptyState('Cliente não encontrado',''); return; }
@@ -966,7 +982,7 @@ function renderClienteDet(id){
     (c.contatos||[]).map(ct=>`<div class="kv" style="margin-bottom:6px"><span class="k">${esc(ct.relacao||'Contato')}</span><span class="v">${esc(ct.nome||'—')}${ct.telefone?(' · '+esc(ct.telefone)):''}${ct.nascimento?(' · 🎂 '+esc(ct.nascimento)):''}</span></div>`).join(''):'';
   box.innerHTML=`
     <div class="det-head"><h2>${esc(c.nome)} ${badge}</h2>
-      <button class="btn sm ghost" onclick='openCliente("${c.id}")'>Editar ficha</button></div>
+      <div class="acts"><button class="btn sm gold" onclick='enviarConviteCliente("${c.id}")'>📲 Enviar acesso</button><button class="btn sm ghost" onclick='openCliente("${c.id}")'>Editar ficha</button></div></div>
     ${c.lead==='novo'?`<div class="lead-banner">🔔 <b>Novo cadastro do site</b> — aguardando contato. <button class="btn sm green" onclick='chamarLead("${c.id}")'>WhatsApp</button> <button class="btn sm ghost" onclick='concluirLead("${c.id}")'>✔ Concluir (sair da fila)</button></div>`:''}
     <div class="panel" style="margin-top:8px">
       <div class="kv">
