@@ -395,6 +395,8 @@
           <button class="btn" onclick="document.getElementById('imp').click()">Importar backup</button>
           <input type="file" id="imp" accept="application/json" style="display:none" onchange="importar(event)">
           <button class="btn danger" onclick="limparTudo()">Apagar tudo</button></div></div>
+      <div class="panel" style="margin-top:12px"><p style="color:var(--muted); font-size:13px; margin:0 0 10px">Padronizar maiúsculas dos cadastros já existentes (nomes, endereços, peças, modelos). Faça um <b>Exportar backup</b> antes, por segurança.</p>
+        <div class="form-actions"><button class="btn gold" onclick="padronizarMaiusculas()">✨ Padronizar cadastros existentes</button></div></div>
     </div>
 
     <div class="cfg-panel" data-cfg="usuarios" style="display:none">
@@ -2189,6 +2191,26 @@ let inatividadeLigada=false;
 function iniciarInatividade(){ if(!inatividadeLigada){ inatividadeLigada=true; ['click','keydown','touchstart','mousemove','scroll'].forEach(function(ev){ document.addEventListener(ev, resetInatividade, {passive:true}); }); } resetInatividade(); }
 function salvarConfig(){ state.config.msg=document.getElementById('cfgMsg').value; state.config.janela_dias=num('cfgJanela')||30; state.config.media_km_mes_padrao=num('cfgMedia')||1000; const l=document.getElementById('cfgLink'); if(l) state.config.link_manutencao=l.value.trim(); const mr=document.getElementById('cfgMsgReat'); if(mr) state.config.msg_reativacao=mr.value; const rm=document.getElementById('cfgReatMeses'); if(rm){ const v=num('cfgReatMeses'); state.config.reativacao_meses=String(v===''?3:v); } salvar(); if(typeof refreshAtual==='function') refreshAtual(); toast('Ajustes salvos'); }
 function exportar(){ const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='backup-oficina-'+toISO(hoje())+'.json'; a.click(); toast('Backup exportado'); }
+function padronizarMaiusculas(){
+  confirmar('Padronizar a escrita de TODOS os cadastros já existentes (nomes, endereços, peças, modelos)?\n\nRecomendado exportar um backup antes. Deseja continuar?', function(){
+    let n=0;
+    (state.clientes||[]).forEach(c=>{ const nn=tc(c.nome||''); if(nn!==c.nome){ c.nome=nn; n++; }
+      ['rua','setor','cidade'].forEach(k=>{ if(c[k]){ const v=tc(c[k]); if(v!==c[k]){ c[k]=v; n++; } } });
+      if(c.estado){ const uf=(c.estado||'').toUpperCase().slice(0,2); if(uf!==c.estado){ c.estado=uf; } }
+      if(Array.isArray(c.contatos)) c.contatos.forEach(ct=>{ if(ct.nome){ const v=tc(ct.nome); if(v!==ct.nome){ ct.nome=v; n++; } } });
+      // recompõe endereço
+      if(c.rua||c.setor||c.cidade){ const partes=[c.rua]; if(c.quadra) partes.push('Qd '+String(c.quadra).toUpperCase()); if(c.lote) partes.push('Lt '+String(c.lote).toUpperCase()); if(c.numero) partes.push('nº '+c.numero); if(c.setor) partes.push(c.setor); if(c.cidade) partes.push(c.cidade); c.endereco=partes.filter(Boolean).join(', '); }
+      c.atualizado=Date.now();
+    });
+    (state.veiculos||[]).forEach(v=>{ ['modelo','cor'].forEach(k=>{ if(v[k]){ const nv=tc(v[k]); if(nv!==v[k]){ v[k]=nv; n++; } } }); if(v.placa){ const p=String(v.placa).toUpperCase(); if(p!==v.placa){ v.placa=p; } } v.atualizado=Date.now(); });
+    (state.pecas||[]).forEach(p=>{ if(p.nome){ const nv=tc(p.nome); if(nv!==p.nome){ p.nome=nv; n++; } } });
+    (state.regras||[]).forEach(r=>{ if(r.nome){ const nv=tc(r.nome); if(nv!==r.nome){ r.nome=nv; n++; } } });
+    (state.mecanicos||[]).forEach(m=>{ ['nome','funcao'].forEach(k=>{ if(m[k]){ const nv=tc(m[k]); if(nv!==m[k]){ m[k]=nv; n++; } } }); });
+    (state.ordens||[]).forEach(o=>{ (o.itens||[]).forEach(i=>{ if(i.nome){ const nv=tc(i.nome); if(nv!==i.nome){ i.nome=nv; n++; } } });
+      (o.pecas_prev||[]).forEach(p=>{ if(p&&p.nome){ const nv=tc(p.nome); if(nv!==p.nome){ p.nome=nv; n++; } } }); });
+    salvar(); closeModal(); refreshAtual(); toast('Padronização concluída — '+n+' campos ajustados ✓');
+  }, 'Padronizar', 'gold');
+}
 function importar(ev){ const f=ev.target.files[0]; if(!f) return; const rd=new FileReader();
   rd.onload=()=>{ try{ const d=JSON.parse(rd.result); if(!d.clientes||!d.veiculos){ toast('Arquivo inválido'); return; }
     confirmar('Substituir TODOS os dados atuais por este backup?', function(){
