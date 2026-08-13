@@ -79,8 +79,8 @@ export async function onRequest(context){
     const primeiraFoto = [...defeito, ...entrada].find(m => (m.tipo||'image') !== 'video');
     const ogImage = primeiraFoto ? ('https://3mcentroautomotivo.com.br/gestao/api/midia/' + primeiraFoto.key) : '';
 
-    const secEntrada = itensEntrada ? `<h2 class="sec">🚗 Como o seu carro chegou</h2><div class="grid">${itensEntrada}</div>` : '';
-    const secDefeito = itensDefeito ? `<h2 class="sec">🔧 Problemas encontrados</h2><div class="grid">${itensDefeito}</div>` : '';
+    const secEntrada = itensEntrada ? `<h2 class="sec">🚗 Imagens da Entrada do seu Veículo em Nossa Oficina</h2><div class="grid">${itensEntrada}</div>` : '';
+    const secDefeito = itensDefeito ? `<h2 class="sec">🔧 Fotos e Vídeos do Diagnóstico Feito do seu Veículo</h2><div class="grid">${itensDefeito}</div>` : '';
     const corpo = `
       <h1>Imagens e Vídeos do seu Serviço</h1>
       <p class="sub">${carro ? esc(carro) : 'Seu veículo'}</p>
