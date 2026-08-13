@@ -520,7 +520,7 @@ async function buscarCEP(){
 }
 function mascararCEP_legacy(){}
 function normVeiculo(v){ if(v.entrevista===undefined) v.entrevista=null; v.cor||=''; v.inspecao||={}; v.cambio||=''; return v; }
-function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; o.midias||=[]; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
+function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; o.midias||=[]; o.pecas_prev||=[]; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
 
 function upgradeV2toV3(v2){
   const db=novoBanco();
@@ -1125,6 +1125,7 @@ function secaoFichaHTML(vid,tipo,osId){
       <div class="kv"><b>KM na entrada:</b> ${o.km?nfmt(o.km)+' km':'—'}</div>
       ${o.reclamacao?`<h3>Reclamação do cliente</h3><div>${esc(o.reclamacao)}</div>`:''}
       ${o.obs_mecanico?`<h3>Observação do mecânico</h3><div>${esc(o.obs_mecanico)}</div>`:''}
+      ${(o.pecas_prev&&o.pecas_prev.length)?`<h3>Peças necessárias (anotação)</h3><div>${o.pecas_prev.map(p=>'• '+esc(typeof p==='string'?p:(p.nome||''))+((p&&p.qtd)?(' × '+esc(p.qtd)):'')).join('<br>')}</div>`:''}
       ${pecas?`<h3>Peças</h3><table><tr><td><b>Item</b></td><td style="text-align:center"><b>Qtd</b></td><td style="text-align:right"><b>Unit.</b></td><td style="text-align:right"><b>Subtotal</b></td></tr>${pecas}</table>`:''}
       ${mo?`<h3>Mão de obra</h3><table>${mo}</table>`:''}
       <div class="kv" style="margin-top:8px"><b>Valor peças:</b> ${moneyFmt(pecasTotal(o))}</div>
@@ -1318,11 +1319,23 @@ function renderOsDetMecanico(o,mid){
       <div class="os-total"><span class="l"><b>Seu total de mão de obra</b></span><span class="v"><b>${moneyFmt(meuTotal)}</b></span></div>`:'<div class="note empty-note">Nenhuma mão de obra sua nesta OS ainda.</div>'}`;
 }
 function blocoDiagnostico(o){
+  const pp=o.pecas_prev||[];
+  const podeEd = ehMecanico() || pode('editar');
+  const lista = pp.length ? '<div class="rows">'+pp.map((p,i)=>`<div class="row"><div class="main"><div class="t">${esc(typeof p==='string'?p:(p.nome||''))}${(p&&p.qtd)?(' <span class="s">× '+esc(p.qtd)+'</span>'):''}</div></div>${podeEd?`<button class="btn sm ghost" onclick='removerPecaPrev("${o.id}",${i})'>✕</button>`:''}</div>`).join('')+'</div>' : '<div class="note empty-note" style="margin:0">Nenhuma peça anotada.</div>';
   return `<div class="section-label">🔧 O que o mecânico encontrou</div>
     <textarea id="diagBox" class="diag-area" rows="3" placeholder="Descreva os defeitos/problemas encontrados no carro…">${esc(o.obs_mecanico||'')}</textarea>
-    <div class="form-actions" style="margin-top:6px"><button class="btn sm gold" onclick='salvarDiagnostico("${o.id}")'>Salvar diagnóstico</button></div>`;
+    <div class="form-actions" style="margin-top:6px"><button class="btn sm gold" onclick='salvarDiagnostico("${o.id}")'>Salvar diagnóstico</button></div>
+    <div class="section-label" style="margin-top:14px">🧰 Peças necessárias para o serviço (anotação do mecânico)</div>
+    ${lista}
+    ${podeEd?`<div class="peca-inline" style="margin-top:8px"><div class="grid2">
+      <div class="field"><label>Peça</label><input id="ppNome-${o.id}" placeholder="Nome da peça"></div>
+      <div class="field"><label>Qtd</label><input id="ppQtd-${o.id}" inputmode="numeric" placeholder="1"></div></div>
+      <div class="form-actions"><button class="btn sm green" onclick='adicionarPecaPrev("${o.id}")'>+ Anotar peça</button></div></div>`:''}`;
 }
 function salvarDiagnostico(oid){ const o=getOS(oid); if(!o) return; o.obs_mecanico=val('diagBox'); o.atualizado=Date.now(); salvar(); toast('Diagnóstico salvo ✓'); }
+function adicionarPecaPrev(oid){ const o=getOS(oid); if(!o) return; const nome=tc((val('ppNome-'+oid)||'').trim()); if(!nome){ toast('Informe a peça'); return; }
+  const qtd=(val('ppQtd-'+oid)||'').trim(); o.pecas_prev=Array.isArray(o.pecas_prev)?o.pecas_prev:[]; o.pecas_prev.push(qtd?{nome,qtd}:{nome}); o.atualizado=Date.now(); salvar(); renderOsDet(oid); toast('Peça anotada'); }
+function removerPecaPrev(oid,i){ const o=getOS(oid); if(!o) return; o.pecas_prev=(o.pecas_prev||[]).filter((_,x)=>x!==i); o.atualizado=Date.now(); salvar(); renderOsDet(oid); }
 
 function podeMidiaOS(o){ const st=osStatus(o); return (st==='agendamento'||st==='aguardando'||st==='andamento') && (ehMecanico()||pode('editar')); }
 function codigoOS(){ const ab='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let c; do{ c=''; for(let i=0;i<6;i++) c+=ab[Math.floor(Math.random()*ab.length)]; }while((state.ordens||[]).some(o=>o.codigo===c)); return c; }
@@ -1413,7 +1426,9 @@ function renderPagamentosOS(o){
 }
 
 /* ---- transições de fase ---- */
-function carroChegou(oid){ const o=getOS(oid); if(!o) return; confirmar('Confirmar que o carro chegou? A OS vai para "Aguardando orçamento".', function(){ o.status='aguardando'; if(!o.data||o.status==='agendamento') o.data=toISO(hoje()); o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; renderOsDet(oid); toast('Em Aguardando orçamento'); }, 'Confirmar', 'green'); }
+function carroChegou(oid){ const o=getOS(oid); if(!o) return;
+  if(!midiaCat(o,'entrada').length){ toast('Registre foto ou vídeo da ENTRADA do veículo antes de avançar.'); return; }
+  confirmar('Confirmar que o carro chegou? A OS vai para "Aguardando orçamento".', function(){ o.status='aguardando'; o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; renderOsDet(oid); toast('Em Aguardando orçamento'); }, 'Confirmar', 'green'); }
 function alertaCadastro(o,st){
   if(ehMecanico()) return '';
   if(st!=='agendamento' && st!=='aguardando') return '';
@@ -1451,12 +1466,20 @@ function cadastroCompleto(o){
   if(!(Number(o.km)>0)) faltas.push('KM atual do carro');
   return {ok:faltas.length===0, faltas, c, v};
 }
+function faltasAprovacao(o){
+  const chk=cadastroCompleto(o); const faltas=[...chk.faltas];
+  if(!midiaCat(o,'entrada').length) faltas.push('foto/vídeo da entrada do veículo');
+  if(!midiaCat(o,'defeito').length) faltas.push('foto/vídeo do problema (posição do mecânico)');
+  if(!(o.obs_mecanico||'').trim()) faltas.push('relato do problema por escrito (diagnóstico)');
+  return {ok:faltas.length===0, faltas, c:chk.c, v:chk.v};
+}
 function aprovarOrcamento(oid){ const o=getOS(oid); if(!o) return;
-  const chk=cadastroCompleto(o);
+  const chk=faltasAprovacao(o);
   if(!chk.ok){
-    openModal(`<h3>Complete o cadastro antes de aprovar</h3>
-      <p class="sub">Para o carro entrar em andamento, o cadastro do cliente e do carro precisa estar completo. Falta:</p>
+    openModal(`<h3>Complete antes de aprovar</h3>
+      <p class="sub">Para o carro entrar em andamento, ainda falta:</p>
       <div class="note" style="color:var(--amber)">${chk.faltas.map(f=>'• '+f).join('<br>')}</div>
+      <div class="hint" style="margin-top:8px">Fotos/vídeos e o relato do mecânico você adiciona nesta mesma tela da OS.</div>
       <div class="form-actions" style="margin-top:12px">
         <button class="btn gold" onclick='closeModal(); pedirDadosCliente("${oid}")'>📲 Pedir dados ao cliente</button>
         ${chk.c?`<button class="btn ghost" onclick='closeModal(); openCliente("${chk.c.id}")'>Completar cliente</button>`:''}
