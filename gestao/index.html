@@ -522,7 +522,7 @@ async function buscarCEP(){
 }
 function mascararCEP_legacy(){}
 function normVeiculo(v){ if(v.entrevista===undefined) v.entrevista=null; v.cor||=''; v.inspecao||={}; v.cambio||=''; return v; }
-function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; o.midias||=[]; o.pecas_prev||=[]; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
+function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; o.midias||=[]; o.pecas_prev||=[]; o.descontos||=[]; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
 
 function upgradeV2toV3(v2){
   const db=novoBanco();
@@ -637,7 +637,10 @@ function ordensDe(vid){ return state.ordens.filter(o=>o.veiculo_id===vid).sort((
 function nomeVeiculo(v){ return (v.modelo||'Veículo')+(v.ano?(' '+v.ano):''); }
 function pecasTotal(o){ return (o.itens||[]).reduce((s,i)=>s+(Number(i.valor)||0)*(Number(i.qtde)||1),0); }
 function osMdoTotal(o){ return (o.maodeobra||[]).reduce((s,m)=>s+(Number(m.valor)||0),0); }
-function osTotal(o){ return pecasTotal(o)+osMdoTotal(o); }
+function descontoTotal(o){ return (o.descontos||[]).reduce((s,d)=>s+(Number(d.valor)||0),0); }
+function descontoMdoLinha(o,mid){ return (o.descontos||[]).filter(d=>d.tipo==='mdo'&&d.ref===mid).reduce((s,d)=>s+(Number(d.valor)||0),0); }
+function osTotalBruto(o){ return pecasTotal(o)+osMdoTotal(o); }
+function osTotal(o){ return Math.max(0, osTotalBruto(o)-descontoTotal(o)); }
 function osStatus(o){ return o.status||'aguardando'; }
 const OS_FASES={agendamento:{lbl:'Agendamento',cor:'#7db4e6'},aguardando:{lbl:'Aguardando orçamento',cor:'#E8B23A'},andamento:{lbl:'Em andamento',cor:'#48B98A'},liberado:{lbl:'Carro liberado',cor:'#3FB6C4'},executado:{lbl:'Executado',cor:'#48B98A'},rejeitado:{lbl:'Rejeitado',cor:'#E5675C'}};
 function faseLabel(s){ return (OS_FASES[s]||{}).lbl||s; }
@@ -1182,7 +1185,9 @@ function textoFicha(vid,tipo,osId){
   else if(tipo==='os'){ const o=getOS(osId); if(o){ t+=`\nOS ${fmtBR(parseISO(o.data))} · ${o.km?nfmt(o.km)+' km':''}\n`; if(o.reclamacao) t+=`Reclamação: ${o.reclamacao}\n`;
     if((o.itens||[]).length){ t+='\n*Peças:*\n'+o.itens.map(i=>{ const q=Number(i.qtde)||1; return `• ${i.nome}${q>1?(' ×'+q):''} — ${moneyFmt((Number(i.valor)||0)*q)}`; }).join('\n'); }
     if((o.maodeobra||[]).length){ t+='\n\n*Mão de obra:*\n'+o.maodeobra.map(m=>`• ${m.desc||'Serviço'} — ${moneyFmt(m.valor)}`).join('\n'); }
-    t+=`\n\nPeças: ${moneyFmt(pecasTotal(o))}\nMão de obra: ${moneyFmt(osMdoTotal(o))}\n*Total: ${moneyFmt(osTotal(o))}*`;
+    t+=`\n\nPeças: ${moneyFmt(pecasTotal(o))}\nMão de obra: ${moneyFmt(osMdoTotal(o))}`;
+    if(descontoTotal(o)>0) t+=`\nDescontos: - ${moneyFmt(descontoTotal(o))}`;
+    t+=`\n*Total: ${moneyFmt(osTotal(o))}*`;
     if((o.midias||[]).length){ t+=`\n\n📷 Fotos e vídeos do seu serviço:\nhttps://3mcentroautomotivo.com.br/os/${o.codigo||o.id}`; } } }
   if(tipo==='vencidos'||tipo==='proximos'||tipo==='verificar'||tipo==='entrada') t+='\n'+linkManutencaoTxt();
   return t.trim();
@@ -1443,13 +1448,57 @@ function acoesFase(o,st){
 function renderPagamentosOS(o){
   const pgs=pagamentosOS(o.id); const pago=pagoOS(o.id); const rest=restanteOS(o);
   const linhas=pgs.map(m=>`<div class="row"><div class="main"><div class="t">${formaLabel(m.forma)}${m.forma==='cartao'&&(m.parcelas>1)?(' '+m.parcelas+'x'):''}</div><div class="s">${fmtBR(parseISO(m.data))}${m.forma==='cartao'&&m.taxa?(' · taxa '+moneyFmt(m.taxa)):''}</div></div><div class="acts"><span class="valor-tag" style="color:var(--green)">+${moneyFmt(m.valor)}</span>${pode('valores')?`<button class="btn sm ghost" onclick='removerPagamento("${m.id}","${o.id}")'>✕</button>`:''}</div></div>`).join('');
-  let bloco=`<div class="section-label">Pagamentos</div>`;
+  const podeVal=pode('valores'); const fase=osStatus(o); const ativa=(fase==='andamento'||fase==='liberado'||fase==='executado');
+  const descs=o.descontos||[];
+  let bloco='';
+  if(descs.length || (ativa&&podeVal)){
+    bloco+=`<div class="section-label">Descontos</div>`;
+    bloco+= descs.length?`<div class="rows">${descs.map(d=>`<div class="row"><div class="main"><div class="t">${esc(descAlvoLabel(o,d))}${d.motivo?` <span class="cx-mini">(${esc(d.motivo)})</span>`:''}</div></div><div class="acts"><span class="valor-tag" style="color:var(--amber)">− ${moneyFmt(d.valor)}</span>${podeVal?`<button class="btn sm ghost" onclick='removerDesconto("${o.id}","${d.id}")'>✕</button>`:''}</div></div>`).join('')}</div>`:`<div class="note empty-note">Nenhum desconto.</div>`;
+    if(ativa&&podeVal) bloco+=`<div class="form-actions" style="margin-top:8px"><button class="btn sm ghost" onclick='descontoModal("${o.id}")'>− Aplicar desconto</button></div>`;
+  }
+  bloco+=`<div class="section-label">Pagamentos</div>`;
   bloco+= pgs.length?`<div class="rows">${linhas}</div>`:`<div class="note empty-note">Nenhum pagamento lançado.</div>`;
+  if(descontoTotal(o)>0) bloco+=`<div class="os-total"><span class="l">Subtotal</span><span class="v">${moneyFmt(osTotalBruto(o))}</span></div><div class="os-total"><span class="l">Descontos</span><span class="v" style="color:var(--amber)">− ${moneyFmt(descontoTotal(o))}</span></div><div class="os-total"><span class="l"><b>Total com desconto</b></span><span class="v"><b>${moneyFmt(osTotal(o))}</b></span></div>`;
   bloco+=`<div class="os-total"><span class="l">Pago</span><span class="v" style="color:var(--green)">${moneyFmt(pago)}</span></div>
     <div class="os-total"><span class="l"><b>Restante</b></span><span class="v"><b style="color:${rest>0?'var(--red)':'var(--green)'}">${moneyFmt(rest)}</b></span></div>`;
-  if((osStatus(o)==='andamento'||osStatus(o)==='liberado'||osStatus(o)==='executado') && pode('valores') && rest>0) bloco+=`<div class="form-actions" style="margin-top:8px"><button class="btn" onclick='pagamentoModal("${o.id}","adiantamento")'>💵 Registrar pagamento</button></div>`;
+  if(ativa && podeVal && rest>0) bloco+=`<div class="form-actions" style="margin-top:8px"><button class="btn" onclick='pagamentoModal("${o.id}","adiantamento")'>💵 Registrar pagamento</button></div>`;
   return bloco;
 }
+function descAlvoLabel(o,d){
+  if(d.tipo==='peca'){ const i=(o.itens||[]).find(x=>x.id===d.ref); return 'Peça: '+(i?i.nome:'—'); }
+  if(d.tipo==='mdo'){ const m=(o.maodeobra||[]).find(x=>x.id===d.ref); const mec=(state.mecanicos||[]).find(x=>x.id===(m&&m.mecanico_id)); return 'Mão de obra'+(mec?(' — '+mec.nome):(m&&m.desc?(' — '+m.desc):'')); }
+  return 'Desconto no total';
+}
+function descontoModal(oid){ const o=getOS(oid); if(!o) return; if(!pode('valores')){ toast('Sem permissão'); return; }
+  openModal(`<h3>Aplicar desconto</h3>
+    <div class="field"><label>De onde é o desconto?</label>
+      <select id="dscTipo" onchange='dscTipoChange("${oid}")'>
+        <option value="total">Do valor total</option>
+        <option value="peca">De uma peça</option>
+        <option value="mdo">De mão de obra (mecânico)</option></select></div>
+    <div id="dscAlvo"></div>
+    <div class="field"><label>Valor do desconto (R$)</label><input id="dscValor" inputmode="decimal" placeholder="0,00"></div>
+    <div class="field"><label>Motivo (opcional)</label><input id="dscMotivo" placeholder="Ex: cliente fiel, negociação"></div>
+    <div class="form-actions"><button class="btn green" onclick='salvarDesconto("${oid}")'>Aplicar desconto</button>
+      <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
+  dscTipoChange(oid);
+}
+function dscTipoChange(oid){ const o=getOS(oid); if(!o) return; const t=val('dscTipo'); const box=document.getElementById('dscAlvo'); if(!box) return;
+  if(t==='peca'){ const its=(o.itens||[]); box.innerHTML = its.length? `<div class="field"><label>Qual peça?</label><select id="dscRef">${its.map(i=>`<option value="${i.id}">${esc(i.nome)} — ${moneyFmt((Number(i.valor)||0)*(Number(i.qtde)||1))}</option>`).join('')}</select></div>` : '<div class="hint" style="color:var(--amber)">Nenhuma peça lançada nesta OS.</div>'; }
+  else if(t==='mdo'){ const mo=(o.maodeobra||[]); box.innerHTML = mo.length? `<div class="field"><label>Qual mecânico / mão de obra?</label><select id="dscRef">${mo.map(m=>{ const mec=(state.mecanicos||[]).find(x=>x.id===m.mecanico_id); return `<option value="${m.id}">${esc(mec?mec.nome:(m.desc||'Mão de obra'))} — ${moneyFmt(Number(m.valor)||0)}</option>`; }).join('')}</select></div>` : '<div class="hint" style="color:var(--amber)">Nenhuma mão de obra lançada nesta OS.</div>'; }
+  else box.innerHTML='<div class="hint">O desconto será abatido do total da OS.</div>';
+}
+function salvarDesconto(oid){ const o=getOS(oid); if(!o) return; const tipo=val('dscTipo'); const valor=moneyParse(val('dscValor')); const motivo=tc(val('dscMotivo').trim());
+  if(valor<=0){ toast('Informe o valor do desconto'); return; }
+  let ref='', mecanico_id='', maxAlvo=0;
+  if(tipo==='peca'){ ref=val('dscRef'); const i=(o.itens||[]).find(x=>x.id===ref); if(!i){ toast('Escolha a peça'); return; } maxAlvo=(Number(i.valor)||0)*(Number(i.qtde)||1)-descontoAlvo(o,'peca',ref); }
+  else if(tipo==='mdo'){ ref=val('dscRef'); const m=(o.maodeobra||[]).find(x=>x.id===ref); if(!m){ toast('Escolha a mão de obra'); return; } mecanico_id=m.mecanico_id||''; maxAlvo=(Number(m.valor)||0)-descontoAlvo(o,'mdo',ref); }
+  else { maxAlvo=osTotal(o); }
+  if(valor>maxAlvo+0.005){ toast('O desconto não pode passar de '+moneyFmt(maxAlvo)+' aqui.'); return; }
+  o.descontos=Array.isArray(o.descontos)?o.descontos:[]; o.descontos.push({id:uid(),tipo,ref,mecanico_id,valor,motivo,criado:Date.now()});
+  o.atualizado=Date.now(); salvar(); closeModal(); renderOsDet(oid); toast('Desconto aplicado ✓'); }
+function descontoAlvo(o,tipo,ref){ return (o.descontos||[]).filter(d=>d.tipo===tipo&&d.ref===ref).reduce((s,d)=>s+(Number(d.valor)||0),0); }
+function removerDesconto(oid,did){ const o=getOS(oid); if(!o) return; o.descontos=(o.descontos||[]).filter(d=>d.id!==did); o.atualizado=Date.now(); salvar(); renderOsDet(oid); toast('Desconto removido'); }
 
 /* ---- transições de fase ---- */
 function carroChegou(oid){ const o=getOS(oid); if(!o) return;
@@ -1532,7 +1581,7 @@ function pagamentoModal(oid,modo){ const o=getOS(oid); if(!o) return; if(!pode('
       <div class="grid2"><div class="field"><label>Valor a receber (líquido)</label><input id="pgLiquido" inputmode="decimal" placeholder="0,00" oninput="pgCalc()"></div>
         <div class="field"><label>Parcelas</label><input id="pgParc" inputmode="numeric" value="1"></div></div>
       <div class="hint" id="pgTaxaInfo" style="margin-bottom:0"></div></div>
-    ${modo==='final'?`<div class="hint">Ao finalizar, o valor entra no caixa do dia e a OS vai para <b>Executados</b>. Se já estiver tudo pago, deixe o valor 0.</div>`:''}
+    ${modo==='final'?`<div class="hint">A OS só vai para <b>Executado</b> quando <b>não houver valor em aberto</b>. Se ainda faltar, o recebimento é registrado e a OS continua em "Carro liberado". No cartão, informe o <b>valor que cai na conta</b> — o sistema calcula a taxa.</div>`:`<div class="hint">No cartão, informe o <b>valor que cai na conta</b> — o sistema mostra a taxa.</div>`}
     <div class="form-actions"><button class="btn green" onclick='salvarPagamento("${oid}","${modo}")'>${modo==='final'?'Finalizar':'Registrar'}</button>
       <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
@@ -1545,8 +1594,12 @@ function salvarPagamento(oid,modo){ const o=getOS(oid); if(!o) return; const for
   const parcelas=forma==='cartao'?(parseInt(val('pgParc'))||1):1; const data=val('pgData')||toISO(hoje());
   const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
   if(valor>0){ state.caixa.push({id:uid(),tipo:'entrada',data,valor,forma,taxa,liquido:valor-taxa,parcelas,descricao:(modo==='final'?'OS (final) ':'OS (adiant.) ')+(c?c.nome:'')+(v?(' — '+nomeVeiculo(v)):''),ordem_id:oid,criado:Date.now()}); }
-  if(modo==='final'){ o.status='executado'; o.data=toISO(hoje()); o.atualizado=Date.now(); osFiltroStatus='executado'; }
-  salvar(); closeModal(); renderOsDet(oid); toast(modo==='final'?'OS finalizada e enviada para Executados ✓':'Adiantamento registrado ✓'); }
+  if(modo==='final'){
+    const rest=restanteOS(o);
+    if(rest>0.005){ o.atualizado=Date.now(); salvar(); closeModal(); renderOsDet(oid); toast('Recebimento registrado. Ainda faltam '+moneyFmt(rest)+' — só finaliza quando estiver quitado.'); return; }
+    o.status='executado'; o.data=toISO(hoje()); o.atualizado=Date.now(); osFiltroStatus='executado';
+  }
+  salvar(); closeModal(); renderOsDet(oid); toast(modo==='final'?'OS finalizada e enviada para Executados ✓':'Recebimento registrado ✓'); }
 function removerPagamento(mid,oid){ confirmar('Remover este pagamento do caixa?', function(){ state.caixa=state.caixa.filter(m=>m.id!==mid); salvar(); renderOsDet(oid); toast('Pagamento removido'); }); }
 
 /* ---- mensagens de agendamento ---- */
@@ -2320,7 +2373,7 @@ function cxFiltrar(){ cxDe=val('cxDe')||''; cxAte=val('cxAte')||''; const de=cxD
   document.getElementById('caixaResumo').innerHTML=`<div class="panel" style="margin-bottom:12px">
     <div class="fin-kv green"><span>Entradas (líquido)</span><b>${moneyFmt(entLiq)}</b></div>
     <div class="cx-mini">${linhaForma(entF)}</div>
-    ${taxas>0?`<div class="cx-mini">Bruto ${moneyFmt(entBruto)} · taxas de cartão ${moneyFmt(taxas)}</div>`:''}
+    ${taxas>0?`<div class="fin-kv" style="color:var(--amber)"><span>Deixado em taxas de máquina (cartão)</span><b>${moneyFmt(taxas)}</b></div><div class="cx-mini">Bruto cobrado no cartão ${moneyFmt(entBruto)} · caiu na conta ${moneyFmt(entLiq)} (nas entradas por cartão)</div>`:''}
     <div class="fin-kv" style="color:var(--red);margin-top:6px"><span>Saídas</span><b>${moneyFmt(saiTot)}</b></div>
     <div class="cx-mini">${linhaForma(saiF)}</div>
     <div class="fin-kv" style="border-top:1px solid var(--line2);margin-top:8px;padding-top:8px"><span><b>Saldo do período</b></span><b style="color:${saldo>=0?'var(--green)':'var(--red)'}">${moneyFmt(saldo)}</b></div></div>`;
@@ -2485,14 +2538,15 @@ function gerarFinanceiro(){
     (o.maodeobra||[]).forEach(m=>{ if(finMec && m.mecanico_id!==finMec) return;
       const mec=(state.mecanicos||[]).find(x=>x.id===m.mecanico_id); const key=m.mecanico_id||'__sem__';
       porMec[key]=porMec[key]||{nome:mec?mec.nome:'Sem mecânico definido',perc:mec?(mec.percentual!=null?mec.percentual:50):50,total:0,itens:[]};
-      porMec[key].total+=Number(m.valor)||0; porMec[key].itens.push({o,m}); }); });
+      const vLiq=Math.max(0,(Number(m.valor)||0)-descontoMdoLinha(o,m.id));
+      porMec[key].total+=vLiq; porMec[key].itens.push({o,m,vLiq}); }); });
   const box=document.getElementById('finResultado'); const keys=Object.keys(porMec);
   const rotulo=finStatus==='executado'?'executada (finalizada)':finStatus==='andamento'?'aprovada (em andamento)':finStatus==='rejeitado'?'de orçamento (rejeitada)':'(todas)';
   if(!keys.length){ box.innerHTML=`<div class="note empty-note">Nenhuma mão de obra ${rotulo} nesse período.</div>`; return; }
   let totalGeral=0, totalReceber=0;
   const blocos=keys.sort((a,b)=>porMec[b].total-porMec[a].total).map(k=>{ const g=porMec[k]; const receber=g.total*g.perc/100; totalGeral+=g.total; totalReceber+=receber;
-    const det=g.itens.sort((a,b)=>a.o.data.localeCompare(b.o.data)).map(({o,m})=>{ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
-      return `<div class="row click" onclick='go("os","${o.id}")'><div class="main"><div class="t">${esc(m.desc||'Mão de obra')} <span class="valor-tag">${moneyFmt(m.valor)}</span></div>
+    const det=g.itens.sort((a,b)=>a.o.data.localeCompare(b.o.data)).map(({o,m,vLiq})=>{ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
+      return `<div class="row click" onclick='go("os","${o.id}")'><div class="main"><div class="t">${esc(m.desc||'Mão de obra')} <span class="valor-tag">${moneyFmt(vLiq)}${vLiq<(Number(m.valor)||0)?` <span class="cx-mini">(c/ desc.)</span>`:''}</span></div>
         <div class="s">${fmtBR(parseISO(o.data))} · ${esc(c?.nome||'')} · ${esc(v?nomeVeiculo(v):'')} ${esc(v?.placa||'')}</div></div></div>`; }).join('');
     return `<div class="panel" style="margin-bottom:10px"><div class="fin-h"><b>👨‍🔧 ${esc(g.nome)}</b><span class="badge prev">${g.perc}%</span></div>
       <div class="fin-kv"><span>Mão de obra total</span><b>${moneyFmt(g.total)}</b></div>
