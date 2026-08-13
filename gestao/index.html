@@ -2038,6 +2038,25 @@ function saveAgendamento(id){
   salvar(); closeModal(); osFiltroStatus='agendamento'; go('os',osid); toast('Agendamento salvo ✓');
 }
 
+function veicComboRender(filtro){
+  const el=document.getElementById('veicComboList'); if(!el) return;
+  const f=(filtro||'').trim().toLowerCase();
+  let list=state.veiculos.slice();
+  if(f) list=list.filter(v=>{ const c=getCliente(v.cliente_id); return ((c&&c.nome||'').toLowerCase().includes(f)) || ((v.placa||'').toLowerCase().includes(f)) || ((v.modelo||'').toLowerCase().includes(f)); });
+  list=list.sort((a,b)=>{ const ca=getCliente(a.cliente_id), cb=getCliente(b.cliente_id); return ((ca&&ca.nome||'')).localeCompare((cb&&cb.nome||'')); }).slice(0,60);
+  if(!list.length){ el.innerHTML='<div class="combo-empty">Nenhum veículo encontrado. Cadastre em Veículos.</div>'; el.classList.add('open'); return; }
+  el.innerHTML=list.map(v=>{ const c=getCliente(v.cliente_id);
+    return `<div class="combo-opt" onmousedown="event.preventDefault(); veicComboPick('${v.id}')"><span><b>${esc(c?.nome||'—')}</b> · ${esc(nomeVeiculo(v))}</span><span class="combo-preco">${esc(v.placa||'s/placa')}</span></div>`; }).join('');
+  el.classList.add('open');
+}
+function veicComboBlur(){ setTimeout(function(){ const el=document.getElementById('veicComboList'); if(el) el.classList.remove('open'); }, 180); }
+function veicComboPick(vid){ const v=getVeiculo(vid); if(!v) return; const c=getCliente(v.cliente_id);
+  const hid=document.getElementById('osVeiculo'); if(hid) hid.value=vid;
+  const bus=document.getElementById('osVeicBusca'); if(bus) bus.value=(c?.nome?c.nome+' — ':'')+nomeVeiculo(v)+' ('+(v.placa||'s/placa')+')';
+  const sel=document.getElementById('osVeicSel'); if(sel) sel.innerHTML='✓ Dono: <b>'+esc(c?.nome||'—')+'</b> · '+esc(nomeVeiculo(v))+' · placa '+esc(v.placa||'s/placa');
+  const el=document.getElementById('veicComboList'); if(el) el.classList.remove('open');
+  calcOsPrevia();
+}
 function openOS(id, veiculoFixo){ if(!pode('editar')){ toast('Sem permissão para editar'); return; }
   if(!state.veiculos.length){ toast('Cadastre um veículo primeiro'); goTab('veiculos'); return; }
   const o=id?getOS(id):null; osFixoVeiculo = o?o.veiculo_id : (veiculoFixo||null);
@@ -2047,8 +2066,12 @@ function openOS(id, veiculoFixo){ if(!pode('editar')){ toast('Sem permissão par
   if(osFixoVeiculo){ const v=getVeiculo(osFixoVeiculo); const c=getCliente(v.cliente_id);
     veiculoCampo=`<div class="field"><label>Veículo</label><div class="note">${esc((c?.nome||'')+' — '+nomeVeiculo(v)+' ('+(v.placa||'')+')')}</div><input type="hidden" id="osVeiculo" value="${osFixoVeiculo}"></div>`;
   } else {
-    veiculoCampo=`<div class="field"><label>Veículo</label><select id="osVeiculo" onchange="calcOsPrevia()"><option value="">Selecione</option>`+
-      state.veiculos.map(v=>{ const c=getCliente(v.cliente_id); return `<option value="${v.id}">${esc((c?.nome||'—')+' — '+nomeVeiculo(v)+' ('+(v.placa||'s/placa')+')')}</option>`; }).join('')+`</select></div>`;
+    veiculoCampo=`<div class="field"><label>Veículo — busque por nome do dono, placa ou modelo</label>
+      <div class="combo" style="position:relative">
+        <input id="osVeicBusca" autocomplete="off" placeholder="Digite nome, placa ou modelo…" oninput="veicComboRender(this.value)" onfocus="veicComboRender(this.value)" onblur="veicComboBlur()">
+        <div class="combo-list" id="veicComboList"></div></div>
+      <input type="hidden" id="osVeiculo" value="" onchange="calcOsPrevia()">
+      <div class="hint" id="osVeicSel" style="margin:6px 0 0">Nenhum veículo selecionado.</div></div>`;
   }
   openModal(`<h3>${id?'Editar OS':'Nova ordem de serviço'}</h3><p class="sub">Reclamação, laudo e serviços com valores.</p>
     ${veiculoCampo}
@@ -2102,14 +2125,14 @@ function saveOS(id){
   if(!vid){ toast('Escolha o veículo'); return; }
   if(!data){ toast('Informe a data'); return; }
   const itens=osItens.filter(i=>(i.nome||'').trim()).map(i=>{ const nome=tc(i.nome.trim()); const r=regraPorNome(nome); return {id:uid(),nome,qtde:parseInt(i.qtde)||1,valor:moneyParse(i.valor),regra_id:r?r.id:null}; });
-  if(!itens.length){ toast('Lance ao menos uma peça/serviço'); return; }
   const maodeobra=osMdo.filter(m=>moneyParse(m.valor)>0).map(m=>({id:uid(),desc:tc((m.desc||'').trim()),mecanico_id:m.mecanico_id||'',valor:moneyParse(m.valor)}));
   const antigo=id?getOS(id):null;
   const dados={veiculo_id:vid,data,km:km||0,reclamacao:val('osRec').trim(),obs_mecanico:val('osMec').trim(),obs_admin:val('osAdm').trim(),itens,maodeobra,mecanico_id:val('osMecResp')||'',
     status:antigo?osStatus(antigo):'aguardando', agenda_data:antigo?antigo.agenda_data:'', agenda_hora:antigo?antigo.agenda_hora:''};
-  if(id){ Object.assign(getOS(id),dados); } else { state.ordens.push({id:uid(),...dados,criado:Date.now()}); }
+  let osid;
+  if(id){ Object.assign(getOS(id),dados); osid=id; } else { const novo={id:uid(),...dados,criado:Date.now()}; state.ordens.push(novo); osid=novo.id; }
   const v=getVeiculo(vid); if(km&&(!v.km_atual||km>Number(v.km_atual))) v.km_atual=km;
-  salvar(); closeModal(); refreshAtual(); toast('Ordem salva ✓');
+  salvar(); closeModal(); toast('Ordem salva ✓'); go('os',osid);
 }
 
 /* ==================================================================
