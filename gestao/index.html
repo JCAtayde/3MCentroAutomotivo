@@ -1317,7 +1317,7 @@ function renderOsDet(id){
     ${(st==='aguardando'||st==='andamento')?`<button class="btn sm ghost" onclick='avisarMecanico("${o.id}")'>🔧 Avisar mecânico</button>`:''}</div>`; }
 
   // Pagamentos (andamento/executado)
-  if(st==='liberado'||st==='executado'){ corpo+=renderPagamentosOS(o); }
+  if(['aguardando','andamento','liberado','executado'].includes(st)){ corpo+=renderPagamentosOS(o); }
 
   box.innerHTML=head+corpo;
 }
@@ -1448,20 +1448,22 @@ function acoesFase(o,st){
 function renderPagamentosOS(o){
   const pgs=pagamentosOS(o.id); const pago=pagoOS(o.id); const rest=restanteOS(o);
   const linhas=pgs.map(m=>`<div class="row"><div class="main"><div class="t">${formaLabel(m.forma)}${m.forma==='cartao'?(' '+cartaoLabel(m)):''}</div><div class="s">${fmtBR(parseISO(m.data))}${m.forma==='cartao'&&m.taxa?(' · taxa '+moneyFmt(m.taxa)):''}</div></div><div class="acts"><span class="valor-tag" style="color:var(--green)">+${moneyFmt(m.valor)}</span>${pode('valores')?`<button class="btn sm ghost" onclick='removerPagamento("${m.id}","${o.id}")'>✕</button>`:''}</div></div>`).join('');
-  const podeVal=pode('valores'); const fase=osStatus(o); const ativa=(fase==='liberado'||fase==='executado');
+  const podeVal=pode('valores'); const fase=osStatus(o);
+  const faseAdiant=(fase==='aguardando'||fase==='andamento');
+  const faseReceber=(fase==='liberado'||fase==='executado');
   const descs=o.descontos||[];
   let bloco='';
-  if(descs.length || (ativa&&podeVal)){
+  if(faseReceber && (descs.length || podeVal)){
     bloco+=`<div class="section-label">Descontos</div>`;
     bloco+= descs.length?`<div class="rows">${descs.map(d=>`<div class="row"><div class="main"><div class="t">${esc(descAlvoLabel(o,d))}${d.motivo?` <span class="cx-mini">(${esc(d.motivo)})</span>`:''}</div></div><div class="acts"><span class="valor-tag" style="color:var(--amber)">− ${moneyFmt(d.valor)}</span>${podeVal?`<button class="btn sm ghost" onclick='removerDesconto("${o.id}","${d.id}")'>✕</button>`:''}</div></div>`).join('')}</div>`:`<div class="note empty-note">Nenhum desconto.</div>`;
-    if(ativa&&podeVal) bloco+=`<div class="form-actions" style="margin-top:8px"><button class="btn sm ghost" onclick='descontoModal("${o.id}")'>− Aplicar desconto</button></div>`;
+    if(podeVal) bloco+=`<div class="form-actions" style="margin-top:8px"><button class="btn sm ghost" onclick='descontoModal("${o.id}")'>− Aplicar desconto</button></div>`;
   }
-  bloco+=`<div class="section-label">Pagamentos</div>`;
-  bloco+= pgs.length?`<div class="rows">${linhas}</div>`:`<div class="note empty-note">Nenhum pagamento lançado.</div>`;
+  bloco+=`<div class="section-label">${faseAdiant?'Adiantamentos':'Pagamentos'}</div>`;
+  bloco+= pgs.length?`<div class="rows">${linhas}</div>`:`<div class="note empty-note">${faseAdiant?'Nenhum adiantamento.':'Nenhum pagamento lançado.'}</div>`;
   if(descontoTotal(o)>0) bloco+=`<div class="os-total"><span class="l">Subtotal</span><span class="v">${moneyFmt(osTotalBruto(o))}</span></div><div class="os-total"><span class="l">Descontos</span><span class="v" style="color:var(--amber)">− ${moneyFmt(descontoTotal(o))}</span></div><div class="os-total"><span class="l"><b>Total com desconto</b></span><span class="v"><b>${moneyFmt(osTotal(o))}</b></span></div>`;
-  bloco+=`<div class="os-total"><span class="l">Pago</span><span class="v" style="color:var(--green)">${moneyFmt(pago)}</span></div>
+  bloco+=`<div class="os-total"><span class="l">${faseAdiant?'Adiantado':'Pago'}</span><span class="v" style="color:var(--green)">${moneyFmt(pago)}</span></div>
     <div class="os-total"><span class="l"><b>Restante</b></span><span class="v"><b style="color:${rest>0?'var(--red)':'var(--green)'}">${moneyFmt(rest)}</b></span></div>`;
-  if(ativa && podeVal && rest>0) bloco+=`<div class="form-actions" style="margin-top:8px"><button class="btn" onclick='pagamentoModal("${o.id}","adiantamento")'>💵 Pagamento Parcial</button></div>`;
+  if(faseAdiant && podeVal) bloco+=`<div class="form-actions" style="margin-top:8px"><button class="btn" onclick='pagamentoModal("${o.id}","adiantamento")'>💵 Adiantamento</button></div>`;
   return bloco;
 }
 function cartaoLabel(m){ const t=m.cartao_tipo; if(t==='debito') return '(Débito)'; if(t==='credito') return '(Crédito)'; if(t==='parcelado'||(m.parcelas>1)) return (m.parcelas>1?(m.parcelas+'x'):'(Parcelado)'); return ''; }
@@ -1564,7 +1566,9 @@ function aprovarOrcamento(oid){ const o=getOS(oid); if(!o) return;
   confirmar('Cliente aprovou o orçamento?\nA OS vai para "Em andamento".', function(){ o.status='andamento'; o.atualizado=Date.now(); salvar(); osFiltroStatus='andamento'; renderOsDet(oid); toast('Em andamento ✓'); }, 'Aprovar', 'green'); }
 function rejeitarOS(oid){ const o=getOS(oid); if(!o) return; confirmar('Rejeitar o orçamento? O carro é entregue sem o serviço, mas fica o registro da passagem.', function(){ o.status='rejeitado'; o.atualizado=Date.now(); salvar(); osFiltroStatus='rejeitado'; renderOsDet(oid); toast('Orçamento rejeitado'); }); }
 function reabrirOrcamento(oid){ if(!ehAdmin()){ toast('Apenas o gestor geral pode reabrir'); return; } const o=getOS(oid); if(!o) return; confirmar('Reabrir esta ordem? Ela volta para "Aguardando orçamento".', function(){ o.status='aguardando'; o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; renderOsDet(oid); toast('Reaberta em Aguardando'); }, 'Reabrir'); }
-function finalizarOS(oid){ const o=getOS(oid); if(!o) return; pagamentoModal(oid,'final'); }
+function finalizarOS(oid){ const o=getOS(oid); if(!o) return;
+  if(restanteOS(o)<=0.005){ confirmar('Não há valor em aberto.\nFinalizar e enviar para Executado?', function(){ o.status='executado'; o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='executado'; renderOsDet(oid); toast('OS finalizada ✓'); }, 'Finalizar', 'green'); return; }
+  pagamentoModal(oid,'final'); }
 function liberarCarro(oid){ const o=getOS(oid); if(!o) return; confirmar('Liberar o carro?\nA OS vai para "Carro liberado" — onde o cliente busca o carro e é feito o recebimento.', function(){ o.status='liberado'; o.atualizado=Date.now(); salvar(); osFiltroStatus='liberado'; renderOsDet(oid); toast('Carro liberado ✓'); }, 'Liberar', 'green'); }
 function voltarAndamento(oid){ if(!ehAdmin()){ toast('Apenas o gestor geral'); return; } const o=getOS(oid); if(!o) return; confirmar('Voltar esta OS para "Em andamento"?', function(){ o.status='andamento'; o.atualizado=Date.now(); salvar(); osFiltroStatus='andamento'; renderOsDet(oid); toast('Voltou para Em andamento'); }, 'Voltar'); }
 
@@ -1573,9 +1577,9 @@ const FORMAS=[['pix','PIX'],['dinheiro','Dinheiro'],['cartao','Cartão']];
 function formaLabel(f){ const x=FORMAS.find(y=>y[0]===f); return x?x[1]:(f||'—'); }
 function pagamentoModal(oid,modo){ const o=getOS(oid); if(!o) return; if(!pode('valores')){ toast('Sem permissão'); return; }
   const rest=restanteOS(o); const valPad = rest;
-  openModal(`<h3>${modo==='final'?'Receber / Finalizar':'Pagamento Parcial'}</h3>
-    <div class="pg-info">Total ${moneyFmt(osTotal(o))} · Pago ${moneyFmt(pagoOS(o.id))} · <b>Restante ${moneyFmt(rest)}</b></div>
-    <div class="form-actions" style="margin-top:0;margin-bottom:4px"><button class="btn sm ghost" onclick='closeModal(); descontoModal("${oid}")'>− Aplicar desconto</button></div>
+  openModal(`<h3>${modo==='final'?'Receber / Finalizar':'Adiantamento'}</h3>
+    <div class="pg-info">Total ${moneyFmt(osTotal(o))} · ${modo==='final'?'Pago':'Adiantado'} ${moneyFmt(pagoOS(o.id))} · <b>Restante ${moneyFmt(rest)}</b></div>
+    ${modo==='final'?`<div class="form-actions" style="margin-top:0;margin-bottom:4px"><button class="btn sm ghost" onclick='closeModal(); descontoModal("${oid}")'>− Aplicar desconto</button></div>`:`<div class="hint" style="margin-top:0">Valor adiantado pelo cliente (ex.: para compra de peças). O restante continua em aberto.</div>`}
     <div class="grid2">${dtField('pgData','date',toISO(hoje()),'Data')}
       <div class="field"><label>Valor</label><input id="pgValor" inputmode="decimal" value="${valPad>0?String(valPad.toFixed(2)).replace('.',','):''}" placeholder="0,00" oninput="pgCalc()"></div></div>
     <div class="field"><label>Forma de pagamento</label><select id="pgForma" onchange="pgToggle()">${FORMAS.map(f=>`<option value="${f[0]}">${f[1]}</option>`).join('')}</select></div>
@@ -1586,7 +1590,7 @@ function pagamentoModal(oid,modo){ const o=getOS(oid); if(!o) return; if(!pode('
       <div class="field"><label>Valor a receber (líquido — o que cai na conta)</label><input id="pgLiquido" inputmode="decimal" placeholder="0,00" oninput="pgCalc()"></div>
       <div class="hint" id="pgTaxaInfo" style="margin-bottom:0"></div></div>
     ${modo==='final'?`<div class="hint">A OS só vai para <b>Executado</b> quando <b>não houver valor em aberto</b>. Se ainda faltar, o recebimento é registrado e a OS continua em "Carro liberado".</div>`:`<div class="hint">Recebimento parcial: o restante continua em aberto.</div>`}
-    <div class="form-actions"><button class="btn green" onclick='salvarPagamento("${oid}","${modo}")'>${modo==='final'?'Receber / Finalizar':'Registrar pagamento parcial'}</button>
+    <div class="form-actions"><button class="btn green" onclick='salvarPagamento("${oid}","${modo}")'>${modo==='final'?'Receber / Finalizar':'Registrar adiantamento'}</button>
       <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
   pgToggle();
 }
