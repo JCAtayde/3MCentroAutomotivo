@@ -59,6 +59,33 @@
   .view-head{display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin:2px 2px 16px}
   .view-head h2{font-family:var(--disp); font-weight:700; font-size:25px; margin:0; letter-spacing:.3px}
   .view-head p{color:var(--muted); margin:2px 0 0; font-size:13px}
+  /* ---- Reorganização: Mais, Serviços, atalhos do Painel ---- */
+  .menu-item{display:flex;align-items:center;gap:12px;background:var(--bg2);border:1px solid var(--line2);border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer}
+  .menu-item:active{transform:scale(.99)}
+  .menu-ic{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:18px;background:var(--card2,#171c22);flex:none}
+  .menu-tx{flex:1}.menu-tx .t{font-weight:700;font-size:14.5px}.menu-tx .s{color:var(--muted);font-size:12px;margin-top:1px}
+  .chev{color:var(--muted);font-size:20px;flex:none}
+  .lbl-sec-mais{font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin:16px 2px 9px}
+  .lbl-sec-mais:first-child{margin-top:2px}
+  .srv-search{display:flex;align-items:center;gap:9px;background:var(--bg2);border:1px solid var(--line2);border-radius:12px;padding:11px 13px;margin-bottom:11px}
+  .srv-search svg{width:17px;height:17px;stroke:var(--muted);flex:none}
+  .srv-search input{flex:1;background:none;border:none;color:var(--txt);font-size:14.5px;outline:none}
+  .seg-chips{display:flex;gap:7px;margin-bottom:6px;flex-wrap:wrap}
+  .seg-chips button{background:var(--bg2);border:1px solid var(--line2);color:var(--muted);border-radius:16px;padding:7px 13px;font-size:12.5px;font-weight:700;cursor:pointer}
+  .seg-chips button.on{background:var(--gold);color:#1a1206;border-color:var(--gold)}
+  .card.srv{cursor:pointer}
+  .badge.green{border:1px solid var(--green);color:var(--green)}
+  .badge.cyan{border:1px solid var(--cyan,#3FB6C4);color:var(--cyan,#3FB6C4)}
+  .painel-search{display:flex;align-items:center;gap:9px;background:var(--bg2);border:1px solid var(--line2);border-radius:12px;padding:12px 13px;margin-bottom:13px;cursor:text}
+  .painel-search svg{width:17px;height:17px;stroke:var(--muted);flex:none}
+  .painel-search span{color:var(--muted);font-size:13.5px}
+  .quick-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+  .quick{background:var(--bg2);border:1px solid var(--line2);border-radius:15px;padding:14px;display:flex;flex-direction:column;gap:8px;cursor:pointer}
+  .quick:active{transform:scale(.99)}
+  .quick .ic{width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:18px;background:var(--card2,#171c22)}
+  .quick .qt{font-weight:800;font-size:14px}.quick .qs{color:var(--muted);font-size:11px}
+  .quick.hero{background:linear-gradient(160deg,rgba(232,178,58,.18),rgba(232,178,58,.04));border-color:var(--gold)}
+  .quick.hero .ic{background:var(--gold);color:#1a1206}.quick.hero .qt{color:var(--gold)}
 
   .back{display:inline-flex; align-items:center; gap:6px; background:none; border:0; color:var(--muted); font-weight:600; font-size:13.5px; cursor:pointer; padding:4px 2px; margin-bottom:8px}
   .back:hover{color:var(--txt)}
@@ -330,7 +357,8 @@
 <main>
   <!-- PAINEL -->
   <section class="screen active" data-screen="painel">
-    <div class="view-head"><div><h2>Retornos</h2><p>Revisões vencidas ou próximas</p></div></div>
+    <div class="view-head"><div><h2>Painel</h2><p>Resumo da oficina e acesso rápido</p></div></div>
+    <div id="painelTopo"></div>
     <div id="leadsBox"></div>
     <div class="stats" id="stats"></div><div id="retornos"></div>
   </section>
@@ -371,7 +399,7 @@
 
   <!-- CONFIG -->
   <section class="screen" data-screen="config">
-    <div class="view-head"><div><h2>Configuração</h2><p>Mensagens, backup e usuários</p></div></div>
+    <div class="view-head"><div><h2>Configurações</h2><p>Mensagens, textos e backup</p></div></div>
     <div class="cfg-tabs" id="cfgTabs"></div>
 
     <div class="cfg-panel" data-cfg="mensagens">
@@ -398,22 +426,31 @@
       <div class="panel" style="margin-top:12px"><p style="color:var(--muted); font-size:13px; margin:0 0 10px">Padronizar maiúsculas dos cadastros já existentes (nomes, endereços, peças, modelos). Faça um <b>Exportar backup</b> antes, por segurança.</p>
         <div class="form-actions"><button class="btn gold" onclick="padronizarMaiusculas()">✨ Padronizar cadastros existentes</button></div></div>
     </div>
+  </section>
 
-    <div class="cfg-panel" data-cfg="usuarios" style="display:none">
-      <div id="usuariosAdmin"></div>
-    </div>
-    <div class="cfg-panel" data-cfg="mecanicos" style="display:none">
-      <div id="mecanicosBox"></div>
-    </div>
-    <div class="cfg-panel" data-cfg="financeiro" style="display:none">
-      <div id="financeiroBox"></div>
-    </div>
-    <div class="cfg-panel" data-cfg="caixa" style="display:none">
-      <div id="caixaBox"></div>
-    </div>
-    <div class="cfg-panel" data-cfg="folha" style="display:none">
-      <div id="folhaBox"></div>
-    </div>
+  <section class="screen" data-screen="financeiro">
+    <div class="view-head"><div><h2>Financeiro</h2><p>Caixa, relatório e folha de pagamento</p></div></div>
+    <div class="cfg-tabs" id="finTabs"></div>
+    <div class="cfg-panel" data-fin="caixa"><div id="caixaBox"></div></div>
+    <div class="cfg-panel" data-fin="relatorio" style="display:none"><div id="financeiroBox"></div></div>
+    <div class="cfg-panel" data-fin="folha" style="display:none"><div id="folhaBox"></div></div>
+  </section>
+
+  <section class="screen" data-screen="equipe">
+    <div class="view-head"><div><h2>Equipe & Acessos</h2><p>Funcionários, comissões e usuários do sistema</p></div></div>
+    <div class="cfg-tabs" id="eqTabs"></div>
+    <div class="cfg-panel" data-eq="funcionarios"><div id="mecanicosBox"></div></div>
+    <div class="cfg-panel" data-eq="acessos" style="display:none"><div id="usuariosAdmin"></div></div>
+  </section>
+
+  <section class="screen" data-screen="mais">
+    <div class="view-head"><div><h2>Mais</h2><p>Cadastros, equipe e ajustes</p></div></div>
+    <div id="maisMenu"></div>
+  </section>
+
+  <section class="screen" data-screen="servicos">
+    <div class="view-head"><div><h2>Serviços feitos</h2><p>Histórico de serviços concluídos</p></div></div>
+    <div id="servicosBox"></div>
   </section>
 
   <!-- DETALHE: CLIENTE -->
@@ -729,20 +766,21 @@ function verMensagem(vid,rid){ const it=itemDe(vid,rid);
 ================================================================== */
 const VIEWS=[
   {id:'painel',label:'Painel',icon:'M4 13h6v7H4zM14 4h6v16h-6zM4 4h6v6H4z'},
-  {id:'clientes',label:'Clientes',icon:'M16 21v-2a4 4 0 00-8 0v2M12 11a4 4 0 100-8 4 4 0 000 8z'},
-  {id:'veiculos',label:'Veículos',icon:'M5 17h14M6 17l1-6h10l1 6M7 11l1-4h8l1 4M5 17a2 2 0 11-4 0 2 2 0 014 0zm14 0a2 2 0 11-4 0 2 2 0 014 0z'},
   {id:'ordens',label:'Ordens',icon:'M14 6l4 4m-9 9l-6 1 1-6 11-11 5 5-11 11z'},
-  {id:'regras',label:'Tabela',icon:'M4 6h16M4 12h16M4 18h16'},
-  {id:'config',label:'Config.',icon:'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 13a7.5 7.5 0 000-2l2-1.5-2-3.5-2.4 1a7 7 0 00-1.7-1L14.5 3h-4l-.3 2.5a7 7 0 00-1.7 1l-2.4-1-2 3.5L4.6 11a7.5 7.5 0 000 2l-2 1.5 2 3.5 2.4-1a7 7 0 001.7 1l.3 2.5h4l.3-2.5a7 7 0 001.7-1l2.4 1 2-3.5-2-1.5z'},
+  {id:'clientes',label:'Clientes',icon:'M16 21v-2a4 4 0 00-8 0v2M12 11a4 4 0 100-8 4 4 0 000 8z'},
+  {id:'financeiro',label:'Financeiro',icon:'M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6'},
+  {id:'mais',label:'Mais',icon:'M5 12h1M11.5 12h1M18 12h1'},
 ];
-const TABS=VIEWS.map(v=>v.id);
+const TABS=['painel','ordens','clientes','financeiro','mais'];
 let histStack=[{screen:'painel',param:null}];
+function telaPai(name){ if(['veiculos','regras','equipe','config'].includes(name)) return 'mais'; if(name==='servicos') return 'painel'; return name; }
 function showScreen(name){
   document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===name));
-  const tabHi = TABS.includes(name)?name:(histStack.find(h=>TABS.includes(h.screen))?.screen);
+  const tabHi = TABS.includes(name)?name:telaPai(name);
   document.querySelectorAll('#topnav button,#tabbar button').forEach(b=>b.classList.toggle('active',b.dataset.go===tabHi));
 }
 const RENDER={painel:renderPainel,clientes:renderClientes,veiculos:renderVeiculos,ordens:renderOrdens,regras:renderRegras,config:carregarConfig,
+  financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos,
   cliente:p=>renderClienteDet(p), veiculo:p=>renderVeiculoDet(p), os:p=>renderOsDet(p)};
 function render(screen,param){ showScreen(screen); window.scrollTo({top:0,behavior:'smooth'}); (RENDER[screen]||(()=>{}))(param); }
 function goTab(name){ histStack=[{screen:name,param:null}]; render(name,null); }
@@ -751,7 +789,8 @@ function back(){ histStack.pop(); const p=histStack[histStack.length-1]||{screen
 function refreshAtual(){ const p=histStack[histStack.length-1]||{screen:'painel'}; render(p.screen,p.param); }
 function montarNav(){
   const top=document.getElementById('topnav'),tab=document.getElementById('tabbar'); top.innerHTML=''; tab.innerHTML='';
-  const views = ehMecanico() ? VIEWS.filter(v=>v.id==='ordens') : VIEWS;
+  let views = ehMecanico() ? VIEWS.filter(v=>v.id==='ordens') : VIEWS.slice();
+  if(!ehMecanico() && !ehAdmin() && !pode('valores')) views = views.filter(v=>v.id!=='financeiro');
   views.forEach((v,i)=>{
     const b=document.createElement('button'); b.dataset.go=v.id; b.textContent=v.label; if(!i)b.classList.add('active'); b.onclick=()=>goTab(v.id); top.appendChild(b);
     const t=document.createElement('button'); t.dataset.go=v.id;
@@ -895,7 +934,27 @@ function chamarLead(cid){ const c=getCliente(cid); const n=zapDoCliente(c); if(!
   window.open('https://wa.me/'+n+'?text='+encodeURIComponent(msg),'_blank'); }
 function concluirLead(cid){ const c=getCliente(cid); if(!c) return; confirmar('Concluir o atendimento de '+c.nome+' e tirar da fila?', function(){ c.lead=''; c.atualizado=Date.now(); salvar(); renderLeads(); atualizarLeadBadge(); if(typeof refreshAtual==='function') refreshAtual(); toast('Saiu da fila de prioridade'); }, 'Concluir', 'green'); }
 function reabrirLead(cid){ const c=getCliente(cid); if(!c) return; c.lead='novo'; c.atualizado=Date.now(); salvar(); refreshAtual(); atualizarLeadBadge(); toast('Voltou para a fila'); }
+function renderPainelTopo(){
+  const box=document.getElementById('painelTopo'); if(!box) return;
+  const feitos=(state.ordens||[]).filter(o=>osStatus(o)==='executado').sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))).slice(0,3);
+  const podeFin=ehAdmin()||pode('valores');
+  const recent=feitos.map(o=>{ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
+    return `<div class="card srv" onclick='go("os","${o.id}")'><div class="row"><div><div class="t">${esc(v?nomeVeiculo(v):'Veículo')}${v&&v.placa?` · ${esc(v.placa)}`:''}</div><div class="s">${esc((c&&c.nome)||'—')} · ${o.data?fmtBR(parseISO(o.data)):'—'}</div></div>${podeFin?`<span class="valor-tag" style="color:var(--green)">${moneyFmt(osTotal(o))}</span>`:''}</div></div>`; }).join('');
+  box.innerHTML=`
+    <div class="painel-search" onclick='goTab("servicos")'>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <span>Buscar cliente, placa ou serviço…</span></div>
+    <div class="quick-grid">
+      <div class="quick" onclick='novaOSrapida()'><div class="ic">➕</div><div class="qt">Nova OS</div><div class="qs">Abrir serviço</div></div>
+      <div class="quick hero" onclick='goTab("servicos")'><div class="ic">✅</div><div class="qt">Serviços feitos</div><div class="qs">Histórico completo</div></div>
+      <div class="quick" onclick='renderServicos({filtro:"retornos"});goTab("servicos")'><div class="ic">🔁</div><div class="qt">Retornos</div><div class="qs">Garantias</div></div>
+      ${podeFin?`<div class="quick" onclick='goTab("financeiro")'><div class="ic">💰</div><div class="qt">Financeiro</div><div class="qs">Caixa do mês</div></div>`:`<div class="quick" onclick='goTab("clientes")'><div class="ic">👤</div><div class="qt">Clientes</div><div class="qs">Buscar e cadastrar</div></div>`}
+    </div>
+    ${feitos.length?`<div class="section-label" style="display:flex;justify-content:space-between;align-items:center"><span>Feitos recentemente</span><span style="font-weight:600;text-transform:none;letter-spacing:0;color:var(--muted);font-size:11px;cursor:pointer" onclick='goTab("servicos")'>ver todos ›</span></div>${recent}`:''}`;
+}
+function novaOSrapida(){ if(typeof novaOSchooser==='function') return novaOSchooser(); if(typeof novaOS==='function') return novaOS(); goTab('clientes'); }
 function renderPainel(){
+  renderPainelTopo();
   const itens=construirRetornos();
   const venc=itens.filter(i=>i.st.tipo==='vencida').length, prox=itens.filter(i=>i.st.tipo==='proxima').length;
   document.getElementById('stats').innerHTML=`
@@ -2275,21 +2334,103 @@ let cfgAtiva='mensagens';
 function montarCfgTabs(){
   const box=document.getElementById('cfgTabs'); if(!box) return;
   const abas=[['mensagens','Mensagens'],['backup','Backup']];
-  if(ehAdmin()||pode('valores')) abas.push(['caixa','Caixa']);
-  if(ehAdmin()) abas.push(['usuarios','Usuários'],['mecanicos','Funcionários'],['financeiro','Financeiro'],['folha','Folha']);
   box.innerHTML=abas.map(([k,r])=>`<button class="${k===cfgAtiva?'on':''}" onclick="cfgTab('${k}')">${r}</button>`).join('');
 }
 function cfgTab(k){
-  if((k==='usuarios'||k==='mecanicos'||k==='financeiro'||k==='folha')&&!ehAdmin()) k='mensagens';
-  if(k==='caixa'&&!(ehAdmin()||pode('valores'))) k='mensagens';
+  if(k!=='mensagens'&&k!=='backup') k='mensagens';
   cfgAtiva=k; montarCfgTabs();
-  document.querySelectorAll('.cfg-panel').forEach(p=>p.style.display=p.dataset.cfg===k?'':'none');
-  if(k==='usuarios') renderUsuariosAdmin();
-  if(k==='mecanicos') renderMecanicos();
-  if(k==='financeiro') renderFinanceiro();
+  document.querySelectorAll('[data-screen="config"] .cfg-panel').forEach(p=>p.style.display=p.dataset.cfg===k?'':'none');
+}
+
+/* ---- Tela Financeiro ---- */
+let finAtiva='caixa';
+function renderFinanceiroScreen(){
+  const box=document.getElementById('finTabs'); if(!box) return;
+  if(!ehAdmin()&&!pode('valores')){ box.innerHTML=''; document.querySelectorAll('[data-screen="financeiro"] .cfg-panel').forEach(p=>p.style.display='none'); const c=document.getElementById('caixaBox'); if(c){c.style.display='';c.closest('.cfg-panel').style.display='';c.innerHTML='<div class="note empty-note">Você não tem permissão para ver o Financeiro.</div>';} return; }
+  finTab(finAtiva);
+}
+function finTab(k){
+  if(!['caixa','relatorio','folha'].includes(k)) k='caixa';
+  finAtiva=k;
+  const box=document.getElementById('finTabs');
+  const abas=[['caixa','Caixa'],['relatorio','Relatório'],['folha','Folha']];
+  box.innerHTML=abas.map(([kk,r])=>`<button class="${kk===finAtiva?'on':''}" onclick="finTab('${kk}')">${r}</button>`).join('');
+  document.querySelectorAll('[data-screen="financeiro"] .cfg-panel').forEach(p=>p.style.display=p.dataset.fin===k?'':'none');
   if(k==='caixa') renderCaixa();
+  if(k==='relatorio') renderFinanceiro();
   if(k==='folha') renderFolha();
 }
+
+/* ---- Tela Equipe & Acessos ---- */
+let eqAtiva='funcionarios';
+function renderEquipe(){ eqTab(eqAtiva); }
+function eqTab(k){
+  if(!['funcionarios','acessos'].includes(k)) k='funcionarios';
+  if(k==='acessos'&&!ehAdmin()) k='funcionarios';
+  eqAtiva=k;
+  const box=document.getElementById('eqTabs'); if(!box) return;
+  const abas=[['funcionarios','Funcionários']]; if(ehAdmin()) abas.push(['acessos','Acessos ao sistema']);
+  box.innerHTML=abas.map(([kk,r])=>`<button class="${kk===eqAtiva?'on':''}" onclick="eqTab('${kk}')">${r}</button>`).join('');
+  document.querySelectorAll('[data-screen="equipe"] .cfg-panel').forEach(p=>p.style.display=p.dataset.eq===k?'':'none');
+  if(k==='funcionarios') renderMecanicos();
+  if(k==='acessos') renderUsuariosAdmin();
+}
+
+/* ---- Tela Mais (menu) ---- */
+function renderMais(){
+  const box=document.getElementById('maisMenu'); if(!box) return;
+  const item=(ic,t,s,onclick)=>`<div class="menu-item" onclick='${onclick}'><div class="menu-ic">${ic}</div><div class="menu-tx"><div class="t">${t}</div><div class="s">${s}</div></div><span class="chev">›</span></div>`;
+  let h=`<div class="lbl-sec-mais">Cadastros</div>`;
+  h+=item('🚗','Veículos','Frota dos clientes',`goTab("veiculos")`);
+  h+=item('🗓️','Tabela de Revisões','Prazos de retorno (km/meses)',`goTab("regras")`);
+  h+=`<div class="lbl-sec-mais">Equipe &amp; Acesso</div>`;
+  h+=item('👥','Equipe','Funcionários e comissões'+(ehAdmin()?' · acessos':''),`goTab("equipe")`);
+  h+=item('📱','Área do Cliente','Convites e acessos dos clientes',`abrirAreaClienteInfo()`);
+  h+=`<div class="lbl-sec-mais">Sistema</div>`;
+  h+=item('⚙️','Configurações','Mensagens, textos e backup',`goTab("config")`);
+  box.innerHTML=h;
+}
+function abrirAreaClienteInfo(){
+  openModal(`<h3>Área do Cliente</h3><p class="sub">Portal onde o cliente acompanha o serviço e o histórico do carro.</p>
+    <div class="panel"><p style="font-size:13.5px;margin:0 0 6px">Para dar acesso a um cliente: abra a ficha dele em <b>Clientes</b> e toque em <b>📲 Enviar acesso</b>.</p>
+    <p style="font-size:13px;color:var(--muted);margin:0">O convite vai pelo WhatsApp dele; ele confirma CPF e WhatsApp e cria a senha.</p></div>
+    <div class="form-actions"><button class="btn gold" onclick='closeModal();goTab("clientes")'>Ir para Clientes</button><button class="btn ghost" onclick="closeModal()">Fechar</button></div>`);
+}
+
+/* ---- Tela Serviços feitos (histórico) ---- */
+let servBusca='', servFiltro='todos';
+function renderServicos(pre){
+  if(pre && typeof pre==='object'){ if(pre.busca!=null) servBusca=pre.busca; if(pre.filtro) servFiltro=pre.filtro; }
+  const box=document.getElementById('servicosBox'); if(!box) return;
+  const chips=[['todos','Todos'],['mes','Este mês'],['retornos','Retornos']];
+  const q=(servBusca||'').trim().toLowerCase();
+  const ini=competenciaAtualIni();
+  let lista=(state.ordens||[]).filter(o=>osStatus(o)==='executado');
+  if(servFiltro==='retornos') lista=lista.filter(o=>o.retorno_de);
+  if(servFiltro==='mes') lista=lista.filter(o=>o.data && o.data>=ini);
+  if(q) lista=lista.filter(o=>{ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
+    const alvo=[(c&&c.nome)||'',(v&&v.placa)||'',(v&&v.modelo)||'',(o.itens||[]).map(i=>i.nome).join(' '),(o.maodeobra||[]).map(m=>m.desc).join(' ')].join(' ').toLowerCase();
+    return alvo.includes(q); });
+  lista.sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')));
+  const cards=lista.slice(0,200).map(o=>{ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
+    const serv=[...(o.itens||[]).map(i=>i.nome),...(o.maodeobra||[]).map(m=>m.desc).filter(Boolean)].slice(0,3).join(' · ');
+    return `<div class="card srv" onclick='go("os","${o.id}")'>
+      <div class="row"><div class="t">${esc(v?nomeVeiculo(v):'Veículo')}${v&&v.placa?` · ${esc(v.placa)}`:''}</div>${o.retorno_de?'<span class="badge cyan">Retorno</span>':'<span class="badge green">Concluído</span>'}</div>
+      <div class="s">${esc((c&&c.nome)||'—')} · ${o.data?fmtBR(parseISO(o.data)):'—'}${o.km?(' · '+nfmt(o.km)+' km'):''}</div>
+      ${serv?`<div class="s" style="margin-top:3px">${esc(serv)}</div>`:''}
+      <div class="row" style="margin-top:6px"><span class="s">Total</span><span class="valor-tag" style="color:var(--green)">${moneyFmt(osTotal(o))}</span></div>
+    </div>`; }).join('');
+  box.innerHTML=`
+    <div class="srv-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="servBusca" placeholder="Buscar por cliente, placa ou peça…" value="${esc(servBusca)}" oninput="servBuscaInput(this.value)"></div>
+    <div class="seg-chips">${chips.map(([k,r])=>`<button class="${k===servFiltro?'on':''}" onclick="servSetFiltro('${k}')">${r}</button>`).join('')}</div>
+    <div class="hint" style="margin:2px 2px 10px">${lista.length} serviço(s) ${servFiltro==='mes'?'neste mês':servFiltro==='retornos'?'de retorno':'no total'}.</div>
+    <div class="rows">${cards||emptyState('Nada encontrado','Ajuste a busca ou o filtro.')}</div>`;
+}
+let servBuscaT=null;
+function servBuscaInput(v){ servBusca=v; clearTimeout(servBuscaT); servBuscaT=setTimeout(()=>{ const el=document.getElementById('servBusca'); const pos=el?el.selectionStart:null; renderServicos(); const e2=document.getElementById('servBusca'); if(e2){ e2.focus(); if(pos!=null) try{e2.setSelectionRange(pos,pos);}catch(_){} } },250); }
+function servSetFiltro(k){ servFiltro=k; renderServicos(); }
+function competenciaAtualIni(){ const d=hoje(); return toISO(new Date(d.getFullYear(), d.getMonth(), 1)); }
 
 /* ---- Permissões ---- */
 const PERMS=[['editar','Cadastrar e editar'],['excluir','Excluir registros'],['valores','Ver valores (R$)'],['config','Acessar Configuração']];
@@ -2646,7 +2787,7 @@ function checarPendencias(){
     ${resets.length?`<div class="section-label">Pedidos de senha (${resets.length})</div><div class="rows">${resets.map(linhaR).join('')}</div>`:''}
     <div class="form-actions" style="margin-top:14px"><button class="btn gold" onclick="closeModal()">Fechar</button></div>`);
 }
-function pendLiberar(id){ const u=getUsuario(id); if(!u) return; u.status='ativo'; u.perms=u.perms||permsPadrao(); u.atualizado=Date.now(); salvar(); toast(u.nome+' liberado'); pendJaMostrada=false; checarPendencias(); if(document.querySelector('[data-screen="config"].active')) renderUsuariosAdmin(); }
+function pendLiberar(id){ const u=getUsuario(id); if(!u) return; u.status='ativo'; u.perms=u.perms||permsPadrao(); u.atualizado=Date.now(); salvar(); toast(u.nome+' liberado'); pendJaMostrada=false; checarPendencias(); if(document.querySelector('[data-screen="equipe"].active')) renderUsuariosAdmin(); }
 function pendExcluir(id){ const u=getUsuario(id); if(!u) return; state.usuarios=state.usuarios.filter(x=>x.id!==id); salvar(); toast('Cadastro recusado'); pendJaMostrada=false; checarPendencias(); }
 function mostrarLogin(){
   mostrarGate(`<div class="auth-card">
