@@ -522,7 +522,7 @@ async function buscarCEP(){
 }
 function mascararCEP_legacy(){}
 function normVeiculo(v){ if(v.entrevista===undefined) v.entrevista=null; v.cor||=''; v.inspecao||={}; v.cambio||=''; return v; }
-function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; o.midias||=[]; o.pecas_prev||=[]; o.descontos||=[]; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
+function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; o.midias||=[]; o.pecas_prev||=[]; o.descontos||=[]; o.retorno_de=o.retorno_de||''; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
 
 function upgradeV2toV3(v2){
   const db=novoBanco();
@@ -762,7 +762,10 @@ function montarNav(){
   atualizarRegrasList();
 }
 function souMecanico(){ return usuarioAtual ? (usuarioAtual.mecanico_id||'') : ''; }
-function ehMecanico(){ return !!souMecanico(); }
+function ehMecanico(){ if(!usuarioAtual) return false; if(usuarioAtual.papel==='admin') return false; if(!usuarioAtual.mecanico_id) return false;
+  const v=usuarioAtual.modo_mec;
+  if(v===false||v===0||v==='0'||v==='false'||v==='nao'||v==='não') return false; // acesso completo
+  return true; }
 function garantirRegras(){ if(!state.regras || !state.regras.length){ state.regras=REGRAS_PADRAO.map(r=>({...r})); if(typeof lastSnapshot!=='undefined'&&lastSnapshot) lastSnapshot.regras=state.regras.map(r=>({...r})); cacheSave(); } }
 function catalogoOS(){ const serv=state.regras.map(r=>({nome:r.nome,preco:r.preco||null})); const pec=(state.pecas||[]).map(p=>({nome:p.nome,preco:p.preco||0})); return [...pec,...serv]; }
 function atualizarRegrasList(){ const dl=document.getElementById('regrasList'); if(dl) dl.innerHTML=catalogoOS().map(r=>`<option value="${esc(r.nome)}">`).join(''); }
@@ -1283,6 +1286,7 @@ function renderOsDet(id){
       ${st==='agendamento'?`<span class="k">Agendado para</span><span class="v">${o.agenda_data?fmtBR(parseISO(o.agenda_data)):'—'}${o.agenda_hora?(' às '+o.agenda_hora):''}</span>`:`<span class="k">KM na entrada</span><span class="v">${o.km?nfmt(o.km)+' km':'—'}</span>`}
       ${mecResp?`<span class="k">Mecânico</span><span class="v">👨‍🔧 ${esc(mecResp.nome)}</span>`:''}</div></div>
     <div class="note-label">${st==='agendamento'?'Prévia do serviço / problema':'Reclamação do cliente'}</div><div class="note ${o.reclamacao?'':'empty-note'}">${o.reclamacao?esc(o.reclamacao):'—'}</div>
+    ${bannerRetorno(o)}
     ${alertaCadastro(o,st)}`;
 
   // Agendamento: mensagens + chegou + fotos de entrada
@@ -1441,7 +1445,7 @@ function acoesFase(o,st){
   if(st==='aguardando') return `<button class="btn sm green" onclick='aprovarOrcamento("${o.id}")'>✓ Aprovado</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>✕ Rejeitar</button>`;
   if(st==='andamento') return `<button class="btn sm green" onclick='liberarCarro("${o.id}")'>🚗 Liberar carro</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>Rejeitar</button>`;
   if(st==='liberado') return `${pode('valores')?`<button class="btn sm green" onclick='finalizarOS("${o.id}")'>💵 Receber / Finalizar</button>`:''}${ehAdmin()?`<button class="btn sm ghost" onclick='voltarAndamento("${o.id}")'>Voltar p/ andamento</button>`:''}`;
-  if(st==='executado') return `<span class="cx-mini">Finalizada</span>${ehAdmin()?` <button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir</button>`:''}`;
+  if(st==='executado') return `<span class="cx-mini">Finalizada</span>${pode('editar')?` <button class="btn sm ghost" onclick='abrirRetorno("${o.id}")'>🔁 Abrir retorno (garantia)</button>`:''}${ehAdmin()?` <button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir</button>`:''}`;
   if(st==='rejeitado') return ehAdmin()?`<button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir orçamento</button>`:`<span class="cx-mini">Orçamento não aprovado</span>`;
   return '';
 }
@@ -1570,6 +1574,22 @@ function finalizarOS(oid){ const o=getOS(oid); if(!o) return;
   if(restanteOS(o)<=0.005){ confirmar('Não há valor em aberto.\nFinalizar e enviar para Executado?', function(){ o.status='executado'; o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='executado'; renderOsDet(oid); toast('OS finalizada ✓'); }, 'Finalizar', 'green'); return; }
   pagamentoModal(oid,'final'); }
 function liberarCarro(oid){ const o=getOS(oid); if(!o) return; confirmar('Liberar o carro?\nA OS vai para "Carro liberado" — onde o cliente busca o carro e é feito o recebimento.', function(){ o.status='liberado'; o.atualizado=Date.now(); salvar(); osFiltroStatus='liberado'; renderOsDet(oid); toast('Carro liberado ✓'); }, 'Liberar', 'green'); }
+function osCodigoCurto(o){ return o.codigo||(o.id||'').slice(-6).toUpperCase(); }
+function abrirRetorno(oid){ const orig=getOS(oid); if(!orig) return;
+  confirmar('Abrir um RETORNO de garantia desta OS?\n\nO serviço já feito NÃO será cobrado de novo. Você poderá acrescentar peças/serviços extras se precisar, e só esses novos itens serão cobrados.', function(){
+    const nova={ id:uid(), veiculo_id:orig.veiculo_id, retorno_de:oid, status:'aguardando', data:toISO(hoje()), km:orig.km||'',
+      reclamacao:'Retorno de garantia — OS '+osCodigoCurto(orig)+(orig.reclamacao?(' · '+orig.reclamacao):''),
+      obs_mecanico:'', itens:[], maodeobra:[], midias:[], pecas_prev:[], descontos:[], criado:Date.now() };
+    state.ordens.push(nova); salvar(); go('os',nova.id); toast('Retorno aberto — sem cobrança do serviço original ✓');
+  }, 'Abrir retorno', 'gold'); }
+function retornosDe(oid){ return (state.ordens||[]).filter(o=>o.retorno_de===oid); }
+function bannerRetorno(o){
+  let h='';
+  if(o.retorno_de){ const orig=getOS(o.retorno_de); h+=`<div class="alerta-cad" style="border-color:#3FB6C4;background:rgba(63,182,196,.10)">🔁 <b>Retorno de garantia</b> da OS ${orig?osCodigoCurto(orig):'—'}. O serviço original não é cobrado; cobre apenas o que for acrescentado.${orig?` <button class="btn sm ghost" style="margin-top:6px" onclick='go("os","${orig.id}")'>Ver OS original</button>`:''}</div>`; }
+  const rets=retornosDe(o.id);
+  if(rets.length){ h+=`<div class="alerta-cad" style="border-color:#3FB6C4;background:rgba(63,182,196,.10)">🔁 Esta OS tem <b>${rets.length} retorno(s)</b> de garantia: ${rets.map(r=>`<button class="btn sm ghost" onclick='go("os","${r.id}")'>${osCodigoCurto(r)} (${faseLabel(osStatus(r))})</button>`).join(' ')}</div>`; }
+  return h;
+}
 function voltarAndamento(oid){ if(!ehAdmin()){ toast('Apenas o gestor geral'); return; } const o=getOS(oid); if(!o) return; confirmar('Voltar esta OS para "Em andamento"?', function(){ o.status='andamento'; o.atualizado=Date.now(); salvar(); osFiltroStatus='andamento'; renderOsDet(oid); toast('Voltou para Em andamento'); }, 'Voltar'); }
 
 /* ---- pagamentos (adiantamento / final) ---- */
@@ -2748,7 +2768,7 @@ async function salvarNovoUsuario(){
   if(!nome||!login||!senha){ toast('Preencha nome, login e senha'); return; }
   if(usuarioPorLogin(login)){ toast('Esse login já existe'); return; }
   const salt=randSalt(), hash=await hashSenha(senha,salt); const mecId=val('nuMec')||'';
-  state.usuarios.push({id:uid(),nome,login,email:val('nuEmail').trim(),senha_hash:hash,salt,status:'ativo',papel:mecId?'operador':val('nuPapel'),perms:permsPadrao(),reset:'',mecanico_id:mecId,criado:Date.now()});
+  state.usuarios.push({id:uid(),nome,login,email:val('nuEmail').trim(),senha_hash:hash,salt,status:'ativo',papel:val('nuPapel'),perms:permsPadrao(),reset:'',mecanico_id:mecId,modo_mec:!!mecId,criado:Date.now()});
   salvar(); closeModal(); renderUsuariosAdmin(); toast('Usuário cadastrado');
 }
 function adminPermissoes(id){
@@ -2765,11 +2785,13 @@ function salvarPermissoes(id){
   toast('Permissões salvas');
 }
 function adminVincularMec(id){ const u=getUsuario(id); if(!u) return;
-  openModal(`<h3>Vincular a mecânico — ${esc(u.nome)}</h3><p class="sub">Ao vincular, o usuário entra em modo mecânico (vê só as OS dele, sem valores de peças).</p>
-    <div class="field"><label>Mecânico</label><select id="vmMec"><option value="">— não é mecânico —</option>${mecanicosAtivos().map(m=>`<option value="${m.id}" ${u.mecanico_id===m.id?'selected':''}>${esc(m.nome)}</option>`).join('')}</select></div>
+  openModal(`<h3>Mecânico / comissão — ${esc(u.nome)}</h3><p class="sub">Vincule para a comissão de mão de obra dele ser calculada. O "modo mecânico" (visão simplificada) é opcional.</p>
+    <div class="field"><label>Mecânico (para comissão)</label><select id="vmMec"><option value="">— não é mecânico —</option>${mecanicosAtivos().map(m=>`<option value="${m.id}" ${u.mecanico_id===m.id?'selected':''}>${esc(m.nome)}</option>`).join('')}</select></div>
+    <label class="ent-row ${u.modo_mec!==false&&u.modo_mec!=='nao'?'on':''}" style="grid-template-columns:22px 1fr" data-mm><input type="checkbox" id="vmModo" ${u.modo_mec!==false&&u.modo_mec!=='nao'?'checked':''} onchange="this.closest('.ent-row').classList.toggle('on',this.checked)"><span class="en">Modo mecânico simplificado (vê só as OS dele, sem valores). <b>Desmarque</b> se ele também é gestor/atendente e precisa do acesso completo.</span></label>
+    <div class="hint">Se desmarcar, o acesso dele passa a seguir as <b>Permissões</b> normais (botão Permissões), mesmo sendo mecânico.</div>
     <div class="form-actions"><button class="btn gold" onclick='salvarVincMec("${id}")'>Salvar</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
-function salvarVincMec(id){ const u=getUsuario(id); if(!u) return; const mid=val('vmMec')||''; u.mecanico_id=mid; if(mid) u.papel='operador'; u.atualizado=Date.now();
+function salvarVincMec(id){ const u=getUsuario(id); if(!u) return; const mid=val('vmMec')||''; const modo=document.getElementById('vmModo'); u.mecanico_id=mid; u.modo_mec = mid ? (modo && modo.checked) : false; u.atualizado=Date.now();
   salvar(); closeModal(); renderUsuariosAdmin(); if(usuarioAtual&&usuarioAtual.id===id) aplicarPermissoesUI(); toast('Vínculo atualizado'); }
 async function adminRedefinirSenha(id){
   const u=getUsuario(id); if(!u) return;
