@@ -536,7 +536,7 @@ const CONFIG_PADRAO={janela_dias:30, media_km_mes_padrao:1000,
 function novoBanco(){ return {clientes:[],veiculos:[],ordens:[],
   regras:REGRAS_PADRAO.map(r=>({id:uid(),nome:r.nome,km:+r.km,meses:+r.meses})), config:{...CONFIG_PADRAO}}; }
 
-function normCliente(c){ c.contatos||=[]; c.tipo||='Preventiva'; c.telefone1||=c.telefone||''; c.telefone2||=''; c.endereco||=''; c.obs||=''; c.nascimento||=''; c.zap_num||='1'; c.lead||=''; c.cpf||=''; c.rua||=''; c.setor||=''; c.cidade||=''; c.estado||=''; c.cep||=''; c.quadra||=''; c.lote||=''; c.numero||=''; return c; }
+function normCliente(c){ c.contatos||=[]; c.tipo||='Preventiva'; c.telefone1||=c.telefone||''; c.telefone2||=''; c.endereco||=''; c.obs||=''; c.nascimento||=''; c.zap_num||='1'; c.lead||=''; c.cpf||=''; c.rua||=''; c.setor||=''; c.cidade||=''; c.estado||=''; c.cep||=''; c.quadra||=''; c.lote||=''; c.numero||=''; c.complemento||=''; return c; }
 function fmtCPF(v){ const d=(v||'').replace(/\D/g,'').slice(0,11); if(d.length<=3) return d; if(d.length<=6) return d.slice(0,3)+'.'+d.slice(3); if(d.length<=9) return d.slice(0,3)+'.'+d.slice(3,6)+'.'+d.slice(6); return d.slice(0,3)+'.'+d.slice(3,6)+'.'+d.slice(6,9)+'-'+d.slice(9); }
 function fmtCEP(v){ const d=(v||'').replace(/\D/g,'').slice(0,8); return d.length<=5?d:d.slice(0,5)+'-'+d.slice(5); }
 function mascararCPF(el){ el.value=fmtCPF(el.value); }
@@ -1060,7 +1060,7 @@ function renderClienteDet(id){
         <span class="k">Telefone 1</span><span class="v">${tel1}</span>
         <span class="k">Telefone 2</span><span class="v">${tel2}</span>
         <span class="k">Aniversário</span><span class="v">${c.nascimento?('🎂 '+esc(c.nascimento)):'—'}</span>
-        <span class="k">Endereço</span><span class="v">${esc((function(){ const p=[c.rua]; if(c.quadra)p.push('Qd '+c.quadra); if(c.lote)p.push('Lt '+c.lote); if(c.numero)p.push('nº '+c.numero); if(c.setor)p.push(c.setor); return p.filter(Boolean).join(', ')||c.endereco||'—'; })())}</span>
+        <span class="k">Endereço</span><span class="v">${esc((function(){ const p=[c.rua]; if(c.numero)p.push('nº '+c.numero); if(c.quadra)p.push('Qd '+c.quadra); if(c.lote)p.push('Lt '+c.lote); if(c.complemento)p.push(c.complemento); if(c.setor)p.push(c.setor); return p.filter(Boolean).join(', ')||c.endereco||'—'; })())}</span>
         <span class="k">Cidade / UF</span><span class="v">${esc([c.cidade,c.estado].filter(Boolean).join(' / ')||'—')}${c.cep?(' · CEP '+esc(c.cep)):''}</span>
       </div>${c.obs?`<div class="note-label">Observações</div><div class="note">${esc(c.obs)}</div>`:''}${contatos}
     </div>
@@ -1735,41 +1735,56 @@ function addContato(){ if(contatoRows.length>=2) return; contatoRows.push({id:ui
 function removeContato(id){ contatoRows=contatoRows.filter(x=>x.id!==id); renderContatos(); }
 function openCliente(id){ if(!pode('editar')){ toast('Sem permissão para editar'); return; }
   ultimoCepBuscado='';
-  const c=id?getCliente(id):{nome:'',tipo:'Preventiva',telefone1:'',telefone2:'',endereco:'',obs:'',contatos:[],nascimento:'',zap_num:'1',cpf:'',rua:'',setor:'',cidade:'',estado:'',cep:'',quadra:'',lote:'',numero:''};
+  const c=id?getCliente(id):{nome:'',tipo:'Preventiva',telefone1:'',telefone2:'',endereco:'',obs:'',contatos:[],nascimento:'',zap_num:'1',cpf:'',rua:'',setor:'',cidade:'',estado:'',cep:'',quadra:'',lote:'',numero:'',complemento:''};
   contatoRows=(c.contatos||[]).map(x=>({id:uid(),nome:x.nome||'',relacao:x.relacao||RELACOES[0],telefone:x.telefone||'',nascimento:x.nascimento||''}));
   openModal(`<h3>${id?'Editar cliente':'Novo cliente'}</h3><p class="sub">Dados, contatos autorizados e perfil.</p>
+    ${id?camposFaltandoHint(c):''}
+    <div class="section-label" style="margin-top:2px">Dados pessoais</div>
     <div class="grid2"><div class="field"><label>Nome</label><input autocomplete="off" id="fNome" value="${esc(c.nome)}" placeholder="Carlos Souza"></div>
       <div class="field"><label>CPF</label><input autocomplete="off" id="fCPF" value="${esc(c.cpf||'')}" placeholder="000.000.000-00" inputmode="numeric" oninput="mascararCPF(this)"></div></div>
+    <div class="grid2"><div class="field"><label>Data de nascimento (dia/mês)</label><input autocomplete="off" id="fNasc" value="${esc(c.nascimento||'')}" placeholder="25/12" inputmode="numeric"></div>
+      <div class="field"><label>Perfil</label><select id="fTipo">${TIPOS.map(t=>`<option ${t===c.tipo?'selected':''}>${t}</option>`).join('')}</select></div></div>
     <div class="grid2"><div class="field"><label>Telefone 1</label><input autocomplete="off" id="fTel1" value="${esc(c.telefone1)}" placeholder="62 99999-8888" inputmode="tel"></div>
       <div class="field"><label>Telefone 2</label><input autocomplete="off" id="fTel2" value="${esc(c.telefone2)}" placeholder="opcional" inputmode="tel"></div></div>
-    <div class="grid2"><div class="field"><label>Qual é o WhatsApp?</label><select id="fZap"><option value="1" ${c.zap_num!=='2'?'selected':''}>Telefone 1</option><option value="2" ${c.zap_num==='2'?'selected':''}>Telefone 2</option></select></div>
-      <div class="field"><label>Perfil</label><select id="fTipo">${TIPOS.map(t=>`<option ${t===c.tipo?'selected':''}>${t}</option>`).join('')}</select></div></div>
-    <div class="field"><label>Aniversário (dd/mm)</label><input autocomplete="off" id="fNasc" value="${esc(c.nascimento||'')}" placeholder="25/12" inputmode="numeric"></div>
+    <div class="field"><label>Qual desses é o WhatsApp?</label><select id="fZap"><option value="1" ${c.zap_num!=='2'?'selected':''}>Telefone 1</option><option value="2" ${c.zap_num==='2'?'selected':''}>Telefone 2</option></select></div>
+
+    <div class="section-label" style="margin-top:14px">Endereço</div>
+    <div class="field"><label>CEP <span style="color:var(--muted2);font-weight:500">— digite primeiro, o endereço se preenche sozinho</span></label>
+      <div class="dt-wrap"><input autocomplete="off" id="fCep" value="${esc(c.cep||'')}" placeholder="00000-000" inputmode="numeric" oninput="mascararCEP(this)"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); buscarCEP()">🔍</button></div>
+      <div class="hint" id="cepStatus" style="margin-bottom:0">Digite o CEP para preencher rua, bairro, cidade e estado automaticamente.</div></div>
     <div class="field"><label>Rua / Avenida</label><input autocomplete="off" id="fRua" value="${esc(c.rua||c.endereco||'')}" placeholder="Rua das Flores"></div>
-    <div class="grid3"><div class="field"><label>Quadra</label><input autocomplete="off" id="fQuadra" value="${esc(c.quadra||'')}" placeholder="Qd"></div>
-      <div class="field"><label>Lote</label><input autocomplete="off" id="fLote" value="${esc(c.lote||'')}" placeholder="Lt"></div>
-      <div class="field"><label>Número</label><input autocomplete="off" id="fNumero" value="${esc(c.numero||'')}" placeholder="nº" inputmode="numeric"></div></div>
-    <div class="grid2"><div class="field"><label>Setor / bairro</label><input autocomplete="off" id="fSetor" value="${esc(c.setor||'')}" placeholder="Setor Garavelo"></div>
-      <div class="field"><label>CEP</label><div class="dt-wrap"><input autocomplete="off" id="fCep" value="${esc(c.cep||'')}" placeholder="00000-000" inputmode="numeric" oninput="mascararCEP(this)"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); buscarCEP()">🔍</button></div>
-        <div class="hint" id="cepStatus" style="margin-bottom:0">Digite o CEP para preencher o endereço automaticamente.</div></div></div>
+    <div class="grid3"><div class="field"><label>Número</label><input autocomplete="off" id="fNumero" value="${esc(c.numero||'')}" placeholder="nº" inputmode="numeric"></div>
+      <div class="field"><label>Quadra</label><input autocomplete="off" id="fQuadra" value="${esc(c.quadra||'')}" placeholder="Qd"></div>
+      <div class="field"><label>Lote</label><input autocomplete="off" id="fLote" value="${esc(c.lote||'')}" placeholder="Lt"></div></div>
+    <div class="field"><label>Complemento <span style="color:var(--muted2);font-weight:500">— apto, bloco, condomínio, ponto de referência</span></label><input autocomplete="off" id="fComp" value="${esc(c.complemento||'')}" placeholder="Ex: Apto 302, Bloco B, Cond. Villa Verde"></div>
+    <div class="field"><label>Setor / bairro</label><input autocomplete="off" id="fSetor" value="${esc(c.setor||'')}" placeholder="Setor Garavelo"></div>
     <div class="grid2"><div class="field"><label>Cidade</label><input autocomplete="off" id="fCidade" value="${esc(c.cidade||'')}" placeholder="Aparecida de Goiânia"></div>
       <div class="field"><label>Estado (UF)</label><input autocomplete="off" id="fEstado" value="${esc(c.estado||'')}" placeholder="GO" maxlength="2" style="text-transform:uppercase"></div></div>
-    <div class="field" style="margin-bottom:8px"><label>Contatos autorizados (quem pode buscar/trazer o carro)</label></div>
+
+    <div class="section-label" style="margin-top:14px">Contatos autorizados <span style="color:var(--muted2);font-weight:500;text-transform:none;letter-spacing:0">(quem pode buscar/trazer o carro)</span></div>
     <div id="contatosBox"></div>
     <button class="btn sm ghost" id="addContatoBtn" onclick="addContato()" style="margin-bottom:12px">+ Adicionar contato</button>
-    <div class="field"><label>Observações</label><input autocomplete="off" id="fObs" value="${esc(c.obs)}" placeholder="opcional"></div>
+    <div class="field"><label>Observações gerais</label><input autocomplete="off" id="fObs" value="${esc(c.obs)}" placeholder="opcional"></div>
     <div class="form-actions"><button class="btn gold" onclick='saveCliente(${id?`"${id}"`:'null'})'>Salvar</button>
       ${id?`<button class="btn danger" onclick='delCliente("${id}")'>Excluir</button>`:''}
       <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
   renderContatos();
 }
+const CAMPOS_IMPORTANTES=[['cpf','CPF'],['nascimento','nascimento'],['telefone1','telefone'],['cep','CEP'],['rua','rua'],['numero','número'],['setor','bairro'],['cidade','cidade']];
+function camposFaltandoHint(c){
+  const faltam=CAMPOS_IMPORTANTES.filter(([k])=>!String(c[k]||'').trim()).map(([,r])=>r);
+  if(!faltam.length) return '';
+  return `<div class="panel" style="border-color:var(--amber);background:rgba(232,178,58,.08);margin-bottom:10px">
+    <div style="font-weight:700;color:var(--amber);font-size:13px">📋 Ainda falta preencher</div>
+    <div style="font-size:13px;color:var(--txt);margin-top:3px">${faltam.join(' · ')}</div></div>`;
+}
 function saveCliente(id){
   const nome=val('fNome').trim(); if(!nome){ toast('Informe o nome'); return; }
   const rua=tc(val('fRua').trim()); const quadra=val('fQuadra').trim().toUpperCase(); const lote=val('fLote').trim().toUpperCase(); const numero=val('fNumero').trim();
-  const setor=tc(val('fSetor').trim()); const cidade=tc(val('fCidade').trim());
-  const partes=[rua]; if(quadra) partes.push('Qd '+quadra); if(lote) partes.push('Lt '+lote); if(numero) partes.push('nº '+numero); if(setor) partes.push(setor); if(cidade) partes.push(cidade);
+  const complemento=val('fComp').trim(); const setor=tc(val('fSetor').trim()); const cidade=tc(val('fCidade').trim());
+  const partes=[rua]; if(numero) partes.push('nº '+numero); if(quadra) partes.push('Qd '+quadra); if(lote) partes.push('Lt '+lote); if(complemento) partes.push(complemento); if(setor) partes.push(setor); if(cidade) partes.push(cidade);
   const dados={nome:tc(nome),tipo:val('fTipo'),telefone1:val('fTel1').trim(),telefone2:val('fTel2').trim(),zap_num:val('fZap'),nascimento:val('fNasc').trim(),
-    cpf:fmtCPF(val('fCPF')),rua,quadra,lote,numero,setor,cidade,estado:val('fEstado').trim().toUpperCase().slice(0,2),cep:fmtCEP(val('fCep')),
+    cpf:fmtCPF(val('fCPF')),rua,quadra,lote,numero,complemento,setor,cidade,estado:val('fEstado').trim().toUpperCase().slice(0,2),cep:fmtCEP(val('fCep')),
     endereco:partes.filter(Boolean).join(', '),obs:val('fObs').trim(),
     contatos:contatoRows.filter(r=>r.nome.trim()||r.telefone.trim()).map(r=>({nome:tc(r.nome.trim()),relacao:r.relacao,telefone:r.telefone.trim(),nascimento:(r.nascimento||'').trim()}))};
   if(id) Object.assign(getCliente(id),dados); else state.clientes.push({id:uid(),...dados,criado:Date.now()});
@@ -2457,7 +2472,7 @@ function padronizarMaiusculas(){
       if(c.estado){ const uf=(c.estado||'').toUpperCase().slice(0,2); if(uf!==c.estado){ c.estado=uf; } }
       if(Array.isArray(c.contatos)) c.contatos.forEach(ct=>{ if(ct.nome){ const v=tc(ct.nome); if(v!==ct.nome){ ct.nome=v; n++; } } });
       // recompõe endereço
-      if(c.rua||c.setor||c.cidade){ const partes=[c.rua]; if(c.quadra) partes.push('Qd '+String(c.quadra).toUpperCase()); if(c.lote) partes.push('Lt '+String(c.lote).toUpperCase()); if(c.numero) partes.push('nº '+c.numero); if(c.setor) partes.push(c.setor); if(c.cidade) partes.push(c.cidade); c.endereco=partes.filter(Boolean).join(', '); }
+      if(c.rua||c.setor||c.cidade){ const partes=[c.rua]; if(c.numero) partes.push('nº '+c.numero); if(c.quadra) partes.push('Qd '+String(c.quadra).toUpperCase()); if(c.lote) partes.push('Lt '+String(c.lote).toUpperCase()); if(c.complemento) partes.push(c.complemento); if(c.setor) partes.push(c.setor); if(c.cidade) partes.push(c.cidade); c.endereco=partes.filter(Boolean).join(', '); }
       c.atualizado=Date.now();
     });
     (state.veiculos||[]).forEach(v=>{ ['modelo','cor'].forEach(k=>{ if(v[k]){ const nv=tc(v[k]); if(nv!==v[k]){ v[k]=nv; n++; } } }); if(v.placa){ const p=String(v.placa).toUpperCase(); if(p!==v.placa){ v.placa=p; } } v.atualizado=Date.now(); });
@@ -2567,14 +2582,15 @@ function cxFiltrar(){ cxDe=val('cxDe')||''; cxAte=val('cxAte')||''; const de=cxD
   if(!movs.length){ lista.innerHTML='<div class="note empty-note">Nenhum lançamento no período.</div>'; return; }
   lista.innerHTML='<div class="rows">'+movs.map(m=>{ const ent=m.tipo==='entrada'; const cartao=m.forma==='cartao';
     return `<div class="row"><div class="main"><div class="t">${ent?'▲':'▼'} ${esc(m.descricao||(ent?'Entrada':'Saída'))} <span class="badge">${formaLabel(m.forma)}${cartao&&m.parcelas>1?(' '+m.parcelas+'x'):''}</span>${!ent&&m.categoria?` <span class="badge">${catSaidaLabel(m.categoria)}</span>`:''}</div>
-      <div class="s">${fmtBR(parseISO(m.data))}${cartao&&m.taxa?(' · taxa '+moneyFmt(m.taxa)+' · líq. '+moneyFmt(m.liquido)):''}${m.ordem_id?' · OS':''}${m.funcionario_id?(' · '+esc((state.mecanicos.find(x=>x.id===m.funcionario_id)||{}).nome||'func.')):''}</div></div>
+      <div class="s">${fmtBR(parseISO(m.data))}${cartao&&m.taxa?(' · taxa '+moneyFmt(m.taxa)+' · líq. '+moneyFmt(m.liquido)):''}${m.ordem_id?' · OS':''}${m.funcionario_id?(' · '+esc((state.mecanicos.find(x=>x.id===m.funcionario_id)||{}).nome||'func.')):''}${m.socio?(' · '+esc(m.socio)):''}</div></div>
       <div class="acts"><span class="valor-tag" style="color:${ent?'var(--green)':'var(--red)'}">${ent?'+':'−'}${moneyFmt(m.valor)}</span>
         ${!m.ordem_id?`<button class="btn sm ghost" onclick='movimentoModal("${m.tipo}","${m.id}")'>Editar</button>`:`<button class="btn sm ghost" onclick='go("os","${m.ordem_id}")'>Ver OS</button>`}</div></div>`;
   }).join('')+'</div>';
 }
 const CAT_SAIDA=[['conta_fixa','Conta fixa'],['fornecedor','Fornecedor'],['variavel','Variável'],['prolabore','Pró-labore'],['adiantamento','Adiantamento a funcionário'],['outros','Outros']];
+const SOCIOS=['João','Paulo'];
 function catSaidaLabel(c){ const x=CAT_SAIDA.find(y=>y[0]===c); return x?x[1]:(c||'—'); }
-function movimentoModal(tipo,id){ const m=id?(state.caixa.find(x=>x.id===id)||{}):{tipo,data:toISO(hoje()),forma:'pix',valor:'',taxa:0,descricao:'',categoria:'',funcionario_id:''};
+function movimentoModal(tipo,id){ const m=id?(state.caixa.find(x=>x.id===id)||{}):{tipo,data:toISO(hoje()),forma:'pix',valor:'',taxa:0,descricao:'',categoria:'',funcionario_id:'',socio:''};
   const ent=tipo==='entrada';
   openModal(`<h3>${id?'Editar':ent?'Nova entrada':'Nova saída'}</h3>
     <div class="grid2">${dtField('mvData','date',(m.data||toISO(hoje())),'Data')}
@@ -2582,7 +2598,8 @@ function movimentoModal(tipo,id){ const m=id?(state.caixa.find(x=>x.id===id)||{}
     <div class="field"><label>Forma</label><select id="mvForma" onchange="mvToggleTaxa()">${FORMAS.map(f=>`<option value="${f[0]}" ${m.forma===f[0]?'selected':''}>${f[1]}</option>`).join('')}</select></div>
     <div class="field" id="mvTaxaWrap" style="display:${ent&&m.forma==='cartao'?'':'none'}"><label>Valor a receber (líquido)</label><input id="mvLiquido" inputmode="decimal" value="${(m.taxa&&m.valor)?String(m.valor-m.taxa).replace('.',','):''}" placeholder="0,00" oninput="mvCalcTaxa()"><div class="hint" id="mvTaxaInfo" style="margin:4px 0 0"></div></div>
     ${!ent?`<div class="field"><label>Tipo de saída</label><select id="mvCat" onchange="mvToggleFunc()">${CAT_SAIDA.map(c=>`<option value="${c[0]}" ${m.categoria===c[0]?'selected':''}>${c[1]}</option>`).join('')}</select></div>
-    <div class="field" id="mvFuncWrap" style="display:${m.categoria==='adiantamento'?'':'none'}"><label>Funcionário</label><select id="mvFunc"><option value="">—</option>${(state.mecanicos||[]).map(x=>`<option value="${x.id}" ${m.funcionario_id===x.id?'selected':''}>${esc(x.nome)}</option>`).join('')}</select></div>`:''}
+    <div class="field" id="mvFuncWrap" style="display:${m.categoria==='adiantamento'?'':'none'}"><label>Funcionário</label><select id="mvFunc"><option value="">—</option>${(state.mecanicos||[]).map(x=>`<option value="${x.id}" ${m.funcionario_id===x.id?'selected':''}>${esc(x.nome)}</option>`).join('')}</select></div>
+    <div class="field" id="mvSocioWrap" style="display:${m.categoria==='prolabore'?'':'none'}"><label>Sócio (pró-labore)</label><select id="mvSocio"><option value="">— escolha —</option>${SOCIOS.map(s=>`<option value="${esc(s)}" ${m.socio===s?'selected':''}>${esc(s)}</option>`).join('')}</select></div>`:''}
     <div class="field"><label>Descrição</label><input id="mvDesc" value="${esc(m.descricao||'')}" placeholder="${ent?'Ex: Venda de peça avulsa':'Ex: Aluguel, óleo, adiantamento…'}"></div>
     <div class="form-actions"><button class="btn ${ent?'green':'danger'}" onclick='salvarMovimento(${id?`"${id}"`:'null'},"${tipo}")'>Salvar</button>
       ${id?`<button class="btn danger" onclick='excluirMovimento("${id}")'>Excluir</button>`:''}
@@ -2591,13 +2608,15 @@ function movimentoModal(tipo,id){ const m=id?(state.caixa.find(x=>x.id===id)||{}
 }
 function mvToggleTaxa(){ const f=val('mvForma'); const w=document.getElementById('mvTaxaWrap'); if(w) w.style.display=(f==='cartao')?'':'none'; mvCalcTaxa(); }
 function mvCalcTaxa(){ const v=moneyParse(val('mvValor')); const liqRaw=val('mvLiquido'); const liq=liqRaw&&liqRaw.trim()?moneyParse(liqRaw):v; const taxa=Math.max(0,v-liq); const el=document.getElementById('mvTaxaInfo'); if(el) el.innerHTML=`Taxa (desconto): <b>${moneyFmt(taxa)}</b>`; }
-function mvToggleFunc(){ const c=val('mvCat'); const w=document.getElementById('mvFuncWrap'); if(w) w.style.display=(c==='adiantamento')?'':'none'; }
+function mvToggleFunc(){ const c=val('mvCat'); const wF=document.getElementById('mvFuncWrap'); if(wF) wF.style.display=(c==='adiantamento')?'':'none'; const wS=document.getElementById('mvSocioWrap'); if(wS) wS.style.display=(c==='prolabore')?'':'none'; }
 function salvarMovimento(id,tipo){ const data=val('mvData')||toISO(hoje()); const valor=moneyParse(val('mvValor')); const forma=val('mvForma');
   const taxa=(tipo==='entrada'&&forma==='cartao')?Math.max(0,valor-(val('mvLiquido').trim()?moneyParse(val('mvLiquido')):valor)):0; const descricao=val('mvDesc').trim();
   const categoria=tipo==='saida'?(val('mvCat')||'outros'):''; const funcionario_id=(categoria==='adiantamento')?(val('mvFunc')||''):'';
+  const socio=(categoria==='prolabore')?(val('mvSocio')||''):'';
   if(valor<=0){ toast('Informe o valor'); return; }
   if(categoria==='adiantamento' && !funcionario_id){ toast('Escolha o funcionário do adiantamento'); return; }
-  const dados={tipo,data,valor,forma,taxa,liquido:valor-taxa,descricao,categoria,funcionario_id,atualizado:Date.now()};
+  if(categoria==='prolabore' && !socio){ toast('Escolha o sócio do pró-labore'); return; }
+  const dados={tipo,data,valor,forma,taxa,liquido:valor-taxa,descricao,categoria,funcionario_id,socio,atualizado:Date.now()};
   if(id){ Object.assign(state.caixa.find(x=>x.id===id),dados); } else { state.caixa.push({id:uid(),ordem_id:null,criado:Date.now(),...dados}); }
   salvar(); closeModal(); renderCaixa(); toast('Lançamento salvo'); }
 function excluirMovimento(id){ confirmar('Excluir este lançamento do caixa?', function(){ state.caixa=state.caixa.filter(x=>x.id!==id); salvar(); closeModal(); renderCaixa(); toast('Lançamento excluído'); }); }
