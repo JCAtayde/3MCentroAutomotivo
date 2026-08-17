@@ -25,7 +25,7 @@
   *{box-sizing:border-box} html,body{margin:0;padding:0}
   body{background:radial-gradient(1200px 600px at 80% -10%, #191d24 0%, var(--bg) 60%);
     color:var(--txt); font-family:var(--body); font-size:15px; line-height:1.5;
-    -webkit-font-smoothing:antialiased; min-height:100vh; padding-bottom:78px;}
+    -webkit-font-smoothing:antialiased; min-height:100vh; padding-bottom:84px;}
   button{font-family:inherit}
 
   header.top{position:sticky; top:0; z-index:40; display:flex; align-items:center; gap:14px;
@@ -44,12 +44,15 @@
   .top nav button:hover{color:var(--txt); background:var(--panel)}
   .top nav button.active{color:#0F1114; background:var(--gold)}
 
-  nav.tabbar{position:fixed; bottom:0; left:0; right:0; z-index:40; display:grid; grid-template-columns:repeat(6,1fr);
+  nav.tabbar{position:fixed; bottom:0; left:0; right:0; z-index:40; display:flex;
     background:rgba(20,22,26,.97); backdrop-filter:blur(12px); border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom,0);}
   @media(min-width:920px){ nav.tabbar{display:none} }
-  nav.tabbar button{background:none; border:0; color:var(--muted2); padding:9px 2px 8px; display:flex; flex-direction:column; align-items:center; gap:3px; font-size:9.5px; font-weight:600; cursor:pointer;}
-  nav.tabbar button svg{width:20px; height:20px}
+  nav.tabbar button{flex:1 1 0; min-width:0; background:none; border:0; color:var(--muted2); padding:11px 4px 10px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; font-size:11.5px; font-weight:700; line-height:1.1; cursor:pointer; min-height:62px;}
+  nav.tabbar button svg{width:26px; height:26px}
   nav.tabbar button.active{color:var(--gold)}
+  /* Quando há só um botão (ex.: mecânico vê apenas "Ordens"): ocupa a largura toda, ícone e texto lado a lado */
+  nav.tabbar.solo button{flex-direction:row; gap:9px; font-size:16px; min-height:66px}
+  nav.tabbar.solo button svg{width:28px; height:28px}
 
   main{max-width:980px; margin:0 auto; padding:20px 16px 30px}
   .screen{display:none; animation:fade .22s ease}
@@ -791,10 +794,12 @@ function montarNav(){
   const top=document.getElementById('topnav'),tab=document.getElementById('tabbar'); top.innerHTML=''; tab.innerHTML='';
   let views = ehMecanico() ? VIEWS.filter(v=>v.id==='ordens') : VIEWS.slice();
   if(!ehMecanico() && !ehAdmin() && !pode('valores')) views = views.filter(v=>v.id!=='financeiro');
+  tab.classList.toggle('solo', views.length===1);
   views.forEach((v,i)=>{
     const b=document.createElement('button'); b.dataset.go=v.id; b.textContent=v.label; if(!i)b.classList.add('active'); b.onclick=()=>goTab(v.id); top.appendChild(b);
     const t=document.createElement('button'); t.dataset.go=v.id;
-    t.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="'+v.icon+'"/></svg><span>'+v.label+'</span>';
+    const rotulo = (views.length===1 && v.id==='ordens') ? 'Ordens de Serviço' : v.label;
+    t.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="'+v.icon+'"/></svg><span>'+rotulo+'</span>';
     if(!i)t.classList.add('active'); t.onclick=()=>goTab(v.id); tab.appendChild(t);
   });
   garantirRegras();
