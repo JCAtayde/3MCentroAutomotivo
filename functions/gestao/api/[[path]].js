@@ -10,9 +10,10 @@ const SCHEMA = {
   ordens:   { cols:['id','veiculo_id','data','km','reclamacao','obs_mecanico','obs_admin','itens','maodeobra','status','agenda_data','agenda_hora','mecanico_id','midias','codigo','pecas_prev','descontos','retorno_de','criado','atualizado'], json:['itens','maodeobra','midias','pecas_prev','descontos'] },
   regras:   { cols:['id','nome','km','meses','ordem','preco'], json:[] },
   mecanicos:{ cols:['id','nome','percentual','ativo','telefone','salario','funcao','socio','criado','atualizado'], json:[] },
-  caixa:    { cols:['id','tipo','data','valor','forma','taxa','liquido','descricao','ordem_id','parcelas','categoria','funcionario_id','cartao_tipo','socio','conta','vencimento','pagamento','criado','atualizado'], json:[] },
+  caixa:    { cols:['id','tipo','data','valor','forma','taxa','liquido','descricao','ordem_id','parcelas','categoria','funcionario_id','cartao_tipo','socio','conta','vencimento','pagamento','fornecedor_id','criado','atualizado'], json:[] },
   usuarios: { cols:['id','nome','login','senha_hash','salt','status','papel','email','perms','reset','mecanico_id','modo_mec','criado','atualizado'], json:['perms'] },
   pecas:    { cols:['id','nome','preco','criado','atualizado'], json:[] },
+  fornecedores: { cols:['id','nome','cnpj','telefone','obs','criado','atualizado'], json:[] },
 };
 
 const jsonResp = (o, s = 200) =>
@@ -31,7 +32,7 @@ export async function onRequest(context) {
 
   try {
     if (request.method === 'GET' && acao === 'state') {
-      const [cli, vei, ord, reg, cfg, usu, mec, cxa, pec] = await Promise.all([
+      const [cli, vei, ord, reg, cfg, usu, mec, cxa, pec, forn] = await Promise.all([
         DB.prepare('SELECT * FROM clientes').all(),
         DB.prepare('SELECT * FROM veiculos').all(),
         DB.prepare('SELECT * FROM ordens').all(),
@@ -41,6 +42,7 @@ export async function onRequest(context) {
         DB.prepare('SELECT * FROM mecanicos').all(),
         DB.prepare('SELECT * FROM caixa').all(),
         DB.prepare('SELECT * FROM pecas').all(),
+        DB.prepare('SELECT * FROM fornecedores').all(),
       ]);
       const config = {};
       (cfg.results || []).forEach(r => { config[r.chave] = r.valor; });
@@ -53,6 +55,7 @@ export async function onRequest(context) {
         mecanicos:(mec.results || []),
         caixa:    (cxa.results || []),
         pecas:    (pec.results || []),
+        fornecedores: (forn.results || []),
         config,
       });
     }
@@ -128,5 +131,6 @@ async function replaceAll(DB, body) {
   if (body.mecanicos) await upsertRows(DB, 'mecanicos', body.mecanicos);
   if (body.caixa) await upsertRows(DB, 'caixa', body.caixa);
   if (body.pecas) await upsertRows(DB, 'pecas', body.pecas);
+  if (body.fornecedores) await upsertRows(DB, 'fornecedores', body.fornecedores);
   if (body.config) await saveConfig(DB, body.config);
 }

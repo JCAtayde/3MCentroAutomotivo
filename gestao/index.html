@@ -477,6 +477,11 @@
     <div id="boletosBox"></div>
   </section>
 
+  <section class="screen" data-screen="fornecedores">
+    <div class="view-head"><div><h2>Fornecedores</h2><p>Lojistas e fornecedores (nome e CNPJ)</p></div></div>
+    <div id="fornecedoresBox"></div>
+  </section>
+
   <!-- DETALHE: CLIENTE -->
   <section class="screen" data-screen="cliente">
     <button class="back" onclick="back()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>Voltar</button>
@@ -555,7 +560,7 @@ const CONFIG_PADRAO={janela_dias:30, media_km_mes_padrao:1000,
   msg:'Olá {cliente}! Aqui é da 3M Centro Automotivo. 🔧\n\nPassando para lembrar que o seu *{veiculo}* (placa {placa}) está chegando na revisão de *{servico}*, prevista para *{data}* ou ao atingir *{km} km*.\n\nPodemos agendar um horário?'};
 
 function novoBanco(){ return {clientes:[],veiculos:[],ordens:[],
-  regras:REGRAS_PADRAO.map(r=>({id:uid(),nome:r.nome,km:+r.km,meses:+r.meses})), config:{...CONFIG_PADRAO}}; }
+  regras:REGRAS_PADRAO.map(r=>({id:uid(),nome:r.nome,km:+r.km,meses:+r.meses})), fornecedores:[], config:{...CONFIG_PADRAO}}; }
 
 function normCliente(c){ c.contatos||=[]; c.tipo||='Preventiva'; c.telefone1||=c.telefone||''; c.telefone2||=''; c.endereco||=''; c.obs||=''; c.nascimento||=''; c.zap_num||='1'; c.lead||=''; c.cpf||=''; c.rua||=''; c.setor||=''; c.cidade||=''; c.estado||=''; c.cep||=''; c.quadra||=''; c.lote||=''; c.numero||=''; c.complemento||=''; c.categoria||='pessoa'; c.razao||=''; return c; }
 function fmtCNPJ(v){ const d=(v||'').replace(/\D/g,'').slice(0,14); if(d.length<=2)return d; if(d.length<=5)return d.slice(0,2)+'.'+d.slice(2); if(d.length<=8)return d.slice(0,2)+'.'+d.slice(2,5)+'.'+d.slice(5); if(d.length<=12)return d.slice(0,2)+'.'+d.slice(2,5)+'.'+d.slice(5,8)+'/'+d.slice(8); return d.slice(0,2)+'.'+d.slice(2,5)+'.'+d.slice(5,8)+'/'+d.slice(8,12)+'-'+d.slice(12); }
@@ -613,9 +618,9 @@ function apiGet(){ return fetch(API+'/state',{headers:{'accept':'application/jso
 function apiPost(path,body){ return fetch(API+'/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
 function deepCopy(o){ return JSON.parse(JSON.stringify(o)); }
 function cacheSave(){ try{ localStorage.setItem(CACHE_KEY,JSON.stringify(state)); }catch(e){} }
-function cacheLoad(){ try{ const r=localStorage.getItem(CACHE_KEY); if(r){ const d=JSON.parse(r); d.clientes||=[]; d.veiculos||=[]; d.ordens||=[]; d.regras||=[]; d.usuarios||=[]; d.mecanicos||=[]; d.caixa||=[]; d.pecas||=[]; d.ordens.forEach(normOrdem); d.config={...CONFIG_PADRAO,...(d.config||{})}; try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); }catch(e){} return d; } }catch(e){} return null; }
+function cacheLoad(){ try{ const r=localStorage.getItem(CACHE_KEY); if(r){ const d=JSON.parse(r); d.clientes||=[]; d.veiculos||=[]; d.ordens||=[]; d.regras||=[]; d.usuarios||=[]; d.mecanicos||=[]; d.caixa||=[]; d.pecas||=[]; d.fornecedores||=[]; d.ordens.forEach(normOrdem); d.config={...CONFIG_PADRAO,...(d.config||{})}; try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); }catch(e){} return d; } }catch(e){} return null; }
 
-let state = cacheLoad() || {clientes:[],veiculos:[],ordens:[],regras:[],usuarios:[],mecanicos:[],caixa:[],pecas:[],config:{...CONFIG_PADRAO}};
+let state = cacheLoad() || {clientes:[],veiculos:[],ordens:[],regras:[],usuarios:[],mecanicos:[],caixa:[],pecas:[],fornecedores:[],config:{...CONFIG_PADRAO}};
 let lastSnapshot = deepCopy(state);
 let syncTimer=null, syncing=false, syncPend=false;
 
@@ -634,7 +639,7 @@ async function enviarMudancas(){
   if(syncing){ syncPend=true; return; }
   syncing=true; setSync('sync');
   try{
-    for(const t of ['clientes','veiculos','ordens','regras','usuarios','mecanicos','caixa','pecas']){
+    for(const t of ['clientes','veiculos','ordens','regras','usuarios','mecanicos','caixa','pecas','fornecedores']){
       const d=diffTabela(lastSnapshot[t], state[t]);
       if(d.up.length) await apiPost('upsert',{table:t,rows:d.up});
       if(d.del.length) await apiPost('delete',{table:t,ids:d.del});
@@ -657,6 +662,7 @@ async function sincronizar(){
     state.mecanicos=data.mecanicos||[];
     state.caixa=data.caixa||[];
     state.pecas=data.pecas||[];
+    state.fornecedores=data.fornecedores||[];
     state.config={...CONFIG_PADRAO,...(data.config||{})};
     lastSnapshot=deepCopy(state); cacheSave(); setSync('ok');
     if(typeof atualizarRegrasList==='function') atualizarRegrasList();
@@ -799,14 +805,14 @@ const VIEWS=[
 ];
 const TABS=['painel','ordens','clientes','financeiro','mais'];
 let histStack=[{screen:'painel',param:null}];
-function telaPai(name){ if(['veiculos','regras','equipe','config','boletos'].includes(name)) return 'mais'; if(name==='servicos') return 'painel'; return name; }
+function telaPai(name){ if(['veiculos','regras','equipe','config','boletos','fornecedores'].includes(name)) return 'mais'; if(name==='servicos') return 'painel'; return name; }
 function showScreen(name){
   document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===name));
   const tabHi = TABS.includes(name)?name:telaPai(name);
   document.querySelectorAll('#topnav button,#tabbar button').forEach(b=>b.classList.toggle('active',b.dataset.go===tabHi));
 }
 const RENDER={painel:renderPainel,clientes:renderClientes,veiculos:renderVeiculos,ordens:renderOrdens,regras:renderRegras,config:carregarConfig,
-  financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos, boletos:renderBoletosReceber,
+  financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos, boletos:renderBoletosReceber, fornecedores:renderFornecedores,
   cliente:p=>renderClienteDet(p), veiculo:p=>renderVeiculoDet(p), os:p=>renderOsDet(p)};
 function render(screen,param){ showScreen(screen); window.scrollTo({top:0,behavior:'smooth'}); (RENDER[screen]||(()=>{}))(param); }
 function goTab(name){ histStack=[{screen:name,param:null}]; render(name,null); }
@@ -2566,6 +2572,7 @@ function renderMais(){
   let h=`<div class="lbl-sec-mais">Cadastros</div>`;
   h+=item('🚗','Veículos','Frota dos clientes',`goTab("veiculos")`);
   h+=item('🗓️','Tabela de Revisões','Prazos de retorno (km/meses)',`goTab("regras")`);
+  h+=item('🏭','Fornecedores','Lojistas e fornecedores (CNPJ)',`goTab("fornecedores")`);
   if(ehAdmin()||pode('editar')||pode('valores')){
     h+=`<div class="lbl-sec-mais">Recebimentos</div>`;
     h+=item('📄','Boletos a receber','Acompanhe e confirme os pagamentos',`goTab("boletos")`);
@@ -2657,14 +2664,14 @@ function importar(ev){ const f=ev.target.files[0]; if(!f) return; const rd=new F
       let db; if(d.ordens){ db=d; } else if(d.atendimentos){ db=upgradeV2toV3(d); } else if(d.servicos){ db=upgradeV2toV3(migrarV1toV2shape(d)); } else db={...novoBanco(),...d};
       db.config={...CONFIG_PADRAO,...(db.config||{})}; db.clientes.forEach(normCliente); db.veiculos.forEach(normVeiculo); db.ordens||=[];
       state=db; cacheSave(); montarNav(); goTab('painel'); toast('Enviando backup para a nuvem…');
-      apiPost('replace',{clientes:state.clientes,veiculos:state.veiculos,ordens:state.ordens,regras:state.regras,usuarios:state.usuarios,mecanicos:state.mecanicos,caixa:state.caixa,pecas:state.pecas,config:state.config})
+      apiPost('replace',{clientes:state.clientes,veiculos:state.veiculos,ordens:state.ordens,regras:state.regras,usuarios:state.usuarios,mecanicos:state.mecanicos,caixa:state.caixa,pecas:state.pecas,fornecedores:state.fornecedores,config:state.config})
         .then(()=>sincronizar()).then(()=>toast('Backup importado')).catch(()=>toast('Falha ao enviar — verifique a conexão'));
     });
   }catch(e){ toast('Não foi possível ler o arquivo'); } }; rd.readAsText(f); ev.target.value=''; }
 function limparTudo(){ confirmar('Apagar TODOS os dados da NUVEM? Sem volta.', function(){ confirmar('Tem certeza? Exporte um backup antes.', limparTudoConfirmado); }); }
 function limparTudoConfirmado(){
   state=novoBanco(); cacheSave(); montarNav(); goTab('painel');
-  apiPost('replace',{clientes:[],veiculos:[],ordens:[],regras:state.regras,usuarios:state.usuarios,mecanicos:state.mecanicos,caixa:state.caixa,pecas:state.pecas,config:state.config}).then(()=>sincronizar()).then(()=>toast('Dados apagados')).catch(()=>toast('Falha — verifique a conexão')); }
+  apiPost('replace',{clientes:[],veiculos:[],ordens:[],regras:state.regras,usuarios:state.usuarios,mecanicos:state.mecanicos,caixa:state.caixa,pecas:state.pecas,fornecedores:state.fornecedores,config:state.config}).then(()=>sincronizar()).then(()=>toast('Dados apagados')).catch(()=>toast('Falha — verifique a conexão')); }
 
 /* ==================================================================
    UI helpers
@@ -2758,6 +2765,34 @@ function renderBoletosReceber(){
     ${bol.length?cards:emptyState('Nenhum boleto a receber','Tudo em dia por aqui. 👍')}
     ${bol.length?`<div class="totline"><span><b>Total a receber em boletos</b></span><b style="color:var(--amber)">${moneyFmt(total)}</b></div>`:''}`;
 }
+/* ---- Fornecedores ---- */
+function getFornecedor(id){ return (state.fornecedores||[]).find(f=>f.id===id); }
+function fornecedorNome(id){ const f=getFornecedor(id); return f?f.nome:''; }
+function renderFornecedores(){
+  const box=document.getElementById('fornecedoresBox'); if(!box) return;
+  if(!pode('editar')&&!ehAdmin()){ box.innerHTML='<div class="note empty-note">Sem permissão.</div>'; return; }
+  const lista=(state.fornecedores||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  const rows=lista.map(f=>`<div class="row click" onclick='openFornecedor("${f.id}")'><div class="main"><div class="t">${esc(f.nome||'—')}</div>
+    <div class="s">${f.cnpj?('CNPJ '+esc(f.cnpj)):'sem CNPJ'}${f.telefone?(' · 📲 '+esc(f.telefone)):''}</div></div>${chev()}</div>`).join('');
+  box.innerHTML=`<div class="section-label"><span>Fornecedores (${lista.length})</span><button class="btn sm gold" onclick='openFornecedor(null)'>+ Novo fornecedor</button></div>
+    <div class="rows">${lista.length?rows:emptyState('Nenhum fornecedor','Cadastre seus lojistas e fornecedores.')}</div>`;
+}
+function openFornecedor(id){ if(!pode('editar')&&!ehAdmin()){ toast('Sem permissão'); return; }
+  const f=id?(getFornecedor(id)||{}):{nome:'',cnpj:'',telefone:'',obs:''};
+  openModal(`<h3>${id?'Editar fornecedor':'Novo fornecedor'}</h3>
+    <div class="field"><label>Nome / Razão social</label><input id="fnNome" value="${esc(f.nome||'')}" placeholder="Auto Peças Silva"></div>
+    <div class="field"><label>CNPJ</label><input id="fnCnpj" value="${esc(f.cnpj||'')}" placeholder="00.000.000/0000-00" inputmode="numeric" oninput="this.value=fmtCNPJ(this.value)"></div>
+    <div class="field"><label>Telefone (opcional)</label><input id="fnTel" value="${esc(f.telefone||'')}" placeholder="62 99999-8888" inputmode="tel"></div>
+    <div class="field"><label>Observação (opcional)</label><input id="fnObs" value="${esc(f.obs||'')}" placeholder="Ex: peças de suspensão"></div>
+    <div class="form-actions"><button class="btn gold" onclick='salvarFornecedor(${id?`"${id}"`:'null'})'>Salvar</button>
+      ${id?`<button class="btn danger" onclick='excluirFornecedor("${id}")'>Excluir</button>`:''}
+      <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
+}
+function salvarFornecedor(id){ const nome=tc(val('fnNome').trim()); if(!nome){ toast('Informe o nome'); return; }
+  const dados={nome,cnpj:fmtCNPJ(val('fnCnpj')),telefone:val('fnTel').trim(),obs:val('fnObs').trim(),atualizado:Date.now()};
+  if(id){ Object.assign(getFornecedor(id),dados); } else { state.fornecedores.push({id:uid(),...dados,criado:Date.now()}); }
+  salvar(); closeModal(); if(document.querySelector('[data-screen="fornecedores"].active')) renderFornecedores(); toast('Fornecedor salvo ✓'); }
+function excluirFornecedor(id){ confirmar('Excluir este fornecedor? Os lançamentos antigos continuam registrados.', function(){ state.fornecedores=(state.fornecedores||[]).filter(f=>f.id!==id); salvar(); closeModal(); renderFornecedores(); }); }
 function renderCaixa(){
   const box=document.getElementById('caixaBox'); if(!box) return;
   if(!(ehAdmin()||pode('valores'))){ box.innerHTML='<div class="note empty-note">Sem permissão.</div>'; return; }
@@ -2791,7 +2826,7 @@ function cxFiltrar(){ cxDe=val('cxDe')||''; cxAte=val('cxAte')||''; const de=cxD
   if(!movs.length){ lista.innerHTML='<div class="note empty-note">Nenhum lançamento no período.</div>'; return; }
   lista.innerHTML='<div class="rows">'+movs.map(m=>{ const ent=m.tipo==='entrada'; const cartao=m.forma==='cartao';
     return `<div class="row"><div class="main"><div class="t">${ent?'▲':'▼'} ${esc(m.descricao||(ent?'Entrada':'Saída'))} <span class="badge">${formaLabel(m.forma)}${cartao&&m.parcelas>1?(' '+m.parcelas+'x'):''}</span>${!ent&&m.categoria?` <span class="badge">${catSaidaLabel(m.categoria)}</span>`:''}</div>
-      <div class="s">${fmtBR(parseISO(m.data))}${cartao&&m.taxa?(' · taxa '+moneyFmt(m.taxa)+' · líq. '+moneyFmt(m.liquido)):''}${m.forma==='boleto'&&m.tipo==='entrada'?(' · '+(m.pagamento?('pago '+fmtBR(parseISO(m.pagamento))):('vence '+(m.vencimento?fmtBR(parseISO(m.vencimento)):'—')+' · a receber'))):''}${m.tipo==='saida'&&(m.forma==='cartao'||m.forma==='boleto')&&m.vencimento?(' · paga em '+fmtBR(parseISO(m.vencimento))):''}${m.tipo==='saida'?(' · '+(contaMov(m)==='banco'?'🏦 banco':'💵 caixa')):''}${m.ordem_id?' · OS':''}${m.funcionario_id?(' · '+esc((state.mecanicos.find(x=>x.id===m.funcionario_id)||{}).nome||'func.')):''}${m.socio?(' · '+esc(m.socio)):''}</div></div>
+      <div class="s">${fmtBR(parseISO(m.data))}${cartao&&m.taxa?(' · taxa '+moneyFmt(m.taxa)+' · líq. '+moneyFmt(m.liquido)):''}${m.forma==='boleto'&&m.tipo==='entrada'?(' · '+(m.pagamento?('pago '+fmtBR(parseISO(m.pagamento))):('vence '+(m.vencimento?fmtBR(parseISO(m.vencimento)):'—')+' · a receber'))):''}${m.tipo==='saida'&&(m.forma==='cartao'||m.forma==='boleto')&&m.vencimento?(' · paga em '+fmtBR(parseISO(m.vencimento))):''}${m.tipo==='saida'?(' · '+(contaMov(m)==='banco'?'🏦 banco':'💵 caixa')):''}${m.ordem_id?' · OS':''}${m.funcionario_id?(' · '+esc((state.mecanicos.find(x=>x.id===m.funcionario_id)||{}).nome||'func.')):''}${m.socio?(' · '+esc(m.socio)):''}${m.fornecedor_id?(' · 🏭 '+esc(fornecedorNome(m.fornecedor_id))):''}</div></div>
       <div class="acts"><span class="valor-tag" style="color:${ent?'var(--green)':'var(--red)'}">${ent?'+':'−'}${moneyFmt(m.valor)}</span>
         ${!m.ordem_id?`<button class="btn sm ghost" onclick='movimentoModal("${m.tipo}","${m.id}")'>Editar</button>`:`<button class="btn sm ghost" onclick='go("os","${m.ordem_id}")'>Ver OS</button>`}</div></div>`;
   }).join('')+'</div>';
@@ -2799,7 +2834,7 @@ function cxFiltrar(){ cxDe=val('cxDe')||''; cxAte=val('cxAte')||''; const de=cxD
 const CAT_SAIDA=[['conta_fixa','Conta fixa'],['fornecedor','Fornecedor'],['variavel','Variável'],['prolabore','Pró-labore'],['adiantamento','Adiantamento a funcionário'],['outros','Outros']];
 const SOCIOS=['João','Paulo'];
 function catSaidaLabel(c){ const x=CAT_SAIDA.find(y=>y[0]===c); return x?x[1]:(c||'—'); }
-function movimentoModal(tipo,id){ const m=id?(state.caixa.find(x=>x.id===id)||{}):{tipo,data:toISO(hoje()),forma:'pix',valor:'',taxa:0,descricao:'',categoria:'',funcionario_id:'',socio:'',conta:''};
+function movimentoModal(tipo,id){ const m=id?(state.caixa.find(x=>x.id===id)||{}):{tipo,data:toISO(hoje()),forma:'pix',valor:'',taxa:0,descricao:'',categoria:'',funcionario_id:'',socio:'',conta:'',fornecedor_id:''};
   const ent=tipo==='entrada';
   openModal(`<h3>${id?'Editar':ent?'Nova entrada':'Nova saída'}</h3>
     <div class="grid2">${dtField('mvData','date',(m.data||toISO(hoje())),'Data')}
@@ -2809,6 +2844,10 @@ function movimentoModal(tipo,id){ const m=id?(state.caixa.find(x=>x.id===id)||{}
     ${!ent?`<div class="hint" style="margin:-2px 0 11px">De onde sai: <b>Dinheiro</b> → 💵 caixa · <b>PIX, cartão e boleto</b> → 🏦 banco (definido pela forma acima).</div>
     <div class="field"><label>Tipo de saída</label><select id="mvCat" onchange="mvToggleFunc()">${CAT_SAIDA.filter(c=>c[0]!=='prolabore'||m.categoria==='prolabore').map(c=>`<option value="${c[0]}" ${m.categoria===c[0]?'selected':''}>${c[1]}</option>`).join('')}</select></div>
     <div class="field" id="mvFuncWrap" style="display:${m.categoria==='adiantamento'?'':'none'}"><label>Funcionário</label><select id="mvFunc"><option value="">—</option>${(state.mecanicos||[]).map(x=>`<option value="${x.id}" ${m.funcionario_id===x.id?'selected':''}>${esc(x.nome)}</option>`).join('')}</select></div>
+    <div id="mvFornWrap" style="display:${m.categoria==='fornecedor'?'':'none'}">
+      <div class="field"><label>Fornecedor</label><select id="mvForn" onchange="mvFornChange()"><option value="">— nenhum —</option>${(state.fornecedores||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(x=>`<option value="${x.id}" ${m.fornecedor_id===x.id?'selected':''}>${esc(x.nome)}${x.cnpj?(' · '+esc(x.cnpj)):''}</option>`).join('')}<option value="__novo__">➕ Cadastrar novo fornecedor</option></select></div>
+      <div id="mvFornNovoWrap" style="display:none"><div class="grid2"><div class="field"><label>Nome do fornecedor</label><input id="mvFornNome" placeholder="Auto Peças Silva"></div>
+        <div class="field"><label>CNPJ</label><input id="mvFornCnpj" placeholder="00.000.000/0000-00" inputmode="numeric" oninput="this.value=fmtCNPJ(this.value)"></div></div></div></div>
     <div class="field" id="mvSocioWrap" style="display:${m.categoria==='prolabore'?'':'none'}"><label>Sócio (pró-labore)</label><select id="mvSocio"><option value="">— escolha —</option>${SOCIOS.map(s=>`<option value="${esc(s)}" ${m.socio===s?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
     <div class="field" id="mvVencWrap" style="display:${(m.forma==='cartao'||m.forma==='boleto')?'':'none'}"><label>Data de pagamento (vencimento da fatura/boleto)</label><div class="dt-wrap"><input id="mvVenc" type="date" value="${m.vencimento||''}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('mvVenc')">📅</button></div><div class="hint" style="margin:4px 0 0">O valor só sai do banco nessa data. Até lá, aparece em "A pagar" no Saldos.</div></div>`:''}
     <div class="field"><label>Descrição</label><input id="mvDesc" value="${esc(m.descricao||'')}" placeholder="${ent?'Ex: Venda de peça avulsa':'Ex: Aluguel, óleo, adiantamento…'}"></div>
@@ -2822,17 +2861,22 @@ function mvToggleTaxa(){ const f=val('mvForma'); const ent=!document.getElementB
   const vw=document.getElementById('mvVencWrap'); if(vw) vw.style.display=(!ent&&(f==='cartao'||f==='boleto'))?'':'none';
   mvCalcTaxa(); }
 function mvCalcTaxa(){ const v=moneyParse(val('mvValor')); const liqRaw=val('mvLiquido'); const liq=liqRaw&&liqRaw.trim()?moneyParse(liqRaw):v; const taxa=Math.max(0,v-liq); const el=document.getElementById('mvTaxaInfo'); if(el) el.innerHTML=`Taxa (desconto): <b>${moneyFmt(taxa)}</b>`; }
-function mvToggleFunc(){ const c=val('mvCat'); const wF=document.getElementById('mvFuncWrap'); if(wF) wF.style.display=(c==='adiantamento')?'':'none'; const wS=document.getElementById('mvSocioWrap'); if(wS) wS.style.display=(c==='prolabore')?'':'none'; }
+function mvToggleFunc(){ const c=val('mvCat'); const wF=document.getElementById('mvFuncWrap'); if(wF) wF.style.display=(c==='adiantamento')?'':'none'; const wS=document.getElementById('mvSocioWrap'); if(wS) wS.style.display=(c==='prolabore')?'':'none'; const wForn=document.getElementById('mvFornWrap'); if(wForn) wForn.style.display=(c==='fornecedor')?'':'none'; }
+function mvFornChange(){ const v=val('mvForn'); const w=document.getElementById('mvFornNovoWrap'); if(w) w.style.display=(v==='__novo__')?'':'none'; }
 function salvarMovimento(id,tipo){ const data=val('mvData')||toISO(hoje()); const valor=moneyParse(val('mvValor')); const forma=val('mvForma');
   const taxa=(tipo==='entrada'&&forma==='cartao')?Math.max(0,valor-(val('mvLiquido').trim()?moneyParse(val('mvLiquido')):valor)):0; const descricao=val('mvDesc').trim();
   const categoria=tipo==='saida'?(val('mvCat')||'outros'):''; const funcionario_id=(categoria==='adiantamento')?(val('mvFunc')||''):'';
   const socio=(categoria==='prolabore')?(val('mvSocio')||''):'';
   const conta=['dinheiro','especie'].includes(forma)?'caixa':'banco';
   const vencimento=(tipo==='saida'&&(forma==='cartao'||forma==='boleto'))?(val('mvVenc')||''):'';
+  let fornecedor_id='';
+  if(categoria==='fornecedor'){ const sel=val('mvForn');
+    if(sel==='__novo__'){ const fn=tc(val('mvFornNome').trim()); if(fn){ fornecedor_id=uid(); state.fornecedores.push({id:fornecedor_id,nome:fn,cnpj:fmtCNPJ(val('mvFornCnpj')),telefone:'',obs:'',criado:Date.now()}); } }
+    else fornecedor_id=sel||''; }
   if(valor<=0){ toast('Informe o valor'); return; }
   if(categoria==='adiantamento' && !funcionario_id){ toast('Escolha o funcionário do adiantamento'); return; }
   if(categoria==='prolabore' && !socio){ toast('Escolha o sócio do pró-labore'); return; }
-  const dados={tipo,data,valor,forma,taxa,liquido:valor-taxa,descricao,categoria,funcionario_id,socio,conta,vencimento,atualizado:Date.now()};
+  const dados={tipo,data,valor,forma,taxa,liquido:valor-taxa,descricao,categoria,funcionario_id,socio,conta,vencimento,fornecedor_id,atualizado:Date.now()};
   if(id){ Object.assign(state.caixa.find(x=>x.id===id),dados); } else { state.caixa.push({id:uid(),ordem_id:null,criado:Date.now(),...dados}); }
   salvar(); closeModal(); renderCaixa(); toast('Lançamento salvo'); }
 function excluirMovimento(id){ confirmar('Excluir este lançamento do caixa?', function(){ state.caixa=state.caixa.filter(x=>x.id!==id); salvar(); closeModal(); renderCaixa(); toast('Lançamento excluído'); }); }
