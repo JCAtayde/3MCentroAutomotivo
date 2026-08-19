@@ -2849,21 +2849,28 @@ function competenciaDe(iso){ const d=parseISO(iso); let y=d.getFullYear(), m=d.g
 function nomeMesComp(comp){ const p=comp.split('-'); return MESES_PT[parseInt(p[1])-1]+'/'+p[0]; }
 function adiantamentosFunc(fid,comp){ return (state.caixa||[]).filter(m=>m.tipo==='saida'&&m.categoria==='adiantamento'&&m.funcionario_id===fid&&competenciaDe(m.data)===comp); }
 function folhaMudarMes(){ const v=val('folhaMes'); if(v) folhaComp=v; renderFolha(); }
+function ehSocioFunc(f){ return f && (f.socio==='1'||f.socio===1||f.socio===true); }
 function renderFolha(){
   const box=document.getElementById('folhaBox'); if(!box) return;
-  if(!ehAdmin()){ box.innerHTML='<div class="note empty-note">Somente o gestor geral.</div>'; return; }
+  if(!ehAdmin()&&!pode('valores')){ box.innerHTML='<div class="note empty-note">Você não tem permissão para ver a folha.</div>'; return; }
   if(!folhaComp) folhaComp=competenciaDe(toISO(hoje()));
   const comp=folhaComp;
-  const funcs=(state.mecanicos||[]).filter(f=>Number(f.salario||0)>0);
+  const soAdmin=ehAdmin();
+  const funcs=(state.mecanicos||[]).filter(f=>Number(f.salario||0)>0 && !ehSocioFunc(f));
+  const socios= soAdmin ? (state.mecanicos||[]).filter(f=>ehSocioFunc(f)) : [];
   let totSal=0, totAdi=0, totRest=0;
-  const linhas=funcs.map(f=>{ const adis=adiantamentosFunc(f.id,comp); const adiado=adis.reduce((s,m)=>s+(Number(m.valor)||0),0);
-    const sal=Number(f.salario||0); const rest=sal-adiado; totSal+=sal; totAdi+=adiado; totRest+=rest;
+  const linhaFunc=(f,socio)=>{ const adis=adiantamentosFunc(f.id,comp); const adiado=adis.reduce((s,m)=>s+(Number(m.valor)||0),0);
+    const sal=Number(f.salario||0); const rest=sal-adiado;
     const det=adis.length?('<div class="cx-mini">'+adis.sort((a,b)=>(a.data||'').localeCompare(b.data||'')).map(m=>fmtBR(parseISO(m.data))+' · '+moneyFmt(m.valor)+(m.descricao?(' ('+esc(m.descricao)+')'):'')).join('<br>')+'</div>'):'';
-    return `<div class="row" style="flex-wrap:wrap"><div class="main"><div class="t">${esc(f.nome)}${f.funcao?` · <span style="color:var(--muted)">${esc(f.funcao)}</span>`:''}</div>
-      <div class="s">Salário ${moneyFmt(sal)} · adiantado ${moneyFmt(adiado)}</div>${det}</div>
-      <div class="acts"><span class="valor-tag" style="color:${rest>=0?'var(--green)':'var(--red)'}"><b>${moneyFmt(rest)}</b></span>
-        <button class="btn sm ghost" onclick='adiantamentoFuncModal("${f.id}")'>+ Adiantamento</button></div></div>`;
-  }).join('');
+    const sub = socio ? (sal>0?('Pró-labore '+moneyFmt(sal)+' · retirado '+moneyFmt(adiado)):('Retiradas no mês: '+moneyFmt(adiado))) : ('Salário '+moneyFmt(sal)+' · adiantado '+moneyFmt(adiado));
+    return `<div class="row" style="flex-wrap:wrap"><div class="main"><div class="t">${esc(f.nome)}${socio?' <span class="badge rev">gestor</span>':''}${f.funcao?` · <span style="color:var(--muted)">${esc(f.funcao)}</span>`:''}</div>
+      <div class="s">${sub}</div>${det}</div>
+      <div class="acts">${(!socio||sal>0)?`<span class="valor-tag" style="color:${rest>=0?'var(--green)':'var(--red)'}"><b>${moneyFmt(rest)}</b></span>`:''}
+        <button class="btn sm ghost" onclick='adiantamentoFuncModal("${f.id}")'>+ ${socio?'Retirada':'Adiantamento'}</button></div></div>`;
+  };
+  const linhas=funcs.map(f=>{ const adis=adiantamentosFunc(f.id,comp); const adiado=adis.reduce((s,m)=>s+(Number(m.valor)||0),0);
+    const sal=Number(f.salario||0); totSal+=sal; totAdi+=adiado; totRest+=(sal-adiado); return linhaFunc(f,false); }).join('');
+  let totSoc=0; const linhasSoc=socios.map(f=>{ totSoc+=adiantamentosFunc(f.id,comp).reduce((s,m)=>s+(Number(m.valor)||0),0); return linhaFunc(f,true); }).join('');
   box.innerHTML=`<div class="section-label"><span>Folha — pagamento do dia 8</span></div>
     <div class="field"><label>Competência (pagamento no dia 8 de)</label><div class="dt-wrap"><input id="folhaMes" type="month" value="${comp}" onchange="folhaMudarMes()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('folhaMes')">📅</button></div></div>
     <div class="hint">Regra: adiantamentos <b>antes do dia 8</b> entram no pagamento do dia 8 <b>deste mês</b>; adiantamentos <b>do dia 8 em diante</b> entram no pagamento do <b>mês seguinte</b>. Cadastre o salário de cada um em <b>Funcionários</b>.</div>
@@ -2872,7 +2879,10 @@ function renderFolha(){
         <div class="fin-kv"><span>Total de salários</span><b>${moneyFmt(totSal)}</b></div>
         <div class="fin-kv" style="color:var(--amber)"><span>Total já adiantado</span><b>${moneyFmt(totAdi)}</b></div>
         <div class="fin-kv" style="border-top:1px solid var(--line2);margin-top:6px;padding-top:6px"><span><b>A pagar no dia 8 (${nomeMesComp(comp)})</b></span><b style="color:var(--green)">${moneyFmt(totRest)}</b></div></div>`
-      :'<div class="note empty-note" style="margin-top:10px">Nenhum funcionário com salário cadastrado. Vá em <b>Funcionários</b> e informe o salário fixo.</div>'}`;
+      :'<div class="note empty-note" style="margin-top:10px">Nenhum funcionário com salário cadastrado. Vá em <b>Funcionários</b> e informe o salário fixo.</div>'}
+    ${(soAdmin&&socios.length)?`<div class="section-label" style="margin-top:16px"><span>🔒 Sócios / gestores (só você vê)</span></div>
+      <div class="rows">${linhasSoc}</div>
+      <div class="panel" style="margin-top:10px"><div class="fin-kv"><span><b>Total retirado pelos sócios (${nomeMesComp(comp)})</b></span><b style="color:var(--amber)">${moneyFmt(totSoc)}</b></div></div>`:''}`;
 }
 function adiantamentoFuncModal(fid){ const f=(state.mecanicos||[]).find(x=>x.id===fid); if(!f) return;
   openModal(`<h3>Adiantamento — ${esc(f.nome)}</h3><p class="sub">Sai do caixa e abate do salário do dia 8 (pela regra da data).</p>
@@ -2909,13 +2919,15 @@ function renderMecanicos(){
     <div class="hint">Cada mecânico recebe uma porcentagem da mão de obra (padrão 50%). Eles aparecem no lançamento da OS e no relatório financeiro.</div>
     <div class="rows">${rows||emptyState('Nenhum mecânico cadastrado','')}</div>`;
 }
-function editMecanico(id){ const m=id?(state.mecanicos.find(x=>x.id===id)||{}):{nome:'',percentual:50,telefone:'',salario:0,funcao:''};
+function editMecanico(id){ const m=id?(state.mecanicos.find(x=>x.id===id)||{}):{nome:'',percentual:50,telefone:'',salario:0,funcao:'',socio:''};
+  const isSocio=(m.socio==='1'||m.socio===1||m.socio===true);
   openModal(`<h3>${id?'Editar funcionário':'Novo funcionário'}</h3>
     <div class="grid2"><div class="field"><label>Nome</label><input id="mNome" value="${esc(m.nome||'')}" placeholder="Nome"></div>
       <div class="field"><label>Função</label><input id="mFuncao" value="${esc(m.funcao||'')}" placeholder="Mecânico, Secretária…"></div></div>
     <div class="grid2"><div class="field"><label>% da mão de obra</label><input id="mPerc" inputmode="numeric" value="${m.percentual!=null?m.percentual:50}" placeholder="50"></div>
       <div class="field"><label>Telefone (WhatsApp)</label><input id="mTel" inputmode="tel" value="${esc(m.telefone||'')}" placeholder="62 99999-8888"></div></div>
     <div class="field"><label>Salário fixo mensal (R$)</label><input id="mSalario" inputmode="decimal" value="${m.salario?String(m.salario).replace('.',','):''}" placeholder="0,00"></div>
+    <label class="check-row" style="display:flex;align-items:center;gap:9px;background:var(--bg2);border:1px solid var(--line2);border-radius:11px;padding:11px 13px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="mSocio" ${isSocio?'checked':''} style="width:18px;height:18px"><span><b>Sócio / gestor</b><br><span style="color:var(--muted);font-size:12px">A folha e as saídas desta pessoa ficam visíveis só para o gestor (admin) — o administrativo não vê.</span></span></label>
     <div class="hint">O % é para quem ganha por mão de obra. O salário fixo entra na Folha (os adiantamentos abatem do pagamento do dia 8). Pode ter os dois, um só, ou nenhum.</div>
     <div class="form-actions"><button class="btn gold" onclick='salvarMecanico(${id?`"${id}"`:'null'})'>Salvar</button>
       ${id?`<button class="btn danger" onclick='excluirMecanico("${id}")'>Excluir</button>`:''}
@@ -2923,8 +2935,9 @@ function editMecanico(id){ const m=id?(state.mecanicos.find(x=>x.id===id)||{}):{
 }
 function salvarMecanico(id){ const nome=tc(val('mNome').trim()); if(!nome){ toast('Informe o nome'); return; }
   const perc=Math.max(0,Math.min(100,num('mPerc')||0)); const telefone=val('mTel').trim(); const salario=moneyParse(val('mSalario'))||0; const funcao=tc(val('mFuncao').trim());
-  if(id){ Object.assign(state.mecanicos.find(x=>x.id===id),{nome,percentual:perc,telefone,salario,funcao,atualizado:Date.now()}); }
-  else state.mecanicos.push({id:uid(),nome,percentual:perc,telefone,salario,funcao,ativo:1,criado:Date.now()});
+  const socio=(document.getElementById('mSocio')&&document.getElementById('mSocio').checked)?'1':'';
+  if(id){ Object.assign(state.mecanicos.find(x=>x.id===id),{nome,percentual:perc,telefone,salario,funcao,socio,atualizado:Date.now()}); }
+  else state.mecanicos.push({id:uid(),nome,percentual:perc,telefone,salario,funcao,socio,ativo:1,criado:Date.now()});
   salvar(); closeModal(); renderMecanicos(); toast('Funcionário salvo'); }
 function toggleMecanico(id){ const m=state.mecanicos.find(x=>x.id===id); if(!m) return; m.ativo=(m.ativo!==0&&m.ativo!==false)?0:1; m.atualizado=Date.now(); salvar(); renderMecanicos(); }
 function excluirMecanico(id){ confirmar('Excluir este mecânico? As OS antigas mantêm o registro do serviço.', function(){ state.mecanicos=state.mecanicos.filter(x=>x.id!==id); salvar(); closeModal(); renderMecanicos(); }); }
