@@ -2852,7 +2852,7 @@ function folhaMudarMes(){ const v=val('folhaMes'); if(v) folhaComp=v; renderFolh
 function renderFolha(){
   const box=document.getElementById('folhaBox'); if(!box) return;
   if(!ehAdmin()){ box.innerHTML='<div class="note empty-note">Somente o gestor geral.</div>'; return; }
-  if(!folhaComp) folhaComp=compAtual();
+  if(!folhaComp) folhaComp=competenciaDe(toISO(hoje()));
   const comp=folhaComp;
   const funcs=(state.mecanicos||[]).filter(f=>Number(f.salario||0)>0);
   let totSal=0, totAdi=0, totRest=0;
