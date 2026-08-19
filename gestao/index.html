@@ -471,6 +471,11 @@
     <div id="servicosBox"></div>
   </section>
 
+  <section class="screen" data-screen="boletos">
+    <div class="view-head"><div><h2>Boletos a receber</h2><p>Acompanhe e confirme os pagamentos</p></div></div>
+    <div id="boletosBox"></div>
+  </section>
+
   <!-- DETALHE: CLIENTE -->
   <section class="screen" data-screen="cliente">
     <button class="back" onclick="back()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>Voltar</button>
@@ -791,14 +796,14 @@ const VIEWS=[
 ];
 const TABS=['painel','ordens','clientes','financeiro','mais'];
 let histStack=[{screen:'painel',param:null}];
-function telaPai(name){ if(['veiculos','regras','equipe','config'].includes(name)) return 'mais'; if(name==='servicos') return 'painel'; return name; }
+function telaPai(name){ if(['veiculos','regras','equipe','config','boletos'].includes(name)) return 'mais'; if(name==='servicos') return 'painel'; return name; }
 function showScreen(name){
   document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===name));
   const tabHi = TABS.includes(name)?name:telaPai(name);
   document.querySelectorAll('#topnav button,#tabbar button').forEach(b=>b.classList.toggle('active',b.dataset.go===tabHi));
 }
 const RENDER={painel:renderPainel,clientes:renderClientes,veiculos:renderVeiculos,ordens:renderOrdens,regras:renderRegras,config:carregarConfig,
-  financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos,
+  financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos, boletos:renderBoletosReceber,
   cliente:p=>renderClienteDet(p), veiculo:p=>renderVeiculoDet(p), os:p=>renderOsDet(p)};
 function render(screen,param){ showScreen(screen); window.scrollTo({top:0,behavior:'smooth'}); (RENDER[screen]||(()=>{}))(param); }
 function goTab(name){ histStack=[{screen:name,param:null}]; render(name,null); }
@@ -1690,9 +1695,10 @@ function saldoCaixa(ate){ let s=0; (state.caixa||[]).forEach(m=>{ if(contaMov(m)
 function saldoBanco(ate){ let s=0; (state.caixa||[]).forEach(m=>{ if(contaMov(m)!=='banco') return;
   if(m.tipo==='entrada'){ const d=dispMov(m); if(d&&d<=ate) s+=valorBanco(m); } else if(m.data<=ate){ s-=(Number(m.valor)||0); } }); return s; }
 function aReceberList(ate){ return (state.caixa||[]).filter(m=>m.tipo==='entrada'&&contaMov(m)==='banco').map(m=>({m,disp:dispMov(m)})).filter(x=>!x.disp||x.disp>ate).sort((a,b)=>String(a.disp||a.m.vencimento||'').localeCompare(String(b.disp||b.m.vencimento||''))); }
+function reRenderFin(){ if(document.querySelector('[data-screen="financeiro"].active')) finTab(finAtiva); if(document.querySelector('[data-screen="boletos"].active')) renderBoletosReceber(); }
 function confirmarBoleto(mid){ const m=(state.caixa||[]).find(x=>x.id===mid); if(!m) return;
-  dtPrompt('Data em que o cliente pagou o boleto', toISO(hoje()), function(dataPg){ m.pagamento=dataPg; m.atualizado=Date.now(); salvar(); toast('Boleto confirmado — cai em '+fmtBR(parseISO(addDiasISO(dataPg,3)))); if(document.querySelector('[data-screen="financeiro"].active')) finTab(finAtiva); }); }
-function desfazerBoleto(mid){ const m=(state.caixa||[]).find(x=>x.id===mid); if(!m) return; m.pagamento=''; m.atualizado=Date.now(); salvar(); toast('Pagamento do boleto desfeito'); if(document.querySelector('[data-screen="financeiro"].active')) finTab(finAtiva); }
+  dtPrompt('Data em que o cliente pagou o boleto', toISO(hoje()), function(dataPg){ m.pagamento=dataPg; m.atualizado=Date.now(); salvar(); toast('Boleto confirmado — cai em '+fmtBR(parseISO(addDiasISO(dataPg,3)))); reRenderFin(); }); }
+function desfazerBoleto(mid){ const m=(state.caixa||[]).find(x=>x.id===mid); if(!m) return; m.pagamento=''; m.atualizado=Date.now(); salvar(); toast('Pagamento do boleto desfeito'); reRenderFin(); }
 function dtPrompt(titulo,valorPadrao,onOk){ openModal(`<h3>${titulo}</h3>${dtField('dtpVal','date',valorPadrao||toISO(hoje()),'Data')}
   <div class="form-actions"><button class="btn gold" onclick="dtPromptOk()">Confirmar</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
   dtPromptCb=onOk; }
@@ -2443,10 +2449,12 @@ function renderFinanceiroScreen(){
   finTab(finAtiva);
 }
 function finTab(k){
-  if(!['saldos','caixa','relatorio','folha'].includes(k)) k='saldos';
+  const temSaldos=ehAdmin();
+  const validas = temSaldos?['saldos','caixa','relatorio','folha']:['caixa','relatorio','folha'];
+  if(!validas.includes(k)) k=validas[0];
   finAtiva=k;
   const box=document.getElementById('finTabs');
-  const abas=[['saldos','Saldos'],['caixa','Caixa'],['relatorio','Relatório'],['folha','Folha']];
+  const abas=[]; if(temSaldos) abas.push(['saldos','Saldos']); abas.push(['caixa','Caixa'],['relatorio','Relatório'],['folha','Folha']);
   box.innerHTML=abas.map(([kk,r])=>`<button class="${kk===finAtiva?'on':''}" onclick="finTab('${kk}')">${r}</button>`).join('');
   document.querySelectorAll('[data-screen="financeiro"] .cfg-panel').forEach(p=>p.style.display=p.dataset.fin===k?'':'none');
   if(k==='saldos') renderSaldos();
@@ -2477,6 +2485,10 @@ function renderMais(){
   let h=`<div class="lbl-sec-mais">Cadastros</div>`;
   h+=item('🚗','Veículos','Frota dos clientes',`goTab("veiculos")`);
   h+=item('🗓️','Tabela de Revisões','Prazos de retorno (km/meses)',`goTab("regras")`);
+  if(ehAdmin()||pode('editar')||pode('valores')){
+    h+=`<div class="lbl-sec-mais">Recebimentos</div>`;
+    h+=item('📄','Boletos a receber','Acompanhe e confirme os pagamentos',`goTab("boletos")`);
+  }
   h+=`<div class="lbl-sec-mais">Equipe &amp; Acesso</div>`;
   h+=item('👥','Equipe','Funcionários e comissões'+(ehAdmin()?' · acessos':''),`goTab("equipe")`);
   h+=item('📱','Área do Cliente','Convites e acessos dos clientes',`abrirAreaClienteInfo()`);
@@ -2646,6 +2658,20 @@ function renderSaldos(){
     ${rec.length?cards:emptyState('Nada a receber','Tudo já caiu até essa data.')}
     ${rec.length?`<div class="totline"><span>Total a receber</span><b style="color:var(--amber)">${moneyFmt(totalRec)}</b></div>`:''}
     <div class="totline" style="margin-top:6px"><span><b>Saldo previsto</b> (caixa + banco + a receber)</span><b style="color:var(--gold)">${moneyFmt(sc+sb+totalRec)}</b></div>`;
+}
+function renderBoletosReceber(){
+  const box=document.getElementById('boletosBox'); if(!box) return;
+  if(!ehAdmin()&&!pode('editar')&&!pode('valores')){ box.innerHTML='<div class="note empty-note">Você não tem permissão para ver os boletos.</div>'; return; }
+  const hojeI=toISO(hoje());
+  const bol=(state.caixa||[]).filter(m=>m.tipo==='entrada'&&m.forma==='boleto'&&!m.pagamento).sort((a,b)=>String(a.vencimento||'').localeCompare(String(b.vencimento||'')));
+  const total=bol.reduce((s,m)=>s+(Number(m.valor)||0),0);
+  const cards=bol.map(m=>{ const o=m.ordem_id?getOS(m.ordem_id):null; const v=o?getVeiculo(o.veiculo_id):null; const c=v?getCliente(v.cliente_id):null;
+    const venc=m.vencimento; const atrasado=venc&&venc<hojeI;
+    return `<div class="card"><div class="row"><div><div class="t">📄 ${esc((c&&c.nome)||m.descricao||'Boleto')}</div><div class="s">${v?esc(nomeVeiculo(v))+' · ':''}${venc?('vence '+fmtBR(parseISO(venc))):'sem vencimento'}${atrasado?' · <b style="color:var(--red)">vencido</b>':''}</div></div><span class="valor-tag" style="color:var(--amber)">${moneyFmt(Number(m.valor)||0)}</span></div>
+      <div class="form-actions" style="margin-top:8px"><button class="btn sm green" onclick='confirmarBoleto("${m.id}")'>✓ Confirmar pagamento</button>${o?`<button class="btn sm ghost" onclick='go("os","${m.ordem_id}")'>Ver OS</button>`:''}</div></div>`; }).join('');
+  box.innerHTML=`<div class="hint" style="margin:2px 2px 12px">Boletos que os clientes ainda não pagaram. Ao confirmar o pagamento, o valor cai no banco em 3 dias.</div>
+    ${bol.length?cards:emptyState('Nenhum boleto a receber','Tudo em dia por aqui. 👍')}
+    ${bol.length?`<div class="totline"><span><b>Total a receber em boletos</b></span><b style="color:var(--amber)">${moneyFmt(total)}</b></div>`:''}`;
 }
 function renderCaixa(){
   const box=document.getElementById('caixaBox'); if(!box) return;
