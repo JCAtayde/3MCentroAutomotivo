@@ -1402,7 +1402,7 @@ function renderOrdens(){
   const box=document.getElementById('listaOrdens');
   const q=((document.getElementById('buscaOS')||{}).value||'').trim().toLowerCase();
   const segBox=document.getElementById('osFiltro');
-  const mid=souMecanico();
+  const mid=ehMecanico()?souMecanico():'';
   const base = mid ? state.ordens.filter(o=>osDoMecanico(o,mid)) : state.ordens;
   const cont={agendamento:0,aguardando:0,andamento:0,liberado:0,executado:0,rejeitado:0}; base.forEach(o=>{ const s=osStatus(o); if(cont[s]!=null) cont[s]++; });
   if(segBox){ let abas=[['agendamento','Agenda',cont.agendamento],['aguardando','Aguardando',cont.aguardando],['andamento','Em andamento',cont.andamento],['liberado','Carro liberado',cont.liberado],['executado','Executados',cont.executado],['rejeitado','Rejeitados',cont.rejeitado]];
@@ -1426,7 +1426,7 @@ function renderOrdens(){
 function renderOsDet(id){
   const o=getOS(id); const box=document.getElementById('osDet');
   if(!o){ box.innerHTML=emptyState('Ordem não encontrada',''); return; }
-  const mid=souMecanico(); if(mid) return renderOsDetMecanico(o,mid);
+  const mid=ehMecanico()?souMecanico():''; if(mid) return renderOsDetMecanico(o,mid);
   const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const st=osStatus(o);
   const mecResp=(state.mecanicos||[]).find(x=>x.id===o.mecanico_id);
   const stBadge=`<span class="badge" style="border-color:${faseCor(st)};color:${faseCor(st)}">${faseLabel(st)}</span>`;
