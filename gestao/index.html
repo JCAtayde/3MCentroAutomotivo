@@ -835,10 +835,11 @@ function montarNav(){
   atualizarRegrasList();
 }
 function souMecanico(){ return usuarioAtual ? (usuarioAtual.mecanico_id||'') : ''; }
+function modoMecRestrito(v){ if(v===false||v===0) return false; if(v==null) return true;
+  const s=String(v).trim().toLowerCase(); if(s===''||s==='1'||s==='1.0'||s==='true'||s==='sim') return true;
+  if(s==='0'||s==='0.0'||s==='false'||s==='nao'||s==='não'||s==='off'||Number(s)===0) return false; return true; }
 function ehMecanico(){ if(!usuarioAtual) return false; if(usuarioAtual.papel==='admin') return false; if(!usuarioAtual.mecanico_id) return false;
-  const v=usuarioAtual.modo_mec;
-  if(v===false||v===0||v==='0'||v==='false'||v==='nao'||v==='não') return false; // acesso completo
-  return true; }
+  return modoMecRestrito(usuarioAtual.modo_mec); }
 function garantirRegras(){ if(!state.regras || !state.regras.length){ state.regras=REGRAS_PADRAO.map(r=>({...r})); if(typeof lastSnapshot!=='undefined'&&lastSnapshot) lastSnapshot.regras=state.regras.map(r=>({...r})); cacheSave(); } }
 function catalogoOS(){ const serv=state.regras.map(r=>({nome:r.nome,preco:r.preco||null})); const pec=(state.pecas||[]).map(p=>({nome:p.nome,preco:p.preco||0})); return [...pec,...serv]; }
 function atualizarRegrasList(){ const dl=document.getElementById('regrasList'); if(dl) dl.innerHTML=catalogoOS().map(r=>`<option value="${esc(r.nome)}">`).join(''); }
@@ -3215,7 +3216,7 @@ async function salvarNovoUsuario(){
   if(!nome||!login||!senha){ toast('Preencha nome, login e senha'); return; }
   if(usuarioPorLogin(login)){ toast('Esse login já existe'); return; }
   const salt=randSalt(), hash=await hashSenha(senha,salt); const mecId=val('nuMec')||'';
-  state.usuarios.push({id:uid(),nome,login,email:val('nuEmail').trim(),senha_hash:hash,salt,status:'ativo',papel:val('nuPapel'),perms:permsPadrao(),reset:'',mecanico_id:mecId,modo_mec:!!mecId,criado:Date.now()});
+  state.usuarios.push({id:uid(),nome,login,email:val('nuEmail').trim(),senha_hash:hash,salt,status:'ativo',papel:val('nuPapel'),perms:permsPadrao(),reset:'',mecanico_id:mecId,modo_mec:(mecId?'1':'0'),criado:Date.now()});
   salvar(); closeModal(); renderUsuariosAdmin(); toast('Usuário cadastrado');
 }
 function adminPermissoes(id){
@@ -3234,11 +3235,11 @@ function salvarPermissoes(id){
 function adminVincularMec(id){ const u=getUsuario(id); if(!u) return;
   openModal(`<h3>Mecânico / comissão — ${esc(u.nome)}</h3><p class="sub">Vincule para a comissão de mão de obra dele ser calculada. O "modo mecânico" (visão simplificada) é opcional.</p>
     <div class="field"><label>Mecânico (para comissão)</label><select id="vmMec"><option value="">— não é mecânico —</option>${mecanicosAtivos().map(m=>`<option value="${m.id}" ${u.mecanico_id===m.id?'selected':''}>${esc(m.nome)}</option>`).join('')}</select></div>
-    <label class="ent-row ${u.modo_mec!==false&&u.modo_mec!=='nao'?'on':''}" style="grid-template-columns:22px 1fr" data-mm><input type="checkbox" id="vmModo" ${u.modo_mec!==false&&u.modo_mec!=='nao'?'checked':''} onchange="this.closest('.ent-row').classList.toggle('on',this.checked)"><span class="en">Modo mecânico simplificado (vê só as OS dele, sem valores). <b>Desmarque</b> se ele também é gestor/atendente e precisa do acesso completo.</span></label>
+    <label class="ent-row ${modoMecRestrito(u.modo_mec)?'on':''}" style="grid-template-columns:22px 1fr" data-mm><input type="checkbox" id="vmModo" ${modoMecRestrito(u.modo_mec)?'checked':''} onchange="this.closest('.ent-row').classList.toggle('on',this.checked)"><span class="en">Modo mecânico simplificado (vê só as OS dele, sem valores). <b>Desmarque</b> se ele também é gestor/atendente e precisa do acesso completo.</span></label>
     <div class="hint">Se desmarcar, o acesso dele passa a seguir as <b>Permissões</b> normais (botão Permissões), mesmo sendo mecânico.</div>
     <div class="form-actions"><button class="btn gold" onclick='salvarVincMec("${id}")'>Salvar</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
-function salvarVincMec(id){ const u=getUsuario(id); if(!u) return; const mid=val('vmMec')||''; const modo=document.getElementById('vmModo'); u.mecanico_id=mid; u.modo_mec = mid ? (modo && modo.checked) : false; u.atualizado=Date.now();
+function salvarVincMec(id){ const u=getUsuario(id); if(!u) return; const mid=val('vmMec')||''; const modo=document.getElementById('vmModo'); u.mecanico_id=mid; u.modo_mec = mid ? ((modo && modo.checked)?'1':'0') : '0'; u.atualizado=Date.now();
   salvar(); closeModal(); renderUsuariosAdmin(); if(usuarioAtual&&usuarioAtual.id===id) aplicarPermissoesUI(); toast('Vínculo atualizado'); }
 async function adminRedefinirSenha(id){
   const u=getUsuario(id); if(!u) return;
