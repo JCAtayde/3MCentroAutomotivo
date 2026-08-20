@@ -840,6 +840,7 @@ function modoMecRestrito(v){ if(v===false||v===0) return false; if(v==null) retu
   if(s==='0'||s==='0.0'||s==='false'||s==='nao'||s==='não'||s==='off'||Number(s)===0) return false; return true; }
 function ehMecanico(){ if(!usuarioAtual) return false; if(usuarioAtual.papel==='admin') return false; if(!usuarioAtual.mecanico_id) return false;
   return modoMecRestrito(usuarioAtual.modo_mec); }
+function ehGestor(){ if(ehAdmin()) return true; const mid=usuarioAtual&&usuarioAtual.mecanico_id; if(!mid) return false; return ehSocioFunc((state.mecanicos||[]).find(x=>x.id===mid)); }
 function garantirRegras(){ if(!state.regras || !state.regras.length){ state.regras=REGRAS_PADRAO.map(r=>({...r})); if(typeof lastSnapshot!=='undefined'&&lastSnapshot) lastSnapshot.regras=state.regras.map(r=>({...r})); cacheSave(); } }
 function catalogoOS(){ const serv=state.regras.map(r=>({nome:r.nome,preco:r.preco||null})); const pec=(state.pecas||[]).map(p=>({nome:p.nome,preco:p.preco||0})); return [...pec,...serv]; }
 function atualizarRegrasList(){ const dl=document.getElementById('regrasList'); if(dl) dl.innerHTML=catalogoOS().map(r=>`<option value="${esc(r.nome)}">`).join(''); }
@@ -2546,7 +2547,7 @@ function renderFinanceiroScreen(){
   finTab(finAtiva);
 }
 function finTab(k){
-  const temSaldos=ehAdmin();
+  const temSaldos=ehGestor();
   const validas = temSaldos?['saldos','caixa','relatorio','folha']:['caixa','relatorio','folha'];
   if(!validas.includes(k)) k=validas[0];
   finAtiva=k;
@@ -2909,7 +2910,7 @@ function renderFolha(){
   if(!ehAdmin()&&!pode('valores')){ box.innerHTML='<div class="note empty-note">Você não tem permissão para ver a folha.</div>'; return; }
   if(!folhaComp) folhaComp=competenciaDe(toISO(hoje()));
   const comp=folhaComp;
-  const soAdmin=ehAdmin();
+  const soAdmin=ehGestor();
   const funcs=(state.mecanicos||[]).filter(f=>Number(f.salario||0)>0 && !ehSocioFunc(f));
   const socios= soAdmin ? (state.mecanicos||[]).filter(f=>ehSocioFunc(f)) : [];
   let totSal=0, totAdi=0, totRest=0;
