@@ -1598,10 +1598,16 @@ function removerMidia(oid,key){ confirmar('Remover esta mídia?', function(){
   fetch('/gestao/api/midia/'+key,{method:'DELETE'}).catch(function(){});
   toast('Mídia removida'); }); }
 
+function osEhLojista(o){ const v=getVeiculo(o.veiculo_id); if(!v) return null; const c=getCliente(v.cliente_id); return (c&&ehRevenda(c))?c:null; }
+function entregarLojista(oid){ const o=getOS(oid); if(!o) return; const c=osEhLojista(o); const nome=c?c.nome:'';
+  confirmar('Entregar o carro e lançar na conta do lojista'+(nome?(' ('+nome+')'):'')+'?\n\nA OS sai das ordens abertas (vai para Executados) e o valor fica registrado como "a receber" na Conta do lojista, para o fechamento do mês.', function(){
+    o.status='executado'; if(!o.data) o.data=toISO(hoje()); o.atualizado=Date.now(); osFiltroStatus='executado'; salvar(); renderOsDet(oid);
+    toast('Entregue ✓ — lançado na conta do lojista'); }, 'Entregar', 'green'); }
 function acoesFase(o,st){
+  const loj=osEhLojista(o);
   if(st==='aguardando') return `<button class="btn sm green" onclick='aprovarOrcamento("${o.id}")'>✓ Aprovado</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>✕ Rejeitar</button>`;
-  if(st==='andamento') return `<button class="btn sm green" onclick='liberarCarro("${o.id}")'>🚗 Liberar carro</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>Rejeitar</button>`;
-  if(st==='liberado') return `${pode('valores')?`<button class="btn sm green" onclick='finalizarOS("${o.id}")'>💵 Receber / Finalizar</button>`:''}${ehAdmin()?`<button class="btn sm ghost" onclick='voltarAndamento("${o.id}")'>Voltar p/ andamento</button>`:''}`;
+  if(st==='andamento') return `${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Entregar (conta do lojista)</button>`:''}<button class="btn sm ${loj?'ghost':'green'}" onclick='liberarCarro("${o.id}")'>🚗 Liberar carro</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>Rejeitar</button>`;
+  if(st==='liberado') return `${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Lançar na conta do lojista</button>`:''}${pode('valores')?`<button class="btn sm ${loj?'ghost':'green'}" onclick='finalizarOS("${o.id}")'>💵 Receber / Finalizar</button>`:''}${ehAdmin()?`<button class="btn sm ghost" onclick='voltarAndamento("${o.id}")'>Voltar p/ andamento</button>`:''}`;
   if(st==='executado') return `<span class="cx-mini">Finalizada</span>${pode('editar')?` <button class="btn sm ghost" onclick='abrirRetorno("${o.id}")'>🔁 Abrir retorno (garantia)</button>`:''}${ehAdmin()?` <button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir</button>`:''}`;
   if(st==='rejeitado') return ehAdmin()?`<button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir orçamento</button>`:`<span class="cx-mini">Orçamento não aprovado</span>`;
   return '';
@@ -1785,7 +1791,7 @@ function pagamentoModal(oid,modo){ const o=getOS(oid); if(!o) return; if(!pode('
     ${modo==='final'?`<div class="form-actions" style="margin-top:0;margin-bottom:4px"><button class="btn sm ghost" onclick='closeModal(); descontoModal("${oid}")'>− Aplicar desconto</button></div>`:`<div class="hint" style="margin-top:0">Valor adiantado pelo cliente (ex.: para compra de peças). O restante continua em aberto.</div>`}
     <div class="grid2">${dtField('pgData','date',toISO(hoje()),'Data')}
       <div class="field"><label>Valor</label><input id="pgValor" inputmode="decimal" value="${valPad>0?String(valPad.toFixed(2)).replace('.',','):''}" placeholder="0,00" oninput="pgCalc()"></div></div>
-    <div class="field"><label>Forma de pagamento</label><select id="pgForma" onchange="pgToggle()">${FORMAS.map(f=>`<option value="${f[0]}">${f[1]}</option>`).join('')}</select></div>
+    <div class="field"><label>Forma de pagamento</label><select id="pgForma" onchange="pgToggle()"><option value="" selected>— selecione a forma —</option>${FORMAS.map(f=>`<option value="${f[0]}">${f[1]}</option>`).join('')}</select></div>
     <div id="pgCartao" style="display:none">
       <div class="field"><label>Tipo do cartão</label><select id="pgCartaoTipo" onchange="pgToggle()">
         <option value="debito">Débito</option><option value="credito">Crédito à vista</option><option value="parcelado">Parcelado</option></select></div>
@@ -1799,7 +1805,7 @@ function pagamentoModal(oid,modo){ const o=getOS(oid); if(!o) return; if(!pode('
       <div id="pgBolLista"></div>
       <div class="hint" style="margin-bottom:0">Digite um valor numa parcela para fixá-lo; o restante é redividido automaticamente nas outras. O boleto vira saldo no banco quando você confirmar o pagamento (aba Saldos).</div></div>
     ${modo==='final'?`<div class="hint">A OS só vai para <b>Executado</b> quando <b>não houver valor em aberto</b>. Se ainda faltar, o recebimento é registrado e a OS continua em "Carro liberado".</div>`:`<div class="hint">Recebimento parcial: o restante continua em aberto.</div>`}
-    <div class="form-actions"><button class="btn green" onclick='salvarPagamento("${oid}","${modo}")'>${modo==='final'?'Receber / Finalizar':'Registrar adiantamento'}</button>
+    <div class="form-actions"><button id="pgBtn" class="btn green" disabled style="opacity:.5" onclick='salvarPagamento("${oid}","${modo}")'>${modo==='final'?'Receber / Finalizar':'Registrar adiantamento'}</button>
       <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
   pgToggle();
 }
@@ -1807,7 +1813,9 @@ function pgToggle(){ const f=val('pgForma'); const w=document.getElementById('pg
   const wb=document.getElementById('pgBoleto'); if(wb) wb.style.display=f==='boleto'?'':'none';
   const pw=document.getElementById('pgParcWrap'); if(pw) pw.style.display=(f==='cartao'&&val('pgCartaoTipo')==='parcelado')?'':'none';
   if(f==='cartao'){ const liq=document.getElementById('pgLiquido'); if(liq && !liq.value.trim()) liq.value=val('pgValor'); }
-  if(f==='boleto'){ pgBolRebuild(); } pgCalc(); }
+  if(f==='boleto'){ pgBolRebuild(); }
+  const btn=document.getElementById('pgBtn'); if(btn){ btn.disabled=!f; btn.style.opacity=f?'1':'.5'; }
+  pgCalc(); }
 function pgCalc(){ const v=moneyParse(val('pgValor')); const liqRaw=val('pgLiquido'); const liq=liqRaw.trim()?moneyParse(liqRaw):v; const taxa=Math.max(0,v-liq);
   const el=document.getElementById('pgTaxaInfo'); if(el) el.innerHTML=`Taxa (desconto do cartão): <b>${moneyFmt(taxa)}</b> · Você recebe <b>${moneyFmt(Math.min(v,liq))}</b>`;
   const fb=document.getElementById('pgBoleto'); if(fb && fb.style.display!=='none') pgBolRebuild(); }
@@ -1829,6 +1837,7 @@ function pgBolRender(){ const box=document.getElementById('pgBolLista'); if(!box
     +`<div class="totline"><span>Total das parcelas</span><b style="color:${Math.abs(soma-moneyParse(val('pgValor')))<0.01?'var(--green)':'var(--amber)'}">${moneyFmt(soma)}</b></div>`; }
 function pgBolManual(i,v){ if(!pgBolParc[i]) return; pgBolParc[i].valor=moneyParse(v); pgBolParc[i].manual=true; pgBolRebuild(); }
 function salvarPagamento(oid,modo){ const o=getOS(oid); if(!o) return; const forma=val('pgForma'); const valor=moneyParse(val('pgValor'));
+  if(!forma){ toast('Escolha a forma de pagamento'); return; }
   const liq=forma==='cartao'?(val('pgLiquido').trim()?moneyParse(val('pgLiquido')):valor):valor; const taxa=forma==='cartao'?Math.max(0,valor-liq):0;
   const cartaoTipo=forma==='cartao'?val('pgCartaoTipo'):''; const parcelas=(forma==='cartao'&&cartaoTipo==='parcelado')?(parseInt(val('pgParc'))||2):1; const data=val('pgData')||toISO(hoje());
   const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const nomeCli=(c?c.nome:'')+(v?(' — '+nomeVeiculo(v)):'');
