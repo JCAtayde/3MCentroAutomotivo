@@ -758,6 +758,7 @@ function ordensDe(vid){ return state.ordens.filter(o=>o.veiculo_id===vid).sort((
 function nomeVeiculo(v){ return (v.modelo||'Veículo')+(v.ano?(' '+v.ano):''); }
 function pecasTotal(o){ return (o.itens||[]).reduce((s,i)=>s+(Number(i.valor)||0)*(Number(i.qtde)||1),0); }
 function pecasCusto(o){ return (o.itens||[]).reduce((s,i)=>s+(Number(i.custo)||0)*(Number(i.qtde)||1),0); }
+function markupPecasOS(o){ const c=pecasCusto(o); const v=pecasTotal(o); return c>0?Math.round(((v-c)/c)*100):0; }
 function osLucro(o){ return osTotal(o)-pecasCusto(o); }
 function osLucroPct(o){ const t=osTotal(o); return t>0?Math.round((osLucro(o)/t)*100):0; }
 function itemLucro(i){ return ((Number(i.valor)||0)-(Number(i.custo)||0))*(Number(i.qtde)||1); }
@@ -1532,13 +1533,13 @@ function renderOsDet(id){
   corpo += `
     ${podeMidiaEntrada()?blocoMidias(o,'entrada',podeAddEntrada(o)):''}
     ${podeMidiaProblemas()?blocoMidias(o,'defeito',podeAddDefeito(o)):''}
-    ${(o.itens||[]).length?`<div class="section-label">Peças / produtos</div><div class="rows">${o.itens.map(linhaPeca).join('')}</div>`:''}
+    ${((o.itens||[]).length||editavel)?`<div class="section-label"><span>Peças / produtos</span>${editavel?`<button class="btn sm gold" onclick='openOS("${o.id}")'>➕ Adicionar peça</button>`:''}</div>${(o.itens||[]).length?`<div class="rows">${o.itens.map(linhaPeca).join('')}</div>`:'<div class="note empty-note" style="margin:0">Nenhuma peça lançada ainda. Toque em <b>➕ Adicionar peça</b>.</div>'}`:''}
     ${(o.maodeobra&&o.maodeobra.length)?`<div class="section-label">Mão de obra</div><div class="rows">${o.maodeobra.map(m=>{ const mec=(state.mecanicos||[]).find(x=>x.id===m.mecanico_id);
-      return `<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div><div class="s">${mec?('👨‍🔧 '+esc(mec.nome)):'<span style=\"color:var(--amber)\">sem mecânico</span>'}</div></div><span class="valor-tag">${moneyFmt(m.valor)}</span></div>`; }).join('')}</div>`:''}
+      return `<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div><div class="s">${mec?('👨‍🔧 '+esc(mec.nome)):'<span style=\"color:var(--amber)\">sem mecânico</span>'}</div></div><span class="valor-tag">${moneyFmt(m.valor)}</span></div>`; }).join('')}</div>`:(editavel?`<div class="section-label"><span>Mão de obra</span><button class="btn sm ghost" onclick='openOS("${o.id}")'>➕ Adicionar</button></div>`:'')}
     <div class="os-total" style="margin-top:12px"><span class="l">Valor de peças</span><span class="v">${moneyFmt(pecasTotal(o))}</span></div>
     <div class="os-total"><span class="l">Valor de mão de obra</span><span class="v">${moneyFmt(osMdoTotal(o))}</span></div>
     <div class="os-total" style="border-top:1px solid var(--line2);margin-top:2px;padding-top:8px"><span class="l"><b>Valor total</b></span><span class="v"><b>${moneyFmt(osTotal(o))}</b></span></div>
-    ${pode('valores')?`<div class="os-lucro-panel"><div class="lp-h">🔒 Visão interna — o cliente não vê isto</div><div class="lp-row"><span>Custo das peças</span><span>${moneyFmt(pecasCusto(o))}</span></div><div class="lp-row"><span><b>Lucro da OS</b> (venda − custo das peças)</span><span class="lp-big">${moneyFmt(osLucro(o))}</span></div><div class="lp-row" style="color:var(--muted)"><span>Margem sobre a venda</span><span>${osLucroPct(o)}%</span></div></div>`:''}`;
+    ${pode('valores')?`<div class="os-lucro-panel"><div class="lp-h">🔒 Visão interna — o cliente não vê isto</div><div class="lp-row"><span>Custo das peças</span><span>${moneyFmt(pecasCusto(o))}</span></div><div class="lp-row"><span><b>Lucro da OS</b> (venda − custo das peças)</span><span class="lp-big">${moneyFmt(osLucro(o))}</span></div><div class="lp-row" style="color:var(--muted)"><span>Ganho sobre o custo das peças</span><span>${pecasCusto(o)>0?markupPecasOS(o)+'%':'—'}</span></div></div>`:''}`;
 
   // Orçamento: imprimir/baixar/enviar (aguardando/andamento/executado)
   if(v){ corpo+=`<div class="form-actions" style="margin-top:10px">
@@ -1676,8 +1677,8 @@ function entregarLojista(oid){ const o=getOS(oid); if(!o) return; const c=osEhLo
     toast('Entregue ✓ — lançado na conta do lojista'); }, 'Entregar', 'green'); }
 function acoesFase(o,st){
   const loj=osEhLojista(o);
-  if(st==='aguardando') return `<button class="btn sm green" onclick='aprovarOrcamento("${o.id}")'>✓ Aprovado</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>✕ Rejeitar</button>`;
-  if(st==='andamento') return `${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Entregar (conta do lojista)</button>`:''}${podeLiberar()?`<button class="btn sm ${loj?'ghost':'green'}" onclick='liberarCarro("${o.id}")'>🚗 Liberar carro</button>`:''}<button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>Rejeitar</button>`;
+  if(st==='aguardando') return `<button class="btn sm green" onclick='aprovarOrcamento("${o.id}")'>✓ Aprovado</button><button class="btn sm ghost" onclick='reagendarOS("${o.id}")'>📅 Reagendar</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>✕ Rejeitar</button>`;
+  if(st==='andamento') return `${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Entregar (conta do lojista)</button>`:''}${podeLiberar()?`<button class="btn sm ${loj?'ghost':'green'}" onclick='liberarCarro("${o.id}")'>🚗 Liberar carro</button>`:''}<button class="btn sm ghost" onclick='reagendarOS("${o.id}")'>📅 Reagendar</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>Rejeitar</button>`;
   if(st==='liberado') return `${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Lançar na conta do lojista</button>`:''}${podeReceber()?`<button class="btn sm ${loj?'ghost':'green'}" onclick='finalizarOS("${o.id}")'>💵 Receber / Finalizar</button>`:''}${ehAdmin()?`<button class="btn sm ghost" onclick='voltarAndamento("${o.id}")'>Voltar p/ andamento</button>`:''}`;
   if(st==='executado') return `<span class="cx-mini">Finalizada</span>${pode('editar')?` <button class="btn sm ghost" onclick='abrirRetorno("${o.id}")'>🔁 Abrir retorno (garantia)</button>`:''}${ehAdmin()?` <button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir</button>`:''}`;
   if(st==='rejeitado') return ehAdmin()?`<button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir orçamento</button>`:`<span class="cx-mini">Orçamento não aprovado</span>`;
@@ -1808,6 +1809,15 @@ function finalizarOS(oid){ const o=getOS(oid); if(!o) return;
   if(restanteOS(o)<=0.005){ confirmar('Não há valor em aberto.\nFinalizar e enviar para Executado?', function(){ o.status='executado'; o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='executado'; renderOsDet(oid); toast('OS finalizada ✓'); }, 'Finalizar', 'green'); return; }
   pagamentoModal(oid,'final'); }
 function liberarCarro(oid){ const o=getOS(oid); if(!o) return; confirmar('Liberar o carro?\nA OS vai para "Carro liberado" — onde o cliente busca o carro e é feito o recebimento.', function(){ o.status='liberado'; o.atualizado=Date.now(); salvar(); osFiltroStatus='liberado'; renderOsDet(oid); toast('Carro liberado ✓'); }, 'Liberar', 'green'); }
+function reagendarOS(oid){ const o=getOS(oid); if(!o) return;
+  openModal(`<h3>Reagendar — mandar para a Agenda</h3><p class="sub">O carro não ficou hoje. Marque o retorno e a OS volta para a Agenda.</p>
+    <div class="grid2"><div class="field"><label>Data do retorno</label><div class="dt-wrap"><input id="ragData" type="date" value="${o.agenda_data||toISO(hoje())}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('ragData')">📅</button></div></div>
+      <div class="field"><label>Hora (opcional)</label><input id="ragHora" type="time" value="${o.agenda_hora||''}"></div></div>
+    <div class="hint">A OS volta para <b>Agendamento</b> com essa data. O que você já lançou (peças, laudo) fica salvo. Quando o carro chegar, é só avançar para orçamento.</div>
+    <div class="form-actions"><button class="btn gold" onclick='salvarReagendar("${oid}")'>Mandar para a agenda</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
+}
+function salvarReagendar(oid){ const o=getOS(oid); if(!o) return; const d=val('ragData'); if(!d){ toast('Escolha a data do retorno'); return; }
+  o.status='agendamento'; o.agenda_data=d; o.agenda_hora=val('ragHora')||''; o.atualizado=Date.now(); salvar(); closeModal(); osFiltroStatus='agendamento'; go('os',oid); toast('Carro reagendado ✓'); }
 function osCodigoCurto(o){ return o.codigo||(o.id||'').slice(-6).toUpperCase(); }
 function abrirRetorno(oid){ const orig=getOS(oid); if(!orig) return;
   confirmar('Abrir um RETORNO de garantia desta OS?\n\nO serviço já feito NÃO será cobrado de novo. Você poderá acrescentar peças/serviços extras se precisar, e só esses novos itens serão cobrados.', function(){
@@ -2373,8 +2383,8 @@ function renderOsItens(){ const box=document.getElementById('osItensBox');
   atualizaTotal(); calcOsPrevia(); atualizaLucroPecas(); }
 function atualizaLucroPecas(){ if(!pode('valores')) return; let tv=0,tc=0;
   osItens.forEach(r=>{ const q=Number(r.qtde)||1; const v=moneyParse(r.valor)*q; const c=moneyParse(r.custo)*q; tv+=v; tc+=c;
-    const el=document.getElementById('lucro-'+r.id); if(el){ const temCusto=(r.custo!==''&&r.custo!=null); const l=v-c; el.textContent=temCusto?('lucro '+moneyFmt(l)+(v>0?(' · '+Math.round((l/v)*100)+'%'):'')):'informe o custo'; el.style.color=temCusto?(l>=0?'var(--green)':'var(--red)'):'var(--muted)'; } });
-  const foot=document.getElementById('osLucroPecas'); if(foot){ const l=tv-tc; foot.innerHTML=moneyFmt(l)+(tv>0?(' <span style="font-size:12px;opacity:.85">('+Math.round((l/tv)*100)+'%)</span>'):''); foot.style.color=l>=0?'var(--green)':'var(--red)'; } }
+    const el=document.getElementById('lucro-'+r.id); if(el){ const temCusto=(r.custo!==''&&r.custo!=null); const l=v-c; el.textContent=temCusto?('lucro '+moneyFmt(l)+(c>0?(' · '+Math.round((l/c)*100)+'% s/ custo'):'')):'informe o custo'; el.style.color=temCusto?(l>=0?'var(--green)':'var(--red)'):'var(--muted)'; } });
+  const foot=document.getElementById('osLucroPecas'); if(foot){ const l=tv-tc; foot.innerHTML=moneyFmt(l)+(tc>0?(' <span style="font-size:12px;opacity:.85">('+Math.round((l/tc)*100)+'% sobre o custo)</span>'):''); foot.style.color=l>=0?'var(--green)':'var(--red)'; } }
 function comboRender(id, filtro){
   const el=document.getElementById('combo-'+id); if(!el) return;
   const f=(filtro||'').trim().toLowerCase();
