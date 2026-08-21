@@ -134,6 +134,10 @@
   .parc-row .pr-n{width:26px;font-weight:800;color:var(--gold);font-size:13px}
   .parc-row .pr-val{width:110px;background:var(--bg2);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:8px 9px;font-size:14px}
   .parc-row .pr-venc{font-size:12px;color:var(--muted)}
+  .cp-parc{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .cp-parc .pr-n{width:24px;font-weight:800;color:var(--gold);font-size:13px}
+  .cp-parc .pr-val{flex:1;min-width:0;background:var(--bg2);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:8px 9px;font-size:14px}
+  .cp-parc .pr-date{flex:none;width:140px;background:var(--bg2);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:7px 8px;font-size:13px}
   .srv-search{display:flex;align-items:center;gap:9px;background:var(--bg2);border:1px solid var(--line2);border-radius:12px;padding:11px 13px;margin-bottom:11px}
   .srv-search svg{width:17px;height:17px;stroke:var(--muted);flex:none}
   .srv-search input{flex:1;background:none;border:none;color:var(--txt);font-size:14.5px;outline:none}
@@ -537,6 +541,11 @@
     <div id="relBox"></div>
   </section>
 
+  <section class="screen" data-screen="contas_pagar">
+    <div class="view-head"><div><h2>Contas a Pagar</h2><p>Boletos, fornecedores e vencimentos</p></div></div>
+    <div id="contasPagarBox"></div>
+  </section>
+
   <!-- DETALHE: CLIENTE -->
   <section class="screen" data-screen="cliente">
     <button class="back" onclick="back()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>Voltar</button>
@@ -866,14 +875,14 @@ const VIEWS=[
 ];
 const TABS=['painel','ordens','clientes','financeiro','mais'];
 let histStack=[{screen:'painel',param:null}];
-function telaPai(name){ if(['veiculos','regras','equipe','config','boletos','fornecedores','relatorios'].includes(name)) return 'mais'; if(name==='servicos') return 'painel'; return name; }
+function telaPai(name){ if(['veiculos','regras','equipe','config','boletos','fornecedores','relatorios','contas_pagar'].includes(name)) return 'mais'; if(name==='servicos') return 'painel'; return name; }
 function showScreen(name){
   document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===name));
   const tabHi = TABS.includes(name)?name:telaPai(name);
   document.querySelectorAll('#topnav button,#tabbar button').forEach(b=>b.classList.toggle('active',b.dataset.go===tabHi));
 }
 const RENDER={painel:renderPainel,clientes:renderClientes,veiculos:renderVeiculos,ordens:renderOrdens,regras:renderRegras,config:carregarConfig,
-  financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos, boletos:renderBoletosReceber, fornecedores:renderFornecedores, relatorios:renderRelatorios,
+  financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos, boletos:renderBoletosReceber, fornecedores:renderFornecedores, relatorios:renderRelatorios, contas_pagar:renderContasPagar,
   cliente:p=>renderClienteDet(p), veiculo:p=>renderVeiculoDet(p), os:p=>renderOsDet(p)};
 function render(screen,param){ showScreen(screen); window.scrollTo({top:0,behavior:'smooth'}); (RENDER[screen]||(()=>{}))(param); }
 function goTab(name){ histStack=[{screen:name,param:null}]; render(name,null); }
@@ -1850,7 +1859,7 @@ function ehEspecie(m){ return m.forma==='dinheiro'||m.forma==='especie'; }
 function contaMov(m){ return ehEspecie(m)?'caixa':'banco'; }
 function valorBanco(m){ return (m.liquido!=null&&m.liquido!=='')?(Number(m.liquido)||0):(Number(m.valor)||0); }
 /* data em que a entrada fica disponível na conta; '' = ainda não caiu (boleto sem pagamento confirmado) */
-function dispMov(m){ if(m.tipo==='saida'){ if(m.forma==='cartao'||m.forma==='boleto') return m.pagamento||m.vencimento||m.data; return m.data; }
+function dispMov(m){ if(m.tipo==='saida'){ if(m.pagamento) return m.pagamento; if(m.forma==='cartao'||m.forma==='boleto') return m.vencimento||m.data; return m.data; }
   if(m.forma==='cartao') return proxDiaUtil(m.data,1);
   if(m.forma==='boleto') return m.pagamento?addDiasISO(m.pagamento,3):'';
   return m.data; }
@@ -2689,8 +2698,9 @@ function renderMais(){
     h+=item('📊','Relatórios & Dashboard','Serviços, caixa, comparações e melhorias',`goTab("relatorios")`);
   }
   if(telaLiberada('boletos')||telaLiberada('financeiro')){
-    h+=`<div class="lbl-sec-mais">Recebimentos</div>`;
+    h+=`<div class="lbl-sec-mais">Recebimentos &amp; Pagamentos</div>`;
     h+=item('📄','Boletos a receber','Acompanhe e confirme os pagamentos',`goTab("boletos")`);
+    h+=item('💸','Contas a Pagar','Boletos de fornecedores e vencimentos',`goTab("contas_pagar")`);
   }
   if(ehAdmin()||telaLiberada('acessos')||telaLiberada('config')){
     h+=`<div class="lbl-sec-mais">Equipe &amp; Acesso</div>`;
@@ -3048,6 +3058,72 @@ function relDashboard(){ const A=relPer,B=relPerB;
   const es=`<div class="section-label">Entradas × Saídas (Período A)</div>${relBar('Entradas',a.ent,maxES,'','var(--green)')}${relBar('Saídas',a.sai,maxES,'','var(--red)')}`;
   return perSel+`<div class="hint" style="margin:0 2px 10px">Comparando <b>${fmtBR(parseISO(A.de))}–${fmtBR(parseISO(A.ate))}</b> com <b>${fmtBR(parseISO(B.de))}–${fmtBR(parseISO(B.ate))}</b>.</div>`+kpis+chartMes+es;
 }
+/* ===== CONTAS A PAGAR ===== */
+function contasPagarAbertas(){ return (state.caixa||[]).filter(m=>m.tipo==='saida'&&(m.forma==='cartao'||m.forma==='boleto')&&!m.pagamento); }
+function contasPagarGrupos(){ const map={}; contasPagarAbertas().forEach(m=>{ const k=m.parcela_grupo||('_'+m.id); (map[k]=map[k]||[]).push(m); });
+  return Object.entries(map).map(([k,list])=>{ list.sort((a,b)=>String(a.vencimento||'').localeCompare(String(b.vencimento||''))); const g=list[0]; return {key:k,list,total:list.reduce((s,m)=>s+(Number(m.valor)||0),0),prox:list[0].vencimento,nota:g.nota,fornecedor_id:g.fornecedor_id,desc:g.descricao}; }).sort((a,b)=>String(a.prox||'').localeCompare(String(b.prox||''))); }
+function renderContasPagar(){ const box=document.getElementById('contasPagarBox'); if(!box) return;
+  if(!ehGestor()&&!pode('valores')){ box.innerHTML='<div class="note empty-note">Sem permissão.</div>'; return; }
+  const grupos=contasPagarGrupos(); const total=grupos.reduce((s,g)=>s+g.total,0); const hoje0=toISO(hoje());
+  const cards=grupos.map(g=>{ const atrasado=g.prox&&g.prox<hoje0;
+    return `<div class="card click" onclick='openPagarNota("${g.key}")'><div class="row"><div><div class="t">${g.nota?('NF '+esc(g.nota)):'📄 Boleto'}${g.fornecedor_id?(' · 🏭 '+esc(fornecedorNome(g.fornecedor_id))):(g.desc?(' · '+esc(g.desc)):'')}</div><div class="s">${g.list.length} parcela(s) · próx. ${g.prox?fmtBR(parseISO(g.prox)):'—'}${atrasado?' <b style="color:var(--red)">⚠ vencido</b>':''}</div></div><span class="valor-tag" style="color:var(--red)">${moneyFmt(g.total)}</span></div></div>`; }).join('');
+  box.innerHTML=`<div class="section-label"><span>Em aberto</span><button class="btn sm gold" onclick="openContaPagar()">+ Nova conta</button></div>
+    ${grupos.length?`<div class="rel-kpi"><div class="rk"><div class="rl">Total a pagar</div><div class="rv" style="color:var(--red)">${moneyFmt(total)}</div></div><div class="rk"><div class="rl">Notas / boletos</div><div class="rv">${grupos.length}</div></div></div>${cards}`:emptyState('Nada a pagar','Toque em "+ Nova conta" para cadastrar um boleto.')}`;
+}
+let cpParc=[];
+function cpN(){ return Math.max(1,Math.min(24,parseInt(val('cpParcN'))||1)); }
+function openContaPagar(){ cpParc=[];
+  openModal(`<h3>Nova conta a pagar</h3><p class="sub">Cadastre o boleto/nota. Ajuste valores e datas antes de salvar.</p>
+    <div class="field"><label>Fornecedor</label><select id="cpForn" onchange="cpFornChange()"><option value="">— nenhum —</option>${(state.fornecedores||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(x=>`<option value="${x.id}">${esc(x.nome)}${x.cnpj?(' · '+esc(x.cnpj)):''}</option>`).join('')}<option value="__novo__">➕ Cadastrar novo</option></select></div>
+    <div id="cpFornNovo" style="display:none"><div class="grid2"><div class="field"><label>Nome</label><input id="cpFornNome" placeholder="Auto Peças Silva"></div><div class="field"><label>CNPJ</label><input id="cpFornCnpj" placeholder="00.000.000/0000-00" inputmode="numeric" oninput="this.value=fmtCNPJ(this.value)"></div></div></div>
+    <div class="grid2"><div class="field"><label>Número da nota (NF)</label><input id="cpNF" placeholder="Ex: 12345"></div>
+      <div class="field"><label>Descrição (opcional)</label><input id="cpDesc" placeholder="Ex: peças"></div></div>
+    <div class="grid2"><div class="field"><label>Valor total</label><input id="cpTotal" inputmode="decimal" placeholder="0,00" oninput="cpRebuild()"></div>
+      <div class="field"><label>Nº de parcelas</label><select id="cpParcN" onchange="cpBuild(true)">${[1,2,3,4,5,6,7,8,9,10,11,12].map(n=>`<option value="${n}">${n}x</option>`).join('')}</select></div></div>
+    <div class="field"><label>Vencimento da 1ª parcela</label><div class="dt-wrap"><input id="cpVenc1" type="date" value="${toISO(hoje())}" onchange="cpRebuild()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('cpVenc1')">📅</button></div></div>
+    <div id="cpParcBox"></div>
+    <div class="form-actions"><button class="btn gold" onclick="salvarContaPagar()">Salvar conta a pagar</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
+  cpBuild(true);
+}
+function cpFornChange(){ const w=document.getElementById('cpFornNovo'); if(w) w.style.display=(val('cpForn')==='__novo__')?'':'none'; }
+function cpBuild(reset){ const n=cpN(); if(reset||cpParc.length!==n){ cpParc=[]; for(let i=0;i<n;i++) cpParc.push({valor:0,venc:'',manualV:false,manualD:false}); } cpRebuild(); }
+function cpRebuild(){ const box=document.getElementById('cpParcBox'); if(!box) return; const n=cpN(); if(cpParc.length!==n){ cpParc=[]; for(let i=0;i<n;i++) cpParc.push({valor:0,venc:'',manualV:false,manualD:false}); }
+  const total=moneyParse(val('cpTotal')); let usados=0,auto=[]; cpParc.forEach((p,i)=>{ if(p.manualV) usados+=p.valor; else auto.push(i); });
+  const resto=Math.max(0,total-usados); const cada=auto.length?Math.floor((resto/auto.length)*100)/100:0;
+  auto.forEach((i,idx)=>{ cpParc[i].valor=(idx===auto.length-1)?Math.round((resto-cada*(auto.length-1))*100)/100:cada; });
+  const base=val('cpVenc1'); if(base) cpParc.forEach((p,i)=>{ if(!p.manualD) p.venc=addDiasISO(base,30*i); });
+  renderCpParc(); }
+function cpSetValor(i,v){ if(!cpParc[i])return; cpParc[i].valor=moneyParse(v); cpParc[i].manualV=(String(v).trim()!==''); cpRebuild(); }
+function cpSetVenc(i,d){ if(!cpParc[i])return; cpParc[i].venc=d; cpParc[i].manualD=!!d; renderCpParc(); }
+function renderCpParc(){ const box=document.getElementById('cpParcBox'); if(!box) return;
+  const soma=cpParc.reduce((s,p)=>s+(Number(p.valor)||0),0); const total=moneyParse(val('cpTotal'));
+  box.innerHTML=`<div class="lbl-perfil" style="margin:8px 2px 6px">Parcelas — edite valores e datas</div>`+
+    cpParc.map((p,i)=>`<div class="cp-parc"><span class="pr-n">${i+1}ª</span><input class="pr-val" inputmode="decimal" value="${p.valor?p.valor.toFixed(2).replace('.',','):''}" oninput="cpSetValor(${i},this.value)" placeholder="0,00"><input class="pr-date" type="date" value="${p.venc||''}" onchange="cpSetVenc(${i},this.value)"></div>`).join('')+
+    `<div class="hint" style="margin-top:6px">Soma: <b style="color:${Math.abs(soma-total)<0.02?'var(--green)':'var(--red)'}">${moneyFmt(soma)}</b> de ${moneyFmt(total)}. Digite o valor de uma parcela que o resto se ajusta; a data você edita direto em cada uma.</div>`;
+}
+function salvarContaPagar(){ let fornecedor_id=val('cpForn');
+  if(fornecedor_id==='__novo__'){ const fn=tc((val('cpFornNome')||'').trim()); if(fn){ fornecedor_id=uid(); state.fornecedores.push({id:fornecedor_id,nome:fn,cnpj:fmtCNPJ(val('cpFornCnpj')),telefone:'',obs:'',criado:Date.now()}); } else fornecedor_id=''; }
+  const total=moneyParse(val('cpTotal')); if(total<=0){ toast('Informe o valor total'); return; }
+  const soma=cpParc.reduce((s,p)=>s+(Number(p.valor)||0),0); if(Math.abs(soma-total)>0.05){ toast('A soma das parcelas não bate com o total'); return; }
+  if(cpParc.some(p=>!p.venc)){ toast('Defina a data de todas as parcelas'); return; }
+  const nota=(val('cpNF')||'').trim(); const desc=(val('cpDesc')||'').trim(); const n=cpParc.length; const grupo=uid(); const hoje0=toISO(hoje());
+  cpParc.forEach((p,i)=>{ const v=Math.round((Number(p.valor)||0)*100)/100;
+    state.caixa.push({id:uid(),ordem_id:null,tipo:'saida',data:hoje0,valor:v,forma:'boleto',taxa:0,liquido:v,descricao:(desc||'Conta a pagar')+(nota?(' · NF '+nota):'')+(n>1?(' ('+(i+1)+'/'+n+')'):''),categoria:'fornecedor',funcionario_id:'',socio:'',conta:'banco',vencimento:p.venc,pagamento:'',fornecedor_id,parcela_grupo:grupo,nota,criado:Date.now()}); });
+  salvar(); closeModal(); renderContasPagar(); toast(n>1?(n+' parcelas cadastradas ✓'):'Conta cadastrada ✓'); }
+function openPagarNota(key){ const arr=(state.caixa||[]).filter(x=>!x.pagamento&&(x.parcela_grupo===key||x.id===key)).sort((a,b)=>String(a.vencimento||'').localeCompare(String(b.vencimento||''))); if(!arr.length){ toast('Nada em aberto'); return; }
+  const g=arr[0];
+  openModal(`<h3>Pagar — ${g.nota?('NF '+esc(g.nota)):'Boleto'}</h3><p class="sub">${g.fornecedor_id?esc(fornecedorNome(g.fornecedor_id)):(g.descricao?esc(g.descricao):'')} · marque o que vai pagar</p>
+    ${arr.map(m=>`<label class="tog-perfil"><span>Vence ${fmtBR(parseISO(m.vencimento))} · <b>${moneyFmt(m.valor)}</b></span><input type="checkbox" data-pg="${m.id}" checked onchange="pgnTotal()"></label>`).join('')}
+    <div class="totline" style="margin:8px 0"><span>Selecionado</span><b id="pgnTot" style="color:var(--red)">${moneyFmt(arr.reduce((s,m)=>s+(Number(m.valor)||0),0))}</b></div>
+    <div class="grid2"><div class="field"><label>Como vai pagar?</label><select id="pgnForma"><option value="pix">PIX (sai do banco)</option><option value="dinheiro">Dinheiro (sai do caixa)</option><option value="cartao">Cartão (sai do banco)</option></select></div>
+      <div class="field"><label>Data do pagamento</label><div class="dt-wrap"><input id="pgnData" type="date" value="${toISO(hoje())}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('pgnData')">📅</button></div></div></div>
+    <div class="form-actions"><button class="btn green" onclick='confirmarPagarNota("${key}")'>Pagar selecionadas</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
+}
+function pgnTotal(){ let t=0; document.querySelectorAll('[data-pg]:checked').forEach(e=>{ const m=(state.caixa||[]).find(x=>x.id===e.dataset.pg); if(m) t+=Number(m.valor)||0; }); const el=document.getElementById('pgnTot'); if(el) el.textContent=moneyFmt(t); }
+function confirmarPagarNota(key){ const ids=[...document.querySelectorAll('[data-pg]:checked')].map(e=>e.dataset.pg); if(!ids.length){ toast('Selecione ao menos uma parcela'); return; }
+  const forma=val('pgnForma')||'pix'; const data=val('pgnData')||toISO(hoje()); const conta=['dinheiro','especie'].includes(forma)?'caixa':'banco'; let tot=0,n=0;
+  ids.forEach(id=>{ const m=(state.caixa||[]).find(x=>x.id===id); if(m&&!m.pagamento){ m.pagamento=data; m.forma=forma; m.conta=conta; m.atualizado=Date.now(); tot+=Number(m.valor)||0; n++; } });
+  salvar(); closeModal(); renderContasPagar(); toast(n+' parcela(s) paga(s) · '+moneyFmt(tot)+' ✓'); }
 function renderCaixa(){
   const box=document.getElementById('caixaBox'); if(!box) return;
   if(!(ehAdmin()||pode('valores'))){ box.innerHTML='<div class="note empty-note">Sem permissão.</div>'; return; }
