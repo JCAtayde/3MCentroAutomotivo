@@ -130,6 +130,10 @@
   .os-lucro-panel .lp-h{font-size:12px;color:var(--muted);margin-bottom:6px}
   .os-lucro-panel .lp-row{display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px}
   .os-lucro-panel .lp-big{font-size:18px;font-weight:800;color:var(--green)}
+  .parc-row{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+  .parc-row .pr-n{width:26px;font-weight:800;color:var(--gold);font-size:13px}
+  .parc-row .pr-val{width:110px;background:var(--bg2);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:8px 9px;font-size:14px}
+  .parc-row .pr-venc{font-size:12px;color:var(--muted)}
   .srv-search{display:flex;align-items:center;gap:9px;background:var(--bg2);border:1px solid var(--line2);border-radius:12px;padding:11px 13px;margin-bottom:11px}
   .srv-search svg{width:17px;height:17px;stroke:var(--muted);flex:none}
   .srv-search input{flex:1;background:none;border:none;color:var(--txt);font-size:14.5px;outline:none}
@@ -1846,7 +1850,7 @@ function ehEspecie(m){ return m.forma==='dinheiro'||m.forma==='especie'; }
 function contaMov(m){ return ehEspecie(m)?'caixa':'banco'; }
 function valorBanco(m){ return (m.liquido!=null&&m.liquido!=='')?(Number(m.liquido)||0):(Number(m.valor)||0); }
 /* data em que a entrada fica disponível na conta; '' = ainda não caiu (boleto sem pagamento confirmado) */
-function dispMov(m){ if(m.tipo==='saida'){ if((m.forma==='cartao'||m.forma==='boleto')&&m.vencimento) return m.vencimento; return m.data; }
+function dispMov(m){ if(m.tipo==='saida'){ if(m.forma==='cartao'||m.forma==='boleto') return m.pagamento||m.vencimento||m.data; return m.data; }
   if(m.forma==='cartao') return proxDiaUtil(m.data,1);
   if(m.forma==='boleto') return m.pagamento?addDiasISO(m.pagamento,3):'';
   return m.data; }
@@ -1855,7 +1859,9 @@ function saldoCaixa(ate){ let s=0; (state.caixa||[]).forEach(m=>{ if(contaMov(m)
 function saldoBanco(ate){ let s=0; (state.caixa||[]).forEach(m=>{ if(contaMov(m)!=='banco') return; const d=dispMov(m); if(!d||d>ate) return;
   if(m.tipo==='entrada') s+=valorBanco(m); else s-=(Number(m.valor)||0); }); return s; }
 function aReceberList(ate){ return (state.caixa||[]).filter(m=>m.tipo==='entrada'&&contaMov(m)==='banco').map(m=>({m,disp:dispMov(m)})).filter(x=>!x.disp||x.disp>ate).sort((a,b)=>String(a.disp||a.m.vencimento||'').localeCompare(String(b.disp||b.m.vencimento||''))); }
-function aPagarList(ate){ return (state.caixa||[]).filter(m=>m.tipo==='saida'&&(m.forma==='cartao'||m.forma==='boleto')&&m.vencimento&&m.vencimento>ate).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))); }
+function aPagarList(ate){ return (state.caixa||[]).filter(m=>m.tipo==='saida'&&(m.forma==='cartao'||m.forma==='boleto')&&!m.pagamento&&m.vencimento&&m.vencimento>ate).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))); }
+function baixarConta(id){ const m=(state.caixa||[]).find(x=>x.id===id); if(!m) return; confirmar('Dar baixa nesta conta? Marca como paga hoje ('+fmtBR(hoje())+').', function(){ m.pagamento=toISO(hoje()); m.atualizado=Date.now(); salvar(); renderSaldos(); toast('Baixa registrada ✓'); }, 'Dar baixa','green'); }
+function baixarGrupo(grupo){ const arr=(state.caixa||[]).filter(x=>x.parcela_grupo===grupo&&!x.pagamento); if(!arr.length) return; confirmar('Dar baixa em todas as '+arr.length+' parcelas? Marca todas como pagas hoje.', function(){ arr.forEach(m=>{ m.pagamento=toISO(hoje()); m.atualizado=Date.now(); }); salvar(); renderSaldos(); toast(arr.length+' baixas registradas ✓'); }, 'Baixar todas','green'); }
 function reRenderFin(){ if(document.querySelector('[data-screen="financeiro"].active')) finTab(finAtiva); if(document.querySelector('[data-screen="boletos"].active')) renderBoletosReceber(); }
 function confirmarBoleto(mid){ const m=(state.caixa||[]).find(x=>x.id===mid); if(!m) return;
   dtPrompt('Data em que o cliente pagou o boleto', toISO(hoje()), function(dataPg){ m.pagamento=dataPg; m.atualizado=Date.now(); salvar(); toast('Boleto confirmado — cai em '+fmtBR(parseISO(addDiasISO(dataPg,3)))); reRenderFin(); }); }
@@ -2908,7 +2914,13 @@ function renderSaldos(){
     return `<div class="card"><div class="row"><div><div class="t">${isBol?'📄 Boleto':(m.forma==='cartao'?'💳 Cartão':formaLabel(m.forma))}${quem}</div><div class="s">${quando}</div></div><span class="valor-tag" style="color:var(--amber)">${moneyFmt(valorBanco(m))}</span></div>
       ${isBol?`<div class="form-actions" style="margin-top:8px">${m.pagamento?`<button class="btn sm ghost" onclick='desfazerBoleto("${m.id}")'>Desfazer pagamento</button>`:`<button class="btn sm green" onclick='confirmarBoleto("${m.id}")'>✓ Confirmar pagamento</button>`}</div>`:''}
     </div>`; }).join('');
-  const pagCards=pag.map(m=>`<div class="card"><div class="row"><div><div class="t">${m.forma==='cartao'?'💳 Cartão':'📄 Boleto'}${m.descricao?(' · '+esc(m.descricao)):''}</div><div class="s">paga em ${fmtBR(parseISO(m.vencimento))}</div></div><span class="valor-tag" style="color:var(--red)">−${moneyFmt(Number(m.valor)||0)}</span></div></div>`).join('');
+  const pagCards=(function(){ const grupos={}, avulsos=[]; pag.forEach(m=>{ if(m.parcela_grupo){ (grupos[m.parcela_grupo]=grupos[m.parcela_grupo]||[]).push(m); } else avulsos.push(m); });
+    let h='';
+    Object.values(grupos).forEach(arr=>{ arr.sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))); const g=arr[0]; const tot=arr.reduce((s,m)=>s+(Number(m.valor)||0),0);
+      h+=`<div class="card"><div class="row"><div><div class="t">📄 ${g.nota?('NF '+esc(g.nota)):'Boleto parcelado'}${g.fornecedor_id?(' · 🏭 '+esc(fornecedorNome(g.fornecedor_id))):''}</div><div class="s">${arr.length} parcelas em aberto · ${moneyFmt(tot)}</div></div><button class="btn sm green" onclick='baixarGrupo("${g.parcela_grupo}")'>✓ Baixar todas</button></div>`+
+        arr.map(m=>`<div class="row" style="padding:6px 0 0"><div class="main"><div class="s">Parcela vence ${fmtBR(parseISO(m.vencimento))}</div></div><span class="valor-tag" style="color:var(--red)">−${moneyFmt(m.valor)}</span> <button class="btn sm ghost" onclick='baixarConta("${m.id}")'>Baixar</button></div>`).join('')+`</div>`; });
+    avulsos.forEach(m=>{ h+=`<div class="card"><div class="row"><div><div class="t">${m.forma==='cartao'?'💳 Cartão':'📄 Boleto'}${m.nota?(' · NF '+esc(m.nota)):''}${m.descricao?(' · '+esc(m.descricao)):''}</div><div class="s">vence ${fmtBR(parseISO(m.vencimento))}</div></div><span class="valor-tag" style="color:var(--red)">−${moneyFmt(Number(m.valor)||0)}</span></div><div class="form-actions" style="margin-top:6px"><button class="btn sm green" onclick='baixarConta("${m.id}")'>✓ Dar baixa</button></div></div>`; });
+    return h; })();
   box.innerHTML=`
     <div class="field"><label>Posição até a data</label><div class="dt-wrap"><input id="saldoAteInp" type="date" value="${ate}" onchange="saldoAte=this.value; renderSaldos()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('saldoAteInp')">📅</button></div></div>
     <div class="saldo-card caixa"><div class="lab">💵 Caixa (espécie) — dinheiro na oficina</div><div class="v">${moneyFmt(sc)}</div></div>
@@ -3081,7 +3093,7 @@ function movimentoModal(tipo,id){ const m=id?(state.caixa.find(x=>x.id===id)||{}
   const ent=tipo==='entrada';
   openModal(`<h3>${id?'Editar':ent?'Nova entrada':'Nova saída'}</h3>
     <div class="grid2">${dtField('mvData','date',(m.data||toISO(hoje())),'Data')}
-      <div class="field"><label>Valor</label><input id="mvValor" inputmode="decimal" value="${m.valor?String(m.valor).replace('.',','):''}" placeholder="0,00"></div></div>
+      <div class="field"><label>Valor${''}</label><input id="mvValor" inputmode="decimal" value="${m.valor?String(m.valor).replace('.',','):''}" placeholder="0,00" oninput="mvParcRebuild()"></div></div>
     <div class="field"><label>Forma</label><select id="mvForma" onchange="mvToggleTaxa()">${FORMAS.map(f=>`<option value="${f[0]}" ${m.forma===f[0]?'selected':''}>${f[1]}</option>`).join('')}</select></div>
     <div class="field" id="mvTaxaWrap" style="display:${ent&&m.forma==='cartao'?'':'none'}"><label>Valor a receber (líquido)</label><input id="mvLiquido" inputmode="decimal" value="${(m.taxa&&m.valor)?String(m.valor-m.taxa).replace('.',','):''}" placeholder="0,00" oninput="mvCalcTaxa()"><div class="hint" id="mvTaxaInfo" style="margin:4px 0 0"></div></div>
     ${!ent?`<div class="hint" style="margin:-2px 0 11px">De onde sai: <b>Dinheiro</b> → 💵 caixa · <b>PIX, cartão e boleto</b> → 🏦 banco (definido pela forma acima).</div>
@@ -3092,7 +3104,11 @@ function movimentoModal(tipo,id){ const m=id?(state.caixa.find(x=>x.id===id)||{}
       <div id="mvFornNovoWrap" style="display:none"><div class="grid2"><div class="field"><label>Nome do fornecedor</label><input id="mvFornNome" placeholder="Auto Peças Silva"></div>
         <div class="field"><label>CNPJ</label><input id="mvFornCnpj" placeholder="00.000.000/0000-00" inputmode="numeric" oninput="this.value=fmtCNPJ(this.value)"></div></div></div></div>
     <div class="field" id="mvSocioWrap" style="display:${m.categoria==='prolabore'?'':'none'}"><label>Sócio (pró-labore)</label><select id="mvSocio"><option value="">— escolha —</option>${SOCIOS.map(s=>`<option value="${esc(s)}" ${m.socio===s?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
-    <div class="field" id="mvVencWrap" style="display:${(m.forma==='cartao'||m.forma==='boleto')?'':'none'}"><label>Data de pagamento (vencimento da fatura/boleto)</label><div class="dt-wrap"><input id="mvVenc" type="date" value="${m.vencimento||''}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('mvVenc')">📅</button></div><div class="hint" style="margin:4px 0 0">O valor só sai do banco nessa data. Até lá, aparece em "A pagar" no Saldos.</div></div>`:''}
+    <div class="field" id="mvVencWrap" style="display:${(m.forma==='cartao'||m.forma==='boleto')?'':'none'}"><label id="mvVencLbl">${m.forma==='boleto'?'Vencimento da 1ª parcela':'Data de pagamento (vencimento da fatura/boleto)'}</label><div class="dt-wrap"><input id="mvVenc" type="date" value="${m.vencimento||''}" onchange="mvParcRebuild()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('mvVenc')">📅</button></div><div class="hint" style="margin:4px 0 0">O valor só sai do banco nessa data. Até lá, aparece em "A pagar" no Saldos.</div></div>
+    <div id="mvParcWrap" style="display:${m.forma==='boleto'?'':'none'}">
+      <div class="grid2"><div class="field"><label>Número da nota (NF)</label><input id="mvNota" value="${esc(m.nota||'')}" placeholder="Ex: 12345"></div>
+        <div class="field"><label>Nº de parcelas</label><select id="mvParc" onchange="mvBuildParcelas(true)">${[1,2,3,4,5,6,7,8,9,10,11,12].map(n=>`<option value="${n}">${n}x</option>`).join('')}</select></div></div>
+      <div id="mvParcBox"></div></div>`:''}
     <div class="field"><label>Descrição</label><input id="mvDesc" value="${esc(m.descricao||'')}" placeholder="${ent?'Ex: Venda de peça avulsa':'Ex: Aluguel, óleo, adiantamento…'}"></div>
     <div class="form-actions"><button class="btn ${ent?'green':'danger'}" onclick='salvarMovimento(${id?`"${id}"`:'null'},"${tipo}")'>Salvar</button>
       ${id?`<button class="btn danger" onclick='excluirMovimento("${id}")'>Excluir</button>`:''}
@@ -3102,7 +3118,28 @@ function movimentoModal(tipo,id){ const m=id?(state.caixa.find(x=>x.id===id)||{}
 function mvToggleTaxa(){ const f=val('mvForma'); const ent=!document.getElementById('mvCat');
   const w=document.getElementById('mvTaxaWrap'); if(w) w.style.display=(ent&&f==='cartao')?'':'none';
   const vw=document.getElementById('mvVencWrap'); if(vw) vw.style.display=(!ent&&(f==='cartao'||f==='boleto'))?'':'none';
+  const pw=document.getElementById('mvParcWrap'); if(pw) pw.style.display=(!ent&&f==='boleto')?'':'none';
+  const vl=document.getElementById('mvVencLbl'); if(vl) vl.textContent=(f==='boleto')?'Vencimento da 1ª parcela':'Data de pagamento (vencimento da fatura/boleto)';
+  if(!ent&&f==='boleto') mvBuildParcelas(false);
   mvCalcTaxa(); }
+let mvParcelas=[];
+function mvParcN(){ return Math.max(1,Math.min(12,parseInt(val('mvParc'))||1)); }
+function mvBuildParcelas(reset){ const n=mvParcN(); if(reset||mvParcelas.length!==n){ mvParcelas=[]; for(let i=0;i<n;i++) mvParcelas.push({valor:0,venc:'',manualV:false}); } mvParcRebuild(); }
+function mvParcRebuild(){ if(val('mvForma')!=='boleto'||document.getElementById('mvCat')===null) {} const box=document.getElementById('mvParcBox'); if(!box) return;
+  const n=mvParcN(); if(mvParcelas.length!==n){ mvParcelas=[]; for(let i=0;i<n;i++) mvParcelas.push({valor:0,venc:'',manualV:false}); }
+  const total=moneyParse(val('mvValor')); const base=val('mvVenc');
+  let usados=0, auto=[]; mvParcelas.forEach((p,i)=>{ if(p.manualV) usados+=p.valor; else auto.push(i); });
+  const resto=Math.max(0,total-usados); const cada=auto.length?Math.floor((resto/auto.length)*100)/100:0;
+  auto.forEach((i,idx)=>{ mvParcelas[i].valor=(idx===auto.length-1)?Math.round((resto-cada*(auto.length-1))*100)/100:cada; });
+  if(base) mvParcelas.forEach((p,i)=>{ p.venc=addDiasISO(base,30*i); });
+  renderMvParcelas(); }
+function mvParcSetValor(i,v){ if(!mvParcelas[i])return; mvParcelas[i].valor=moneyParse(v); mvParcelas[i].manualV=(String(v).trim()!==''); mvParcRebuild(); }
+function renderMvParcelas(){ const box=document.getElementById('mvParcBox'); if(!box) return;
+  if(mvParcN()<=1){ box.innerHTML='<div class="hint" style="margin-top:2px">Uma parcela só. Aumente acima para dividir o boleto.</div>'; return; }
+  const soma=mvParcelas.reduce((s,p)=>s+(Number(p.valor)||0),0); const total=moneyParse(val('mvValor'));
+  box.innerHTML=`<div class="lbl-perfil" style="margin:8px 2px 6px">Parcelas — digite o valor de uma que o resto se ajusta</div>`+
+    mvParcelas.map((p,i)=>`<div class="parc-row"><span class="pr-n">${i+1}ª</span><input class="pr-val" inputmode="decimal" value="${p.valor?p.valor.toFixed(2).replace('.',','):''}" oninput="mvParcSetValor(${i},this.value)" placeholder="0,00"><span class="pr-venc">${p.venc?('vence '+fmtBR(parseISO(p.venc))):'defina o 1º venc.'}</span></div>`).join('')+
+    `<div class="hint" style="margin-top:6px">Soma: <b style="color:${Math.abs(soma-total)<0.02?'var(--green)':'var(--red)'}">${moneyFmt(soma)}</b> de ${moneyFmt(total)} · vencimentos de 30 em 30 dias a partir da 1ª parcela.</div>`; }
 function mvCalcTaxa(){ const v=moneyParse(val('mvValor')); const liqRaw=val('mvLiquido'); const liq=liqRaw&&liqRaw.trim()?moneyParse(liqRaw):v; const taxa=Math.max(0,v-liq); const el=document.getElementById('mvTaxaInfo'); if(el) el.innerHTML=`Taxa (desconto): <b>${moneyFmt(taxa)}</b>`; }
 function mvToggleFunc(){ const c=val('mvCat'); const wF=document.getElementById('mvFuncWrap'); if(wF) wF.style.display=(c==='adiantamento')?'':'none'; const wS=document.getElementById('mvSocioWrap'); if(wS) wS.style.display=(c==='prolabore')?'':'none'; const wForn=document.getElementById('mvFornWrap'); if(wForn) wForn.style.display=(c==='fornecedor')?'':'none'; }
 function mvFornChange(){ const v=val('mvForn'); const w=document.getElementById('mvFornNovoWrap'); if(w) w.style.display=(v==='__novo__')?'':'none'; }
@@ -3119,7 +3156,16 @@ function salvarMovimento(id,tipo){ const data=val('mvData')||toISO(hoje()); cons
   if(valor<=0){ toast('Informe o valor'); return; }
   if(categoria==='adiantamento' && !funcionario_id){ toast('Escolha o funcionário do adiantamento'); return; }
   if(categoria==='prolabore' && !socio){ toast('Escolha o sócio do pró-labore'); return; }
-  const dados={tipo,data,valor,forma,taxa,liquido:valor-taxa,descricao,categoria,funcionario_id,socio,conta,vencimento,fornecedor_id,atualizado:Date.now()};
+  if(!id && tipo==='saida' && forma==='boleto' && mvParcN()>1){
+    const nota=val('mvNota').trim(); const n=mvParcN(); const grupo=uid();
+    if(!val('mvVenc')){ toast('Informe o vencimento da 1ª parcela'); return; }
+    const soma=mvParcelas.reduce((s,p)=>s+(Number(p.valor)||0),0);
+    if(Math.abs(soma-valor)>0.05){ toast('A soma das parcelas não bate com o total'); return; }
+    mvParcelas.forEach((p,i)=>{ const v=Math.round((Number(p.valor)||0)*100)/100;
+      state.caixa.push({id:uid(),ordem_id:null,tipo:'saida',data,valor:v,forma:'boleto',taxa:0,liquido:v,descricao:(descricao||catSaidaLabel(categoria))+(nota?(' · NF '+nota):'')+' ('+(i+1)+'/'+n+')',categoria,funcionario_id:'',socio:'',conta:'banco',vencimento:p.venc,pagamento:'',fornecedor_id,parcela_grupo:grupo,nota,criado:Date.now()}); });
+    salvar(); closeModal(); renderCaixa(); toast(n+' parcelas lançadas ✓'); return;
+  }
+  const dados={tipo,data,valor,forma,taxa,liquido:valor-taxa,descricao,categoria,funcionario_id,socio,conta,vencimento,fornecedor_id,nota:(tipo==='saida'&&forma==='boleto')?val('mvNota').trim():'',atualizado:Date.now()};
   if(id){ Object.assign(state.caixa.find(x=>x.id===id),dados); } else { state.caixa.push({id:uid(),ordem_id:null,criado:Date.now(),...dados}); }
   salvar(); closeModal(); renderCaixa(); toast('Lançamento salvo'); }
 function excluirMovimento(id){ confirmar('Excluir este lançamento do caixa?', function(){ state.caixa=state.caixa.filter(x=>x.id!==id); salvar(); closeModal(); renderCaixa(); toast('Lançamento excluído'); }); }
