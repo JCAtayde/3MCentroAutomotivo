@@ -85,6 +85,19 @@
   .parc-row .pv-inp{width:110px;background:var(--bg2);border:1px solid var(--line2);border-radius:8px;padding:8px 10px;color:var(--txt);font-size:14px;font-weight:700;text-align:right}
   .man-tag{font-size:9px;font-weight:800;color:var(--gold);border:1px solid var(--gold);border-radius:8px;padding:1px 5px;margin-left:4px;vertical-align:middle}
   .badge.rev{border-color:#a97bd6;color:#c9a3ec;background:rgba(169,123,214,.12)}
+  .mec-chip{display:inline-block;font-size:10.5px;font-weight:700;color:var(--cyan,#3FB6C4);border:1px solid var(--cyan,#3FB6C4);background:rgba(63,182,196,.1);border-radius:10px;padding:1px 7px;vertical-align:middle;white-space:nowrap}
+  .alert-lib{background:linear-gradient(160deg,rgba(63,182,196,.16),rgba(63,182,196,.03));border:1px solid var(--cyan,#3FB6C4);border-radius:15px;padding:13px;margin-bottom:14px}
+  .alert-lib .al-head{font-weight:800;font-size:14.5px;color:var(--cyan,#3FB6C4);margin-bottom:8px}
+  .alert-lib .al-row{display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(0,0,0,.18);border-radius:10px;padding:9px 11px;margin-bottom:6px;cursor:pointer}
+  .alert-lib .al-row:last-child{margin-bottom:0}
+  .alert-lib .al-row .t{font-weight:700;font-size:13px}.alert-lib .al-row .s{font-size:11px;color:var(--muted)}
+  .alert-lib .al-go{color:var(--cyan,#3FB6C4);font-weight:800;font-size:12px;white-space:nowrap}
+  .nav-badge{display:inline-block;min-width:16px;height:16px;line-height:16px;text-align:center;background:var(--cyan,#3FB6C4);color:#04252a;border-radius:9px;font-size:10px;font-weight:800;padding:0 4px;vertical-align:middle}
+  .lbl-perfil{font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin:14px 2px 8px}
+  .grp-perfil{background:var(--bg2);border:1px solid var(--line2);border-radius:12px;padding:2px 12px;margin-bottom:6px}
+  .tog-perfil{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid #1b2026;cursor:pointer;font-size:13.5px}
+  .tog-perfil:last-child{border-bottom:none}
+  .tog-perfil input{width:20px;height:20px;flex:none}
   .srv-search{display:flex;align-items:center;gap:9px;background:var(--bg2);border:1px solid var(--line2);border-radius:12px;padding:11px 13px;margin-bottom:11px}
   .srv-search svg{width:17px;height:17px;stroke:var(--muted);flex:none}
   .srv-search input{flex:1;background:none;border:none;color:var(--txt);font-size:14.5px;outline:none}
@@ -460,6 +473,7 @@
     <div class="cfg-tabs" id="eqTabs"></div>
     <div class="cfg-panel" data-eq="funcionarios"><div id="mecanicosBox"></div></div>
     <div class="cfg-panel" data-eq="acessos" style="display:none"><div id="usuariosAdmin"></div></div>
+    <div class="cfg-panel" data-eq="perfis" style="display:none"><div id="perfisBox"></div></div>
   </section>
 
   <section class="screen" data-screen="mais">
@@ -618,7 +632,7 @@ function apiGet(){ return fetch(API+'/state',{headers:{'accept':'application/jso
 function apiPost(path,body){ return fetch(API+'/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
 function deepCopy(o){ return JSON.parse(JSON.stringify(o)); }
 function cacheSave(){ try{ localStorage.setItem(CACHE_KEY,JSON.stringify(state)); }catch(e){} }
-function cacheLoad(){ try{ const r=localStorage.getItem(CACHE_KEY); if(r){ const d=JSON.parse(r); d.clientes||=[]; d.veiculos||=[]; d.ordens||=[]; d.regras||=[]; d.usuarios||=[]; d.mecanicos||=[]; d.caixa||=[]; d.pecas||=[]; d.fornecedores||=[]; d.ordens.forEach(normOrdem); d.config={...CONFIG_PADRAO,...(d.config||{})}; try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); }catch(e){} return d; } }catch(e){} return null; }
+function cacheLoad(){ try{ const r=localStorage.getItem(CACHE_KEY); if(r){ const d=JSON.parse(r); d.clientes||=[]; d.veiculos||=[]; d.ordens||=[]; d.regras||=[]; d.usuarios||=[]; d.mecanicos||=[]; d.caixa||=[]; d.pecas||=[]; d.fornecedores||=[]; d.ordens.forEach(normOrdem); d.config={...CONFIG_PADRAO,...(d.config||{})}; try{ if(d.config.perfis_json){ const a=JSON.parse(d.config.perfis_json); if(Array.isArray(a)&&a.length) d.perfis=a; } }catch(e){} try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); }catch(e){} return d; } }catch(e){} return null; }
 
 let state = cacheLoad() || {clientes:[],veiculos:[],ordens:[],regras:[],usuarios:[],mecanicos:[],caixa:[],pecas:[],fornecedores:[],config:{...CONFIG_PADRAO}};
 let lastSnapshot = deepCopy(state);
@@ -664,6 +678,7 @@ async function sincronizar(){
     state.pecas=data.pecas||[];
     state.fornecedores=data.fornecedores||[];
     state.config={...CONFIG_PADRAO,...(data.config||{})};
+    carregarPerfis();
     lastSnapshot=deepCopy(state); cacheSave(); setSync('ok');
     if(typeof atualizarRegrasList==='function') atualizarRegrasList();
     if(typeof atualizarLeadBadge==='function') atualizarLeadBadge();
@@ -821,14 +836,16 @@ function back(){ histStack.pop(); const p=histStack[histStack.length-1]||{screen
 function refreshAtual(){ const p=histStack[histStack.length-1]||{screen:'painel'}; render(p.screen,p.param); }
 function montarNav(){
   const top=document.getElementById('topnav'),tab=document.getElementById('tabbar'); top.innerHTML=''; tab.innerHTML='';
-  let views = ehMecanico() ? VIEWS.filter(v=>v.id==='ordens') : VIEWS.slice();
-  if(!ehMecanico() && !ehAdmin() && !pode('valores')) views = views.filter(v=>v.id!=='financeiro');
+  const podeMais = ehAdmin() || ['veiculos','regras','fornecedores','boletos','config','acessos'].some(t=>telaLiberada(t));
+  let views = VIEWS.filter(v=> v.id==='mais' ? podeMais : telaLiberada(v.id));
+  if(!views.length) views = VIEWS.filter(v=>v.id==='ordens');
   tab.classList.toggle('solo', views.length===1);
   views.forEach((v,i)=>{
     const b=document.createElement('button'); b.dataset.go=v.id; b.textContent=v.label; if(!i)b.classList.add('active'); b.onclick=()=>goTab(v.id); top.appendChild(b);
     const t=document.createElement('button'); t.dataset.go=v.id;
     const rotulo = (views.length===1 && v.id==='ordens') ? 'Ordens de Serviço' : v.label;
-    t.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="'+v.icon+'"/></svg><span>'+rotulo+'</span>';
+    const nLib = v.id==='painel' ? (state.ordens||[]).filter(o=>osStatus(o)==='liberado').length : 0;
+    t.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="'+v.icon+'"/></svg><span>'+rotulo+(nLib?' <span class="nav-badge">'+nLib+'</span>':'')+'</span>';
     if(!i)t.classList.add('active'); t.onclick=()=>goTab(v.id); tab.appendChild(t);
   });
   garantirRegras();
@@ -838,9 +855,8 @@ function souMecanico(){ return usuarioAtual ? (usuarioAtual.mecanico_id||'') : '
 function modoMecRestrito(v){ if(v===false||v===0) return false; if(v==null) return true;
   const s=String(v).trim().toLowerCase(); if(s===''||s==='1'||s==='1.0'||s==='true'||s==='sim') return true;
   if(s==='0'||s==='0.0'||s==='false'||s==='nao'||s==='não'||s==='off'||Number(s)===0) return false; return true; }
-function ehMecanico(){ if(!usuarioAtual) return false; if(usuarioAtual.papel==='admin') return false; if(!usuarioAtual.mecanico_id) return false;
-  return modoMecRestrito(usuarioAtual.modo_mec); }
-function ehGestor(){ if(ehAdmin()) return true; const mid=usuarioAtual&&usuarioAtual.mecanico_id; if(!mid) return false; return ehSocioFunc((state.mecanicos||[]).find(x=>x.id===mid)); }
+function ehMecanico(){ if(!usuarioAtual) return false; if(usuarioAtual.papel==='admin') return false; return !!permAtual().modo_mec; }
+function ehGestor(){ if(ehAdmin()) return true; return !!permAtual().saldos; }
 function garantirRegras(){ if(!state.regras || !state.regras.length){ state.regras=REGRAS_PADRAO.map(r=>({...r})); if(typeof lastSnapshot!=='undefined'&&lastSnapshot) lastSnapshot.regras=state.regras.map(r=>({...r})); cacheSave(); } }
 function catalogoOS(){ const serv=state.regras.map(r=>({nome:r.nome,preco:r.preco||null})); const pec=(state.pecas||[]).map(p=>({nome:p.nome,preco:p.preco||0})); return [...pec,...serv]; }
 function atualizarRegrasList(){ const dl=document.getElementById('regrasList'); if(dl) dl.innerHTML=catalogoOS().map(r=>`<option value="${esc(r.nome)}">`).join(''); }
@@ -972,11 +988,16 @@ function concluirLead(cid){ const c=getCliente(cid); if(!c) return; confirmar('C
 function reabrirLead(cid){ const c=getCliente(cid); if(!c) return; c.lead='novo'; c.atualizado=Date.now(); salvar(); refreshAtual(); atualizarLeadBadge(); toast('Voltou para a fila'); }
 function renderPainelTopo(){
   const box=document.getElementById('painelTopo'); if(!box) return;
+  const liberados=(state.ordens||[]).filter(o=>osStatus(o)==='liberado').sort((a,b)=>String(b.atualizado||0)-String(a.atualizado||0));
+  const alertaLib = liberados.length ? `<div class="alert-lib"><div class="al-head">🚗 ${liberados.length===1?'Carro liberado para entrega!':liberados.length+' carros liberados para entrega!'}</div>`+
+    liberados.slice(0,6).map(o=>{ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const mec=mecanicoOSNome(o);
+      return `<div class="al-row" onclick='go("os","${o.id}")'><div><div class="t">${esc(v?nomeVeiculo(v):'Veículo')}${v&&v.placa?` · ${esc(v.placa)}`:''}</div><div class="s">${esc((c&&c.nome)||'—')}${mec?(' · finalizou: '+esc(mec)):''} · avise o cliente</div></div><span class="al-go">Ver ›</span></div>`; }).join('')+
+    `</div>` : '';
   const feitos=(state.ordens||[]).filter(o=>osStatus(o)==='executado').sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))).slice(0,3);
   const podeFin=ehAdmin()||pode('valores');
   const recent=feitos.map(o=>{ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
     return `<div class="card srv" onclick='go("os","${o.id}")'><div class="row"><div><div class="t">${esc(v?nomeVeiculo(v):'Veículo')}${v&&v.placa?` · ${esc(v.placa)}`:''}</div><div class="s">${esc((c&&c.nome)||'—')} · ${o.data?fmtBR(parseISO(o.data)):'—'}</div></div>${podeFin?`<span class="valor-tag" style="color:var(--green)">${moneyFmt(osTotal(o))}</span>`:''}</div></div>`; }).join('');
-  box.innerHTML=`
+  box.innerHTML=alertaLib+`
     <div class="painel-search" onclick='goTab("servicos")'>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       <span>Buscar cliente, placa ou serviço…</span></div>
@@ -1417,11 +1438,16 @@ function renderOrdens(){
   box.innerHTML=lista.map(o=>{ const v=getVeiculo(o.veiculo_id); if(!v) return ''; const c=getCliente(v.cliente_id);
     const quando = osFiltroStatus==='agendamento' && o.agenda_data ? (fmtBR(parseISO(o.agenda_data))+(o.agenda_hora?(' '+o.agenda_hora):'')) : fmtBR(parseISO(o.data));
     const dir = osFiltroStatus==='agendamento' ? (o.reclamacao?esc(o.reclamacao.slice(0,40)):'agendado') : `${(o.itens||[]).length} item(ns)`;
+    const nomeMec = mecanicoOSNome(o);
     return `<div class="row click" onclick='go("os","${o.id}")'>
-      <div class="main"><div class="t">${esc(c?.nome||'—')} <span class="plate">${esc(v.placa||'—')}</span></div>
+      <div class="main"><div class="t">${esc(c?.nome||'—')} <span class="plate">${esc(v.placa||'—')}</span>${nomeMec?` <span class="mec-chip">🔧 ${esc(nomeMec)}</span>`:''}</div>
         <div class="s">${quando} · ${esc(nomeVeiculo(v))} · ${dir}</div></div>
       <div class="acts">${(osFiltroStatus==='agendamento'||mid)?'':`<span class="valor-tag">${moneyFmt(osTotal(o))}</span>`}${chev()}</div></div>`; }).join('');
 }
+function mecanicoOSNome(o){ const g=id=>{ const m=(state.mecanicos||[]).find(x=>x.id===id); return m?(m.nome||'').split(' ')[0]:''; };
+  if(o.mecanico_id){ return g(o.mecanico_id); }
+  const ids=[...new Set((o.maodeobra||[]).map(m=>m.mecanico_id).filter(Boolean))];
+  if(!ids.length) return ''; if(ids.length===1) return g(ids[0]); return g(ids[0])+' +'+(ids.length-1); }
 
 /* OS detalhe (por fase) */
 function renderOsDet(id){
@@ -1454,8 +1480,8 @@ function renderOsDet(id){
       <button class="btn green" onclick='avisarClienteAgenda("${o.id}")'>📲 Avisar cliente</button>
       <button class="btn" onclick='avisarMecanicoAgenda("${o.id}")'>🔧 Avisar mecânico</button></div>
     <div class="form-actions"><button class="btn gold" onclick='carroChegou("${o.id}")'>🚗 Carro chegou → Aguardando</button></div>
-    ${blocoMidias(o,'entrada',podeAddEntrada(o))}
-    ${blocoMidias(o,'defeito',podeAddDefeito(o))}`; return; }
+    ${podeMidiaEntrada()?blocoMidias(o,'entrada',podeAddEntrada(o)):''}
+    ${podeMidiaProblemas()?blocoMidias(o,'defeito',podeAddDefeito(o)):''}`; return; }
 
   // Demais fases: peças/mão de obra/totais
   const editavel = (st==='aguardando'||st==='andamento');
@@ -1463,8 +1489,8 @@ function renderOsDet(id){
     ? blocoDiagnostico(o)
     : `<div class="note-label">Observação do mecânico</div><div class="note ${o.obs_mecanico?'':'empty-note'}">${o.obs_mecanico?esc(o.obs_mecanico):'—'}</div>`;
   corpo += `
-    ${blocoMidias(o,'entrada',podeAddEntrada(o))}
-    ${blocoMidias(o,'defeito',podeAddDefeito(o))}
+    ${podeMidiaEntrada()?blocoMidias(o,'entrada',podeAddEntrada(o)):''}
+    ${podeMidiaProblemas()?blocoMidias(o,'defeito',podeAddDefeito(o)):''}
     ${(o.itens||[]).length?`<div class="section-label">Peças / produtos</div><div class="rows">${o.itens.map(linhaPeca).join('')}</div>`:''}
     ${(o.maodeobra&&o.maodeobra.length)?`<div class="section-label">Mão de obra</div><div class="rows">${o.maodeobra.map(m=>{ const mec=(state.mecanicos||[]).find(x=>x.id===m.mecanico_id);
       return `<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div><div class="s">${mec?('👨‍🔧 '+esc(mec.nome)):'<span style=\"color:var(--amber)\">sem mecânico</span>'}</div></div><span class="valor-tag">${moneyFmt(m.valor)}</span></div>`; }).join('')}</div>`:''}
@@ -1498,11 +1524,12 @@ function renderOsDetMecanico(o,mid){
       ${st==='agendamento'?`<span class="k">Agendado</span><span class="v">${o.agenda_data?fmtBR(parseISO(o.agenda_data)):'—'}${o.agenda_hora?(' às '+o.agenda_hora):''}</span>`:`<span class="k">KM</span><span class="v">${o.km?nfmt(o.km)+' km':'—'}</span>`}</div></div>
     <div class="note-label">${st==='agendamento'?'Prévia do serviço':'Reclamação / serviço'}</div><div class="note ${o.reclamacao?'':'empty-note'}">${o.reclamacao?esc(o.reclamacao):'—'}</div>
     ${(st==='aguardando'||st==='andamento')?blocoDiagnostico(o):(o.obs_mecanico?`<div class="note-label">Diagnóstico</div><div class="note">${esc(o.obs_mecanico)}</div>`:'')}
-    ${(st==='aguardando'||st==='andamento')?(blocoMidias(o,'entrada',podeAddEntrada(o))+blocoMidias(o,'defeito',podeAddDefeito(o))):''}
+    ${(st==='aguardando'||st==='andamento')?((podeMidiaEntrada()?blocoMidias(o,'entrada',podeAddEntrada(o)):'')+(podeMidiaProblemas()?blocoMidias(o,'defeito',podeAddDefeito(o)):'')):''}
     ${pecas?`<div class="section-label">Peças / itens do serviço</div><div class="rows">${pecas}</div>`:''}
     <div class="section-label">Sua mão de obra</div>
     ${minhas.length?`<div class="rows">${minhas.map(m=>`<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div></div><span class="valor-tag">${moneyFmt(m.valor)}</span></div>`).join('')}</div>
-      <div class="os-total"><span class="l"><b>Seu total de mão de obra</b></span><span class="v"><b>${moneyFmt(meuTotal)}</b></span></div>`:'<div class="note empty-note">Nenhuma mão de obra sua nesta OS ainda.</div>'}`;
+      <div class="os-total"><span class="l"><b>Seu total de mão de obra</b></span><span class="v"><b>${moneyFmt(meuTotal)}</b></span></div>`:'<div class="note empty-note">Nenhuma mão de obra sua nesta OS ainda.</div>'}
+    ${(st==='andamento'&&podeLiberar())?`<div class="form-actions" style="margin-top:16px"><button class="btn green" style="width:100%" onclick='liberarCarro("${o.id}")'>🚗 Carro pronto — Liberar para entrega</button></div><div class="hint" style="margin-top:6px">Ao liberar, o carro vai para "Liberados" e o administrativo recebe o aviso de entrega.</div>`:''}`;
 }
 function blocoDiagnostico(o){
   const pp=o.pecas_prev||[];
@@ -1608,8 +1635,8 @@ function entregarLojista(oid){ const o=getOS(oid); if(!o) return; const c=osEhLo
 function acoesFase(o,st){
   const loj=osEhLojista(o);
   if(st==='aguardando') return `<button class="btn sm green" onclick='aprovarOrcamento("${o.id}")'>✓ Aprovado</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>✕ Rejeitar</button>`;
-  if(st==='andamento') return `${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Entregar (conta do lojista)</button>`:''}<button class="btn sm ${loj?'ghost':'green'}" onclick='liberarCarro("${o.id}")'>🚗 Liberar carro</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>Rejeitar</button>`;
-  if(st==='liberado') return `${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Lançar na conta do lojista</button>`:''}${pode('valores')?`<button class="btn sm ${loj?'ghost':'green'}" onclick='finalizarOS("${o.id}")'>💵 Receber / Finalizar</button>`:''}${ehAdmin()?`<button class="btn sm ghost" onclick='voltarAndamento("${o.id}")'>Voltar p/ andamento</button>`:''}`;
+  if(st==='andamento') return `${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Entregar (conta do lojista)</button>`:''}${podeLiberar()?`<button class="btn sm ${loj?'ghost':'green'}" onclick='liberarCarro("${o.id}")'>🚗 Liberar carro</button>`:''}<button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>Rejeitar</button>`;
+  if(st==='liberado') return `${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Lançar na conta do lojista</button>`:''}${podeReceber()?`<button class="btn sm ${loj?'ghost':'green'}" onclick='finalizarOS("${o.id}")'>💵 Receber / Finalizar</button>`:''}${ehAdmin()?`<button class="btn sm ghost" onclick='voltarAndamento("${o.id}")'>Voltar p/ andamento</button>`:''}`;
   if(st==='executado') return `<span class="cx-mini">Finalizada</span>${pode('editar')?` <button class="btn sm ghost" onclick='abrirRetorno("${o.id}")'>🔁 Abrir retorno (garantia)</button>`:''}${ehAdmin()?` <button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir</button>`:''}`;
   if(st==='rejeitado') return ehAdmin()?`<button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir orçamento</button>`:`<span class="cx-mini">Orçamento não aprovado</span>`;
   return '';
@@ -2433,6 +2460,7 @@ function openOS(id, veiculoFixo){ if(!pode('editar')){ toast('Sem permissão par
   const o=id?getOS(id):null; osFixoVeiculo = o?o.veiculo_id : (veiculoFixo||null);
   osItens = o?(o.itens||[]).map(i=>({id:uid(),nome:i.nome,qtde:i.qtde?String(i.qtde):'1',valor:i.valor?String(i.valor).replace('.',','):''})) : [{id:uid(),nome:'',qtde:'1',valor:''}];
   osMdo = o?(o.maodeobra||[]).map(m=>({id:uid(),desc:m.desc||'',mecanico_id:m.mecanico_id||'',valor:m.valor?String(m.valor).replace('.',','):''})) : [];
+  osMecRespPrev = o?(o.mecanico_id||''):'';
   let veiculoCampo;
   if(osFixoVeiculo){ const v=getVeiculo(osFixoVeiculo); const c=getCliente(v.cliente_id);
     veiculoCampo=`<div class="field"><label>Veículo</label><div class="note">${esc((c?.nome||'')+' — '+nomeVeiculo(v)+' ('+(v.placa||'')+')')}</div><input type="hidden" id="osVeiculo" value="${osFixoVeiculo}"></div>`;
@@ -2451,7 +2479,7 @@ function openOS(id, veiculoFixo){ if(!pode('editar')){ toast('Sem permissão par
     <div class="field"><label>Reclamação do cliente</label><textarea id="osRec" rows="2" placeholder="O que o cliente relatou / motivo da vinda">${o?esc(o.reclamacao):''}</textarea></div>
     <div class="field"><label>Observação do mecânico (laudo)</label><textarea id="osMec" rows="2" placeholder="Diagnóstico e outros problemas encontrados">${o?esc(o.obs_mecanico):''}</textarea></div>
     <div class="field"><label>Observação da administração</label><textarea id="osAdm" rows="2" placeholder="Anotações internas sobre o veículo/cliente">${o?esc(o.obs_admin):''}</textarea></div>
-    <div class="field"><label>Mecânico responsável</label><select id="osMecResp"><option value="">—</option>${mecanicosAtivos().map(m=>`<option value="${m.id}" ${o&&o.mecanico_id===m.id?'selected':''}>${esc(m.nome)}</option>`).join('')}</select></div>
+    <div class="field"><label>Mecânico responsável</label><select id="osMecResp" onchange="osMecRespChange()"><option value="">—</option>${mecanicosAtivos().map(m=>`<option value="${m.id}" ${o&&o.mecanico_id===m.id?'selected':''}>${esc(m.nome)}</option>`).join('')}</select><div class="hint" style="margin:4px 0 0">Ao escolher, todas as mãos de obra já ficam com esse mecânico. Você pode trocar linha por linha se outro fez o serviço.</div></div>
     <div class="field" style="margin-bottom:8px"><label>Peças / produtos — informe quantidade e valor unitário</label></div>
     <div id="osItensBox"></div>
     <button class="btn sm ghost" onclick="addOsItem()">+ Adicionar peça</button>
@@ -2489,7 +2517,9 @@ function renderOsMdo(){ const box=document.getElementById('osMdoBox'); if(!box) 
   atualizaTotal();
 }
 function setOsMdo(id,k,v){ const r=osMdo.find(x=>x.id===id); if(r) r[k]=v; if(k==='valor') atualizaTotal(); }
-function addOsMdo(){ if(!mecanicosAtivos().length){ toast('Cadastre mecânicos em Configuração → Mecânicos'); } osMdo.push({id:uid(),desc:'',mecanico_id:'',valor:''}); renderOsMdo(); }
+let osMecRespPrev='';
+function osMecRespChange(){ const novo=val('osMecResp')||''; osMdo.forEach(r=>{ if(!r.mecanico_id || r.mecanico_id===osMecRespPrev) r.mecanico_id=novo; }); osMecRespPrev=novo; renderOsMdo(); }
+function addOsMdo(){ if(!mecanicosAtivos().length){ toast('Cadastre mecânicos em Equipe → Funcionários'); } osMdo.push({id:uid(),desc:'',mecanico_id:(val('osMecResp')||''),valor:''}); renderOsMdo(); }
 function removeOsMdo(id){ osMdo=osMdo.filter(x=>x.id!==id); renderOsMdo(); }
 function saveOS(id){
   const vid=osFixoVeiculo||val('osVeiculo'); const km=num('osKm'); const data=val('osData');
@@ -2565,35 +2595,43 @@ function finTab(k){
 let eqAtiva='funcionarios';
 function renderEquipe(){ eqTab(eqAtiva); }
 function eqTab(k){
-  if(!['funcionarios','acessos'].includes(k)) k='funcionarios';
-  if(k==='acessos'&&!ehAdmin()) k='funcionarios';
+  if(!['funcionarios','acessos','perfis'].includes(k)) k='funcionarios';
+  if((k==='acessos'||k==='perfis')&&!ehAdmin()) k='funcionarios';
   eqAtiva=k;
   const box=document.getElementById('eqTabs'); if(!box) return;
-  const abas=[['funcionarios','Funcionários']]; if(ehAdmin()) abas.push(['acessos','Acessos ao sistema']);
+  const abas=[['funcionarios','Funcionários']]; if(ehAdmin()) abas.push(['acessos','Acessos ao sistema'],['perfis','Perfis']);
   box.innerHTML=abas.map(([kk,r])=>`<button class="${kk===eqAtiva?'on':''}" onclick="eqTab('${kk}')">${r}</button>`).join('');
   document.querySelectorAll('[data-screen="equipe"] .cfg-panel').forEach(p=>p.style.display=p.dataset.eq===k?'':'none');
   if(k==='funcionarios') renderMecanicos();
   if(k==='acessos') renderUsuariosAdmin();
+  if(k==='perfis') renderPerfis();
 }
 
 /* ---- Tela Mais (menu) ---- */
 function renderMais(){
   const box=document.getElementById('maisMenu'); if(!box) return;
   const item=(ic,t,s,onclick)=>`<div class="menu-item" onclick='${onclick}'><div class="menu-ic">${ic}</div><div class="menu-tx"><div class="t">${t}</div><div class="s">${s}</div></div><span class="chev">›</span></div>`;
-  let h=`<div class="lbl-sec-mais">Cadastros</div>`;
-  h+=item('🚗','Veículos','Frota dos clientes',`goTab("veiculos")`);
-  h+=item('🗓️','Tabela de Revisões','Prazos de retorno (km/meses)',`goTab("regras")`);
-  h+=item('🏭','Fornecedores','Lojistas e fornecedores (CNPJ)',`goTab("fornecedores")`);
-  if(ehAdmin()||pode('editar')||pode('valores')){
+  let h='';
+  const secCad = telaLiberada('veiculos')||telaLiberada('regras')||telaLiberada('fornecedores');
+  if(secCad){ h+=`<div class="lbl-sec-mais">Cadastros</div>`;
+    if(telaLiberada('veiculos')) h+=item('🚗','Veículos','Frota dos clientes',`goTab("veiculos")`);
+    if(telaLiberada('regras')) h+=item('🗓️','Tabela de Revisões','Prazos de retorno (km/meses)',`goTab("regras")`);
+    if(telaLiberada('fornecedores')) h+=item('🏭','Fornecedores','Lojistas e fornecedores (CNPJ)',`goTab("fornecedores")`);
+  }
+  if(telaLiberada('boletos')||telaLiberada('financeiro')){
     h+=`<div class="lbl-sec-mais">Recebimentos</div>`;
     h+=item('📄','Boletos a receber','Acompanhe e confirme os pagamentos',`goTab("boletos")`);
   }
-  h+=`<div class="lbl-sec-mais">Equipe &amp; Acesso</div>`;
-  h+=item('👥','Equipe','Funcionários e comissões'+(ehAdmin()?' · acessos':''),`goTab("equipe")`);
-  h+=item('📱','Área do Cliente','Convites e acessos dos clientes',`abrirAreaClienteInfo()`);
-  h+=`<div class="lbl-sec-mais">Sistema</div>`;
-  h+=item('⚙️','Configurações','Mensagens, textos e backup',`goTab("config")`);
-  box.innerHTML=h;
+  if(ehAdmin()||telaLiberada('acessos')||telaLiberada('config')){
+    h+=`<div class="lbl-sec-mais">Equipe &amp; Acesso</div>`;
+    h+=item('👥','Equipe','Funcionários e comissões'+((ehAdmin()||telaLiberada('acessos'))?' · acessos e perfis':''),`goTab("equipe")`);
+    h+=item('📱','Área do Cliente','Convites e acessos dos clientes',`abrirAreaClienteInfo()`);
+  }
+  if(ehAdmin()||telaLiberada('config')){
+    h+=`<div class="lbl-sec-mais">Sistema</div>`;
+    h+=item('⚙️','Configurações','Mensagens, textos e backup',`goTab("config")`);
+  }
+  box.innerHTML=h||'<div class="note empty-note">Sem itens disponíveis para o seu acesso.</div>';
 }
 function abrirAreaClienteInfo(){
   openModal(`<h3>Área do Cliente</h3><p class="sub">Portal onde o cliente acompanha o serviço e o histórico do carro.</p>
@@ -2638,9 +2676,64 @@ function servSetFiltro(k){ servFiltro=k; renderServicos(); }
 function competenciaAtualIni(){ const d=hoje(); return toISO(new Date(d.getFullYear(), d.getMonth(), 1)); }
 
 /* ---- Permissões ---- */
-const PERMS=[['editar','Cadastrar e editar'],['excluir','Excluir registros'],['valores','Ver valores (R$)'],['config','Acessar Configuração']];
+/* ===== PERFIS DE ACESSO (flexível) ===== */
+const FLAGS_TELAS=[['painel','Painel'],['ordens','Ordens de serviço'],['clientes','Clientes'],['veiculos','Veículos'],['financeiro','Financeiro'],['saldos','Saldos (caixa e banco)'],['fornecedores','Fornecedores'],['boletos','Boletos a receber'],['regras','Tabela de Revisões'],['config','Configurações'],['acessos','Gerenciar acessos']];
+const FLAGS_ACOES=[['editar','Cadastrar / editar'],['excluir','Excluir registros'],['valores','Ver valores (R$)'],['liberar','Liberar carro'],['receber','Receber / finalizar OS']];
+const FLAGS_MIDIA=[['midia_entrada','Fotos/vídeos da entrada'],['midia_problemas','Fotos/vídeos dos problemas']];
+const TODAS_FLAGS=[...FLAGS_TELAS,...FLAGS_ACOES,...FLAGS_MIDIA,['modo_mec','Modo mecânico (vê só as OS dele)']].map(x=>x[0]);
+function flagsAll(v){ const o={}; TODAS_FLAGS.forEach(k=>o[k]=v); return o; }
+const PERFIS_PADRAO=[
+  {id:'mecanico',nome:'Mecânico',icone:'🔧',sistema:true,flags:Object.assign(flagsAll(false),{ordens:true,editar:true,liberar:true,midia_entrada:true,midia_problemas:true,modo_mec:true})},
+  {id:'atendente',nome:'Atendente',icone:'🧾',sistema:true,flags:Object.assign(flagsAll(false),{painel:true,ordens:true,clientes:true,veiculos:true,financeiro:true,fornecedores:true,boletos:true,regras:true,editar:true,valores:true,liberar:true,receber:true,midia_entrada:true,midia_problemas:true})},
+  {id:'gestor',nome:'Gestor',icone:'👔',sistema:true,flags:Object.assign(flagsAll(false),{painel:true,ordens:true,clientes:true,veiculos:true,financeiro:true,saldos:true,fornecedores:true,boletos:true,regras:true,editar:true,excluir:true,valores:true,liberar:true,receber:true,midia_entrada:true,midia_problemas:true})},
+  {id:'admin',nome:'Administrador',icone:'👑',sistema:true,flags:flagsAll(true)},
+];
+function getPerfis(){ if(!state.perfis||!Array.isArray(state.perfis)||!state.perfis.length){ state.perfis=PERFIS_PADRAO.map(p=>({...p,flags:{...p.flags}})); } return state.perfis; }
+function carregarPerfis(){ try{ if(state.config&&state.config.perfis_json){ const arr=JSON.parse(state.config.perfis_json); if(Array.isArray(arr)&&arr.length) state.perfis=arr; } }catch(e){} getPerfis(); }
+function salvarPerfis(){ state.config.perfis_json=JSON.stringify(getPerfis()); salvar(); }
+function contaUsuariosPerfil(pid){ return (state.usuarios||[]).filter(u=>{ if(u.papel==='admin') return pid==='admin'; return (u.perfil||perfilPadraoLegado(u))===pid; }).length; }
+function renderPerfis(){
+  const box=document.getElementById('perfisBox'); if(!box) return;
+  if(!ehAdmin()){ box.innerHTML='<div class="note empty-note">Somente o administrador.</div>'; return; }
+  const rows=getPerfis().map(p=>{ const nOn=TODAS_FLAGS.filter(k=>p.flags[k]).length;
+    return `<div class="row click" onclick='editarPerfil("${p.id}")'><div class="main"><div class="t">${p.icone||'👤'} ${esc(p.nome)}${p.id==='admin'?' <span class="badge rev">total</span>':''}</div><div class="s">${contaUsuariosPerfil(p.id)} pessoa(s) · ${nOn} permissão(ões) ligada(s)</div></div>${chev()}</div>`; }).join('');
+  box.innerHTML=`<div class="hint" style="margin:2px 2px 12px">Cada acesso usa um perfil. Ligue/desligue o que cada perfil enxerga e faz. O <b>Administrador</b> tem tudo, sempre.</div>
+    <div class="section-label"><span>Perfis de acesso</span><button class="btn sm gold" onclick="novoPerfil()">+ Novo perfil</button></div>
+    <div class="rows">${rows}</div>`;
+}
+function editarPerfil(id){ const p=getPerfil(id); if(!p) return; const admin=(p.id==='admin');
+  const grupo=(titulo,flags)=> `<div class="lbl-perfil">${titulo}</div><div class="grp-perfil">`+flags.map(([k,r])=>`<label class="tog-perfil"><span>${r}</span><input type="checkbox" data-flag="${k}" ${p.flags[k]?'checked':''} ${admin?'disabled':''}></label>`).join('')+`</div>`;
+  openModal(`<h3>${admin?'Perfil: Administrador':(p.sistema?'Perfil: '+esc(p.nome):'Editar perfil')}</h3>
+    ${admin?'<p class="sub">Acesso total. Não pode ser alterado, por segurança.</p>':`<div class="field"><label>Nome do perfil</label><input id="pfNome" value="${esc(p.nome)}" placeholder="Ex.: Caixa"></div>`}
+    ${grupo('Telas que enxerga',FLAGS_TELAS)}
+    ${grupo('Ações',FLAGS_ACOES)}
+    ${grupo('Fotos e vídeos',FLAGS_MIDIA)}
+    ${grupo('Modo',[['modo_mec','Modo mecânico (vê só as OS dele)']])}
+    <div class="form-actions">${admin?'':`<button class="btn gold" onclick='salvarPerfil("${id}")'>Salvar perfil</button>`}${(!p.sistema)?`<button class="btn danger" onclick='excluirPerfil("${id}")'>Excluir</button>`:''}<button class="btn ghost" onclick="descartarModal()">${admin?'Fechar':'Cancelar'}</button></div>`);
+}
+function salvarPerfil(id){ const p=getPerfil(id); if(!p||p.id==='admin') return;
+  const nome=(val('pfNome')||'').trim(); if(nome) p.nome=nome;
+  document.querySelectorAll('[data-flag]').forEach(el=>{ p.flags[el.dataset.flag]=el.checked; });
+  salvarPerfis(); closeModal(); renderPerfis(); toast('Perfil salvo ✓'); }
+function novoPerfil(){ const base=getPerfil('atendente'); const id='p'+uid().slice(0,6); getPerfis().push({id,nome:'Novo perfil',icone:'👤', sistema:false, flags:{...(base?base.flags:flagsAll(false))}}); salvarPerfis(); editarPerfil(id); }
+function excluirPerfil(id){ const p=getPerfil(id); if(!p||p.sistema){ toast('Perfis padrão não podem ser excluídos'); return; }
+  confirmar('Excluir o perfil "'+p.nome+'"? Quem usava ele volta para Atendente.', function(){ state.perfis=getPerfis().filter(x=>x.id!==id); (state.usuarios||[]).forEach(u=>{ if(u.perfil===id) u.perfil='atendente'; }); salvarPerfis(); closeModal(); renderPerfis(); }); }
+function getPerfil(id){ return getPerfis().find(p=>p.id===id); }
+function ehSocioFuncById(mid){ return ehSocioFunc((state.mecanicos||[]).find(x=>x.id===mid)); }
+function perfilPadraoLegado(u){ const mec=!!u.mecanico_id && modoMecRestrito(u.modo_mec); if(mec) return 'mecanico'; if(u.mecanico_id && ehSocioFuncById(u.mecanico_id)) return 'gestor'; return 'atendente'; }
+function permAtual(){ if(!usuarioAtual) return flagsAll(false); if(usuarioAtual.papel==='admin') return flagsAll(true);
+  let perf = usuarioAtual.perfil ? getPerfil(usuarioAtual.perfil) : null;
+  if(!perf) perf = getPerfil(perfilPadraoLegado(usuarioAtual));
+  return perf ? Object.assign(flagsAll(false),perf.flags) : flagsAll(false); }
+function flag(k){ if(usuarioAtual && usuarioAtual.papel==='admin') return true; return !!permAtual()[k]; }
+const PERMS=FLAGS_ACOES;
 function permsPadrao(){ return {editar:true, excluir:false, valores:true, config:false}; }
-function pode(perm){ if(!usuarioAtual) return false; if(usuarioAtual.papel==='admin') return true; const p=usuarioAtual.perms||permsPadrao(); return !!p[perm]; }
+function pode(perm){ if(!usuarioAtual) return false; if(usuarioAtual.papel==='admin') return true; return !!permAtual()[perm]; }
+function telaLiberada(t){ return flag(t); }
+function podeLiberar(){ return flag('liberar'); }
+function podeReceber(){ return flag('receber'); }
+function podeMidiaEntrada(){ return flag('midia_entrada'); }
+function podeMidiaProblemas(){ return flag('midia_problemas'); }
 function aplicarPermissoesUI(){ document.body.classList.toggle('sem-valores', !pode('valores') && !ehMecanico()); document.body.classList.toggle('modo-mecanico', ehMecanico()); montarNav(); if(ehMecanico()){ osFiltroStatus='aguardando'; } iniciarInatividade(); }
 let inatividadeTimer=null; const INATIVIDADE_MS=30*60*1000;
 function resetInatividade(){ if(inatividadeTimer) clearTimeout(inatividadeTimer); if(!usuarioAtual) return;
@@ -3183,20 +3276,32 @@ function renderUsuariosAdmin(){
   const badge=s=>`<span class="badge st-${s}">${s==='ativo'?'Ativo':s==='pendente'?'Pendente':'Bloqueado'}</span>`;
   const rows=state.usuarios.slice().sort((a,b)=>((a.status==='pendente')?-1:0)-((b.status==='pendente')?-1:0)||a.nome.localeCompare(b.nome)).map(u=>{
     const eu=usuarioAtual&&u.id===usuarioAtual.id;
-    return `<div class="row" style="flex-wrap:wrap; gap:8px"><div class="main"><div class="t">${esc(u.nome)} ${badge(u.status)}${u.papel==='admin'?' <span class="badge prev">admin</span>':''}${u.mecanico_id?' <span class="badge" style="border-color:#48B98A;color:#48B98A">mecânico</span>':''}${u.reset?' <span class="badge st-pendente">pediu senha</span>':''}</div>
+    const pid=u.papel==='admin'?'admin':(u.perfil||perfilPadraoLegado(u)); const pp=getPerfil(pid);
+    const perfBadge=pp?`<span class="badge" style="border-color:var(--gold);color:var(--gold)">${pp.icone||''} ${esc(pp.nome)}</span>`:'';
+    return `<div class="row" style="flex-wrap:wrap; gap:8px"><div class="main"><div class="t">${esc(u.nome)} ${badge(u.status)} ${perfBadge}${u.mecanico_id?' <span class="badge" style="border-color:#48B98A;color:#48B98A">mecânico</span>':''}${u.reset?' <span class="badge st-pendente">pediu senha</span>':''}</div>
       <div class="s">login: ${esc(u.login||'—')}${u.email?(' · '+esc(u.email)):''}${eu?' · (você)':''}</div></div>
       <div class="acts">
         <button class="switch ${u.status==='ativo'?'on':''}" title="${u.status==='ativo'?'Inativar':'Ativar'}" ${eu?'disabled style="opacity:.4"':''} onclick='adminToggle("${u.id}")'></button>
-        <button class="btn sm ghost" ${u.papel==='admin'?'disabled style="opacity:.4"':''} onclick='adminPermissoes("${u.id}")'>Permissões</button>
+        <button class="btn sm gold" ${eu?'disabled style="opacity:.4"':''} onclick='adminPerfilUsuario("${u.id}")'>Perfil</button>
         <button class="btn sm ghost" onclick='adminVincularMec("${u.id}")'>Mecânico</button>
         <button class="btn sm ghost" onclick='adminRedefinirSenha("${u.id}")'>${u.reset?'Redefinir ⚠':'Redefinir senha'}</button>
         <button class="btn sm danger" ${eu?'disabled style="opacity:.4"':''} onclick='adminExcluir("${u.id}")'>Excluir</button>
       </div></div>`;
   }).join('');
   box.innerHTML=`<div class="section-label"><span>Usuários (acesso ao sistema)</span><button class="btn sm gold" onclick="adminCadastrar()">+ Cadastrar</button></div>
-    <div class="hint">Botão verde = liga (ativa) / desliga (inativa). Cadastros novos entram como <b>Pendente</b>. "Permissões" define o que cada usuário pode fazer. "Redefinir senha" cria uma senha nova (não afeta nenhum outro dado).</div>
+    <div class="hint">Botão verde = liga/desliga o acesso. <b>Perfil</b> define o que a pessoa vê e faz (edite os perfis na aba <b>Perfis</b>). <b>Mecânico</b> vincula à comissão. Você é o Administrador Geral e não pode se rebaixar.</div>
     <div class="rows">${rows||emptyState('Nenhum usuário','')}</div>`;
 }
+function adminPerfilUsuario(id){ const u=getUsuario(id); if(!u) return; if(usuarioAtual&&u.id===usuarioAtual.id){ toast('Você não pode alterar o próprio perfil'); return; }
+  const atual=u.papel==='admin'?'admin':(u.perfil||perfilPadraoLegado(u));
+  openModal(`<h3>Perfil de ${esc(u.nome)}</h3><p class="sub">Escolha o que essa pessoa pode acessar.</p>
+    <div class="field"><label>Perfil de acesso</label><select id="upPerfil">${getPerfis().map(p=>`<option value="${p.id}" ${p.id===atual?'selected':''}>${p.icone||''} ${esc(p.nome)}</option>`).join('')}</select></div>
+    <div class="hint">Para editar o que cada perfil enxerga, use a aba <b>Perfis</b>. Se escolher <b>Mecânico</b>, lembre de vincular a pessoa ao mecânico dela (botão "Mecânico").</div>
+    <div class="form-actions"><button class="btn gold" onclick='salvarPerfilUsuario("${id}")'>Salvar</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
+}
+function salvarPerfilUsuario(id){ const u=getUsuario(id); if(!u) return; const perfil=val('upPerfil')||'atendente'; const pf=getPerfil(perfil);
+  u.perfil=perfil; u.papel=(perfil==='admin')?'admin':'operador'; if(pf) u.modo_mec=(pf.flags.modo_mec?'1':'0'); u.atualizado=Date.now();
+  salvar(); closeModal(); renderUsuariosAdmin(); toast('Perfil atualizado ✓'); }
 function adminToggle(id){ const u=getUsuario(id); if(!u) return; if(usuarioAtual&&u.id===usuarioAtual.id){ toast('Você não pode alterar o próprio acesso'); return; }
   u.status = u.status==='ativo'?'bloqueado':'ativo'; u.atualizado=Date.now(); salvar(); renderUsuariosAdmin(); toast(u.status==='ativo'?'Acesso liberado':'Acesso inativado'); }
 function adminExcluir(id){ const u=getUsuario(id); if(!u) return; if(usuarioAtual&&u.id===usuarioAtual.id){ toast('Você não pode se excluir'); return; }
@@ -3207,9 +3312,9 @@ function adminCadastrar(){
     <div class="grid2"><div class="field"><label>Login</label><input id="nuLogin" placeholder="ex: maria"></div>
       <div class="field"><label>E-mail</label><input id="nuEmail" placeholder="maria@email.com"></div></div>
     <div class="grid2"><div class="field"><label>Senha</label><input id="nuSenha" type="password" placeholder="senha"></div>
-      <div class="field"><label>Papel</label><select id="nuPapel"><option value="operador">Operador</option><option value="admin">Administrador</option></select></div></div>
-    <div class="field"><label>Vincular a um mecânico (opcional)</label><select id="nuMec"><option value="">— não é mecânico —</option>${mecanicosAtivos().map(m=>`<option value="${m.id}">${esc(m.nome)}</option>`).join('')}</select>
-      <div class="hint" style="margin-bottom:0">Se vincular, este usuário entra em <b>modo mecânico</b>: vê só as OS no nome dele, sem valores de peças, apenas a mão de obra dele.</div></div>
+      <div class="field"><label>Perfil de acesso</label><select id="nuPerfil">${getPerfis().map(p=>`<option value="${p.id}" ${p.id==='atendente'?'selected':''}>${p.icone||''} ${esc(p.nome)}</option>`).join('')}</select></div></div>
+    <div class="field"><label>Vincular a um mecânico (para comissão)</label><select id="nuMec"><option value="">— não é mecânico —</option>${mecanicosAtivos().map(m=>`<option value="${m.id}">${esc(m.nome)}</option>`).join('')}</select>
+      <div class="hint" style="margin-bottom:0">O <b>perfil</b> define o que a pessoa vê e faz. Vincule ao mecânico se ela ganha comissão de mão de obra (necessário para o perfil Mecânico ver só as OS dela).</div></div>
     <div class="form-actions"><button class="btn gold" onclick="salvarNovoUsuario()">Salvar</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
 async function salvarNovoUsuario(){
@@ -3217,7 +3322,8 @@ async function salvarNovoUsuario(){
   if(!nome||!login||!senha){ toast('Preencha nome, login e senha'); return; }
   if(usuarioPorLogin(login)){ toast('Esse login já existe'); return; }
   const salt=randSalt(), hash=await hashSenha(senha,salt); const mecId=val('nuMec')||'';
-  state.usuarios.push({id:uid(),nome,login,email:val('nuEmail').trim(),senha_hash:hash,salt,status:'ativo',papel:val('nuPapel'),perms:permsPadrao(),reset:'',mecanico_id:mecId,modo_mec:(mecId?'1':'0'),criado:Date.now()});
+  const perfil=val('nuPerfil')||'atendente'; const pf=getPerfil(perfil);
+  state.usuarios.push({id:uid(),nome,login,email:val('nuEmail').trim(),senha_hash:hash,salt,status:'ativo',papel:(perfil==='admin'?'admin':'operador'),perfil,perms:permsPadrao(),reset:'',mecanico_id:mecId,modo_mec:((pf&&pf.flags.modo_mec)?'1':'0'),criado:Date.now()});
   salvar(); closeModal(); renderUsuariosAdmin(); toast('Usuário cadastrado');
 }
 function adminPermissoes(id){

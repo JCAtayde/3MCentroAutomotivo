@@ -11,7 +11,7 @@ const SCHEMA = {
   regras:   { cols:['id','nome','km','meses','ordem','preco'], json:[] },
   mecanicos:{ cols:['id','nome','percentual','ativo','telefone','salario','funcao','socio','criado','atualizado'], json:[] },
   caixa:    { cols:['id','tipo','data','valor','forma','taxa','liquido','descricao','ordem_id','parcelas','categoria','funcionario_id','cartao_tipo','socio','conta','vencimento','pagamento','fornecedor_id','criado','atualizado'], json:[] },
-  usuarios: { cols:['id','nome','login','senha_hash','salt','status','papel','email','perms','reset','mecanico_id','modo_mec','criado','atualizado'], json:['perms'] },
+  usuarios: { cols:['id','nome','login','senha_hash','salt','status','papel','email','perms','reset','mecanico_id','modo_mec','perfil','criado','atualizado'], json:['perms'] },
   pecas:    { cols:['id','nome','preco','criado','atualizado'], json:[] },
   fornecedores: { cols:['id','nome','cnpj','telefone','obs','criado','atualizado'], json:[] },
 };
