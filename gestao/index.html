@@ -121,6 +121,15 @@
   .bar-cols .bc-bar{width:70%;max-width:34px;background:linear-gradient(180deg,var(--gold),#a9791f);border-radius:5px 5px 0 0;min-height:3px}
   .bar-cols .bc-v{font-size:9.5px;color:var(--txt);font-weight:700}
   .bar-cols .bc-l{font-size:10px;color:var(--muted)}
+  .os-item-wrap{margin-bottom:4px}
+  .os-custo-row{display:flex;align-items:center;gap:8px;margin:2px 0 8px;padding:6px 8px;background:rgba(232,178,58,.06);border:1px dashed var(--line2);border-radius:9px}
+  .os-custo-row .ocl{font-size:11px;color:var(--muted);white-space:nowrap}
+  .os-custo-row .os-custo{flex:none;width:110px;background:var(--bg2);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:7px 9px;font-size:13px}
+  .os-custo-row .os-lucro-mini{font-size:11px;font-weight:700;margin-left:auto;text-align:right}
+  .os-lucro-panel{background:linear-gradient(160deg,rgba(72,185,138,.12),rgba(72,185,138,.02));border:1px solid #1f5c3f;border-radius:13px;padding:12px;margin-top:10px}
+  .os-lucro-panel .lp-h{font-size:12px;color:var(--muted);margin-bottom:6px}
+  .os-lucro-panel .lp-row{display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px}
+  .os-lucro-panel .lp-big{font-size:18px;font-weight:800;color:var(--green)}
   .srv-search{display:flex;align-items:center;gap:9px;background:var(--bg2);border:1px solid var(--line2);border-radius:12px;padding:11px 13px;margin-bottom:11px}
   .srv-search svg{width:17px;height:17px;stroke:var(--muted);flex:none}
   .srv-search input{flex:1;background:none;border:none;color:var(--txt);font-size:14.5px;outline:none}
@@ -748,6 +757,10 @@ function veiculosDe(cid){ return state.veiculos.filter(v=>v.cliente_id===cid); }
 function ordensDe(vid){ return state.ordens.filter(o=>o.veiculo_id===vid).sort((a,b)=>b.data.localeCompare(a.data)); }
 function nomeVeiculo(v){ return (v.modelo||'Veículo')+(v.ano?(' '+v.ano):''); }
 function pecasTotal(o){ return (o.itens||[]).reduce((s,i)=>s+(Number(i.valor)||0)*(Number(i.qtde)||1),0); }
+function pecasCusto(o){ return (o.itens||[]).reduce((s,i)=>s+(Number(i.custo)||0)*(Number(i.qtde)||1),0); }
+function osLucro(o){ return osTotal(o)-pecasCusto(o); }
+function osLucroPct(o){ const t=osTotal(o); return t>0?Math.round((osLucro(o)/t)*100):0; }
+function itemLucro(i){ return ((Number(i.valor)||0)-(Number(i.custo)||0))*(Number(i.qtde)||1); }
 function osMdoTotal(o){ return (o.maodeobra||[]).reduce((s,m)=>s+(Number(m.valor)||0),0); }
 function descontoTotal(o){ return (o.descontos||[]).reduce((s,d)=>s+(Number(d.valor)||0),0); }
 function descontoMdoLinha(o,mid){ return (o.descontos||[]).filter(d=>d.tipo==='mdo'&&d.ref===mid).reduce((s,d)=>s+(Number(d.valor)||0),0); }
@@ -1524,7 +1537,8 @@ function renderOsDet(id){
       return `<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div><div class="s">${mec?('👨‍🔧 '+esc(mec.nome)):'<span style=\"color:var(--amber)\">sem mecânico</span>'}</div></div><span class="valor-tag">${moneyFmt(m.valor)}</span></div>`; }).join('')}</div>`:''}
     <div class="os-total" style="margin-top:12px"><span class="l">Valor de peças</span><span class="v">${moneyFmt(pecasTotal(o))}</span></div>
     <div class="os-total"><span class="l">Valor de mão de obra</span><span class="v">${moneyFmt(osMdoTotal(o))}</span></div>
-    <div class="os-total" style="border-top:1px solid var(--line2);margin-top:2px;padding-top:8px"><span class="l"><b>Valor total</b></span><span class="v"><b>${moneyFmt(osTotal(o))}</b></span></div>`;
+    <div class="os-total" style="border-top:1px solid var(--line2);margin-top:2px;padding-top:8px"><span class="l"><b>Valor total</b></span><span class="v"><b>${moneyFmt(osTotal(o))}</b></span></div>
+    ${pode('valores')?`<div class="os-lucro-panel"><div class="lp-h">🔒 Visão interna — o cliente não vê isto</div><div class="lp-row"><span>Custo das peças</span><span>${moneyFmt(pecasCusto(o))}</span></div><div class="lp-row"><span><b>Lucro da OS</b> (venda − custo das peças)</span><span class="lp-big">${moneyFmt(osLucro(o))}</span></div><div class="lp-row" style="color:var(--muted)"><span>Margem sobre a venda</span><span>${osLucroPct(o)}%</span></div></div>`:''}`;
 
   // Orçamento: imprimir/baixar/enviar (aguardando/andamento/executado)
   if(v){ corpo+=`<div class="form-actions" style="margin-top:10px">
@@ -2343,7 +2357,8 @@ function copiarTexto(t){ if(navigator.clipboard&&navigator.clipboard.writeText){
 ================================================================== */
 let osItens=[], osFixoVeiculo=null;
 function renderOsItens(){ const box=document.getElementById('osItensBox');
-  box.innerHTML=osItens.map(row=>`<div class="os-row">
+  const verCusto=pode('valores');
+  box.innerHTML=osItens.map(row=>`<div class="os-item-wrap"><div class="os-row">
     <div class="os-serv combo">
       <input class="os-nome" autocomplete="off" placeholder="Peça/serviço — clique ▾ ou digite" value="${esc(row.nome)}"
         oninput="comboInput('${row.id}',this.value)" onfocus="comboRender('${row.id}',this.value)" onblur="comboBlur('${row.id}')">
@@ -2351,9 +2366,15 @@ function renderOsItens(){ const box=document.getElementById('osItensBox');
       <div class="combo-list" id="combo-${row.id}"></div>
     </div>
     <input class="os-qtd" inputmode="numeric" title="Quantidade" placeholder="Qtd" value="${esc(row.qtde||'1')}" oninput="setOsItem('${row.id}','qtde',this.value)">
-    <input class="os-val" inputmode="decimal" placeholder="Unit. 0,00" value="${esc(row.valor)}" oninput="setOsItem('${row.id}','valor',this.value)">
-    <button class="rm" onclick="removeOsItem('${row.id}')">✕</button></div>`).join('');
-  atualizaTotal(); calcOsPrevia(); }
+    <input class="os-val" inputmode="decimal" placeholder="Venda un. 0,00" value="${esc(row.valor)}" oninput="setOsItem('${row.id}','valor',this.value)">
+    <button class="rm" onclick="removeOsItem('${row.id}')">✕</button></div>
+    ${verCusto?`<div class="os-custo-row"><span class="ocl">🔒 Custo interno (un.)</span><input class="os-custo" inputmode="decimal" placeholder="R$ 0,00" value="${esc(row.custo||'')}" oninput="setOsItem('${row.id}','custo',this.value)"><span class="os-lucro-mini" id="lucro-${row.id}"></span></div>`:''}
+  </div>`).join('');
+  atualizaTotal(); calcOsPrevia(); atualizaLucroPecas(); }
+function atualizaLucroPecas(){ if(!pode('valores')) return; let tv=0,tc=0;
+  osItens.forEach(r=>{ const q=Number(r.qtde)||1; const v=moneyParse(r.valor)*q; const c=moneyParse(r.custo)*q; tv+=v; tc+=c;
+    const el=document.getElementById('lucro-'+r.id); if(el){ const temCusto=(r.custo!==''&&r.custo!=null); const l=v-c; el.textContent=temCusto?('lucro '+moneyFmt(l)+(v>0?(' · '+Math.round((l/v)*100)+'%'):'')):'informe o custo'; el.style.color=temCusto?(l>=0?'var(--green)':'var(--red)'):'var(--muted)'; } });
+  const foot=document.getElementById('osLucroPecas'); if(foot){ const l=tv-tc; foot.innerHTML=moneyFmt(l)+(tv>0?(' <span style="font-size:12px;opacity:.85">('+Math.round((l/tv)*100)+'%)</span>'):''); foot.style.color=l>=0?'var(--green)':'var(--red)'; } }
 function comboRender(id, filtro){
   const el=document.getElementById('combo-'+id); if(!el) return;
   const f=(filtro||'').trim().toLowerCase();
@@ -2366,8 +2387,8 @@ function comboToggle(id){ const el=document.getElementById('combo-'+id); if(!el)
 function comboInput(id,v){ const r=osItens.find(x=>x.id===id); if(r) r.nome=v; calcOsPrevia(); comboRender(id,v); }
 function comboBlur(id){ setTimeout(function(){ const el=document.getElementById('combo-'+id); if(el) el.classList.remove('open'); }, 180); }
 function comboPick(id,nome){ const r=osItens.find(x=>x.id===id); if(r){ r.nome=nome; const p=pecaPorNome(nome); if(p&&p.preco&&!moneyParse(r.valor)) r.valor=String(p.preco).replace('.',','); } const el=document.getElementById('combo-'+id); if(el) el.classList.remove('open'); renderOsItens(); }
-function setOsItem(id,k,v){ const r=osItens.find(x=>x.id===id); if(r) r[k]=v; if(k==='valor'||k==='qtde') atualizaTotal(); else calcOsPrevia(); }
-function addOsItem(){ osItens.push({id:uid(),nome:'',qtde:'1',valor:''}); renderOsItens(); }
+function setOsItem(id,k,v){ const r=osItens.find(x=>x.id===id); if(r) r[k]=v; if(k==='valor'||k==='qtde'){ atualizaTotal(); atualizaLucroPecas(); } else if(k==='custo'){ atualizaLucroPecas(); } else calcOsPrevia(); }
+function addOsItem(){ osItens.push({id:uid(),nome:'',qtde:'1',valor:'',custo:''}); renderOsItens(); }
 function togglePecaInline(){ const box=document.getElementById('pcInline'); if(!box) return;
   if(box.innerHTML){ box.innerHTML=''; return; }
   box.innerHTML=`<div class="peca-inline"><div class="grid2">
@@ -2486,7 +2507,7 @@ function veicComboPick(vid){ const v=getVeiculo(vid); if(!v) return; const c=get
 function openOS(id, veiculoFixo){ if(!pode('editar')){ toast('Sem permissão para editar'); return; }
   if(!state.veiculos.length){ toast('Cadastre um veículo primeiro'); goTab('veiculos'); return; }
   const o=id?getOS(id):null; osFixoVeiculo = o?o.veiculo_id : (veiculoFixo||null);
-  osItens = o?(o.itens||[]).map(i=>({id:uid(),nome:i.nome,qtde:i.qtde?String(i.qtde):'1',valor:i.valor?String(i.valor).replace('.',','):''})) : [{id:uid(),nome:'',qtde:'1',valor:''}];
+  osItens = o?(o.itens||[]).map(i=>({id:uid(),nome:i.nome,qtde:i.qtde?String(i.qtde):'1',valor:i.valor?String(i.valor).replace('.',','):'',custo:(i.custo!=null&&i.custo!=='')?String(i.custo).replace('.',','):''})) : [{id:uid(),nome:'',qtde:'1',valor:'',custo:''}];
   osMdo = o?(o.maodeobra||[]).map(m=>({id:uid(),desc:m.desc||'',mecanico_id:m.mecanico_id||'',valor:m.valor?String(m.valor).replace('.',','):''})) : [];
   osMecRespPrev = o?(o.mecanico_id||''):'';
   let veiculoCampo;
@@ -2514,6 +2535,7 @@ function openOS(id, veiculoFixo){ if(!pode('editar')){ toast('Sem permissão par
     <button class="btn sm ghost" onclick="togglePecaInline()">🗂️ Cadastrar peça no catálogo</button>
     <div id="pcInline"></div>
     <div class="os-total"><span class="l">Valor de peças</span><span class="v" id="osTotal">R$ 0,00</span></div>
+    ${pode('valores')?`<div class="os-total" style="border-top:1px dashed var(--line2);margin-top:2px;padding-top:6px"><span class="l" style="color:var(--muted)">🔒 Lucro em peças (interno)</span><span class="v" id="osLucroPecas" style="color:var(--green)">R$ 0,00</span></div>`:''}
 
     <div class="field" style="margin:16px 0 6px"><label>Mão de obra (com mecânico responsável)</label></div>
     <div id="osMdoBox"></div>
@@ -2553,7 +2575,7 @@ function saveOS(id){
   const vid=osFixoVeiculo||val('osVeiculo'); const km=num('osKm'); const data=val('osData');
   if(!vid){ toast('Escolha o veículo'); return; }
   if(!data){ toast('Informe a data'); return; }
-  const itens=osItens.filter(i=>(i.nome||'').trim()).map(i=>{ const nome=tc(i.nome.trim()); const r=regraPorNome(nome); return {id:uid(),nome,qtde:parseInt(i.qtde)||1,valor:moneyParse(i.valor),regra_id:r?r.id:null}; });
+  const itens=osItens.filter(i=>(i.nome||'').trim()).map(i=>{ const nome=tc(i.nome.trim()); const r=regraPorNome(nome); return {id:uid(),nome,qtde:parseInt(i.qtde)||1,valor:moneyParse(i.valor),custo:moneyParse(i.custo),regra_id:r?r.id:null}; });
   const maodeobra=osMdo.filter(m=>moneyParse(m.valor)>0).map(m=>({id:uid(),desc:tc((m.desc||'').trim()),mecanico_id:m.mecanico_id||'',valor:moneyParse(m.valor)}));
   const antigo=id?getOS(id):null;
   const dados={veiculo_id:vid,data,km:km||0,reclamacao:val('osRec').trim(),obs_mecanico:val('osMec').trim(),obs_admin:val('osAdm').trim(),itens,maodeobra,mecanico_id:val('osMecResp')||'',
@@ -2942,6 +2964,8 @@ function fatPeriodo(de,ate){ return osExecPeriodo(de,ate).reduce((s,o)=>s+osTota
 function caixaPeriodo(de,ate,tipo){ return (state.caixa||[]).filter(m=>(!tipo||m.tipo===tipo) && m.data && m.data>=de && m.data<=ate); }
 function entradasPeriodo(de,ate){ return caixaPeriodo(de,ate,'entrada').reduce((s,m)=>s+(Number(m.valor)||0),0); }
 function saidasPeriodo(de,ate){ return caixaPeriodo(de,ate,'saida').reduce((s,m)=>s+(Number(m.valor)||0),0); }
+function pecasCustoPeriodo(de,ate){ return osExecPeriodo(de,ate).reduce((s,o)=>s+pecasCusto(o),0); }
+function lucroPecasPeriodo(de,ate){ return osExecPeriodo(de,ate).reduce((s,o)=>s+(pecasTotal(o)-pecasCusto(o)),0); }
 function relDateInput(id,v,onch){ return `<div class="dt-wrap"><input id="${id}" type="date" value="${v}" onchange="${onch}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('${id}')">📅</button></div>`; }
 function relBar(label,valor,max,sub,cor){ const pct=Math.max(2,Math.round((valor/(max||1))*100)); return `<div class="rel-barrow"><div class="rb-top"><span class="rb-l">${esc(label)}</span><span class="rb-v">${moneyFmt(valor)}</span></div><div class="rb-track"><div class="rb-fill" style="width:${pct}%${cor?';background:'+cor:''}"></div></div>${sub?`<div class="rb-sub">${esc(sub)}</div>`:''}</div>`; }
 function renderRelatorios(){
@@ -2981,20 +3005,20 @@ function relCaixa(){ const de=relPer.de,ate=relPer.ate; const ent=entradasPeriod
   const catArr=Object.entries(catMap).map(([k,v])=>({k,v})).sort((a,b)=>b.v-a.v); const maxCat=Math.max(...catArr.map(x=>x.v),1);
   const movs=caixaPeriodo(de,ate, relCxTipo==='tudo'?null:relCxTipo).sort((a,b)=>String(b.data).localeCompare(String(a.data)));
   const filtro=`<div class="rel-atalhos" style="margin-top:8px"><button class="btn sm ${relCxTipo==='tudo'?'gold':'ghost'}" onclick="relCxTipo='tudo'; renderRelatorios()">Tudo</button><button class="btn sm ${relCxTipo==='entrada'?'gold':'ghost'}" onclick="relCxTipo='entrada'; renderRelatorios()">Entradas</button><button class="btn sm ${relCxTipo==='saida'?'gold':'ghost'}" onclick="relCxTipo='saida'; renderRelatorios()">Saídas</button></div>`;
-  return `<div class="rel-kpi"><div class="rk"><div class="rl">Entradas</div><div class="rv" style="color:var(--green)">${moneyFmt(ent)}</div></div><div class="rk"><div class="rl">Saídas</div><div class="rv" style="color:var(--red)">${moneyFmt(sai)}</div></div><div class="rk"><div class="rl">Saldo</div><div class="rv" style="color:${ent-sai>=0?'var(--green)':'var(--red)'}">${moneyFmt(ent-sai)}</div></div></div>
+  return `<div class="rel-kpi"><div class="rk"><div class="rl">Entradas</div><div class="rv" style="color:var(--green)">${moneyFmt(ent)}</div></div><div class="rk"><div class="rl">Saídas</div><div class="rv" style="color:var(--red)">${moneyFmt(sai)}</div></div><div class="rk"><div class="rl">Saldo</div><div class="rv" style="color:${ent-sai>=0?'var(--green)':'var(--red)'}">${moneyFmt(ent-sai)}</div></div><div class="rk"><div class="rl">🔒 Lucro em peças</div><div class="rv" style="color:var(--green)">${moneyFmt(lucroPecasPeriodo(de,ate))}</div></div></div>
     ${catArr.length?`<div class="section-label">Saídas por categoria</div>${catArr.map(x=>relBar(x.k,x.v,maxCat,'',(x.k==='Fornecedor'?'var(--red)':undefined))).join('')}`:''}
     ${filtro}<div class="section-label">Lançamentos</div>
     ${movs.length?`<div class="rows">${movs.map(m=>{ const ent=m.tipo==='entrada'; return `<div class="row"><div class="main"><div class="t">${ent?'▲':'▼'} ${esc(m.descricao||(ent?'Entrada':catSaidaLabel(m.categoria)))}</div><div class="s">${fmtBR(parseISO(m.data))} · ${esc((FORMAS.find(f=>f[0]===m.forma)||[,m.forma])[1]||m.forma)}${m.fornecedor_id?(' · 🏭 '+esc(fornecedorNome(m.fornecedor_id))):''}</div></div><span class="valor-tag" style="color:${ent?'var(--green)':'var(--red)'}">${ent?'+':'−'}${moneyFmt(m.valor)}</span></div>`; }).join('')}</div>`:emptyState('Nada no período','')}`;
 }
 function relDashboard(){ const A=relPer,B=relPerB;
-  const kpi=p=>{ const fat=fatPeriodo(p.de,p.ate); const nos=osExecPeriodo(p.de,p.ate).length; const ent=entradasPeriodo(p.de,p.ate); const sai=saidasPeriodo(p.de,p.ate); return {fat,nos,tk:nos?fat/nos:0,ent,sai,lucro:ent-sai}; };
+  const kpi=p=>{ const fat=fatPeriodo(p.de,p.ate); const nos=osExecPeriodo(p.de,p.ate).length; const ent=entradasPeriodo(p.de,p.ate); const sai=saidasPeriodo(p.de,p.ate); const custoP=pecasCustoPeriodo(p.de,p.ate); const lucroP=lucroPecasPeriodo(p.de,p.ate); return {fat,nos,tk:nos?fat/nos:0,ent,sai,lucro:ent-sai,custoP,lucroP}; };
   const a=kpi(A),b=kpi(B);
   const delta=(x,y)=>{ if(!y&&!x) return ''; if(!y) return '<span class="dl up">novo</span>'; const p=Math.round(((x-y)/Math.abs(y))*100); return `<span class="dl ${p>=0?'up':'down'}">${p>=0?'▲':'▼'} ${Math.abs(p)}%</span>`; };
   const card=(lbl,va,vb,fmt,cor)=>`<div class="dash-card"><div class="dc-lbl">${lbl}</div><div class="dc-val"${cor?` style="color:${cor}"`:''}>${fmt(va)}</div><div class="dc-cmp">${delta(va,vb)}<span class="dc-prev">antes ${fmt(vb)}</span></div></div>`;
   const perSel=`<div class="panel" style="margin:10px 0"><div class="rp-tit">Período A (principal)</div><div class="grid2"><div class="field"><label>De</label>${relDateInput('raDe',A.de,"relPer.de=this.value; renderRelatorios()")}</div><div class="field"><label>Até</label>${relDateInput('raAte',A.ate,"relPer.ate=this.value; renderRelatorios()")}</div></div>
     <div class="rp-tit" style="margin-top:8px">Período B (comparar com)</div><div class="grid2"><div class="field"><label>De</label>${relDateInput('rbDe',B.de,"relPerB.de=this.value; renderRelatorios()")}</div><div class="field"><label>Até</label>${relDateInput('rbAte',B.ate,"relPerB.ate=this.value; renderRelatorios()")}</div></div>
     <div class="rel-atalhos"><button class="btn sm ghost" onclick="relSetComp('mes')">Mês atual × passado</button><button class="btn sm ghost" onclick="relSetComp('ano')">Ano atual × passado</button></div></div>`;
-  const kpis=`<div class="dash-grid">${card('Faturamento',a.fat,b.fat,moneyFmt)}${card('OS executadas',a.nos,b.nos,x=>String(x))}${card('Ticket médio',a.tk,b.tk,moneyFmt)}${card('Entradas',a.ent,b.ent,moneyFmt,'var(--green)')}${card('Saídas',a.sai,b.sai,moneyFmt,'var(--red)')}${card('Lucro',a.lucro,b.lucro,moneyFmt,a.lucro>=0?'var(--green)':'var(--red)')}</div>`;
+  const kpis=`<div class="dash-grid">${card('Faturamento',a.fat,b.fat,moneyFmt)}${card('OS executadas',a.nos,b.nos,x=>String(x))}${card('Ticket médio',a.tk,b.tk,moneyFmt)}${card('Custo de peças',a.custoP,b.custoP,moneyFmt,'var(--red)')}${card('Lucro em peças',a.lucroP,b.lucroP,moneyFmt,'var(--green)')}${card('Entradas',a.ent,b.ent,moneyFmt,'var(--green)')}${card('Saídas',a.sai,b.sai,moneyFmt,'var(--red)')}${card('Lucro (caixa)',a.lucro,b.lucro,moneyFmt,a.lucro>=0?'var(--green)':'var(--red)')}</div>`;
   const meses=[]; for(let i=5;i>=0;i--){ const r=mesRange(-i); meses.push({label:nomeMesCurto(r.de),val:fatPeriodo(r.de,r.ate)}); }
   const maxM=Math.max(...meses.map(m=>m.val),1);
   const chartMes=`<div class="section-label">Faturamento — últimos 6 meses</div><div class="bar-cols">${meses.map(m=>`<div class="bc"><div class="bc-v">${m.val?moneyK(m.val):''}</div><div class="bc-bar" style="height:${Math.max(3,Math.round((m.val/maxM)*100))}%"></div><div class="bc-l">${m.label}</div></div>`).join('')}</div>`;
