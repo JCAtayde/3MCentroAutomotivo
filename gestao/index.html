@@ -3259,36 +3259,43 @@ function nomeMesComp(comp){ const p=comp.split('-'); return MESES_PT[parseInt(p[
 function adiantamentosFunc(fid,comp){ return (state.caixa||[]).filter(m=>m.tipo==='saida'&&m.categoria==='adiantamento'&&m.funcionario_id===fid&&competenciaDe(m.data)===comp); }
 function folhaMudarMes(){ const v=val('folhaMes'); if(v) folhaComp=v; renderFolha(); }
 function ehSocioFunc(f){ return f && (f.socio==='1'||f.socio===1||f.socio===true); }
+function comissaoFunc(fid,comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01'; const ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0');
+  const mec=(state.mecanicos||[]).find(x=>x.id===fid); const perc=Number((mec&&mec.percentual)||0); if(perc<=0) return 0;
+  let mo=0; (state.ordens||[]).forEach(o=>{ if(osStatus(o)!=='executado'||!o.data||o.data<de||o.data>ate) return; (o.maodeobra||[]).forEach(l=>{ if(l.mecanico_id===fid) mo+=(Number(l.valor)||0); }); });
+  return Math.round(mo*perc/100*100)/100; }
 function renderFolha(){
   const box=document.getElementById('folhaBox'); if(!box) return;
   if(!ehAdmin()&&!pode('valores')){ box.innerHTML='<div class="note empty-note">Você não tem permissão para ver a folha.</div>'; return; }
   if(!folhaComp) folhaComp=competenciaDe(toISO(hoje()));
   const comp=folhaComp;
   const soAdmin=ehGestor();
-  const funcs=(state.mecanicos||[]).filter(f=>Number(f.salario||0)>0 && !ehSocioFunc(f));
+  const adiOf=f=>adiantamentosFunc(f.id,comp).reduce((s,m)=>s+(Number(m.valor)||0),0);
+  const funcs=(state.mecanicos||[]).filter(f=>!ehSocioFunc(f)).filter(f=>Number(f.salario||0)>0 || adiOf(f)>0 || comissaoFunc(f.id,comp)>0);
   const socios= soAdmin ? (state.mecanicos||[]).filter(f=>ehSocioFunc(f)) : [];
-  let totSal=0, totAdi=0, totRest=0;
+  let totSal=0, totCom=0, totAdi=0, totRest=0;
   const linhaFunc=(f,socio)=>{ const adis=adiantamentosFunc(f.id,comp); const adiado=adis.reduce((s,m)=>s+(Number(m.valor)||0),0);
-    const sal=Number(f.salario||0); const rest=sal-adiado;
+    const sal=Number(f.salario||0); const com=socio?0:comissaoFunc(f.id,comp); const rest=sal+com-adiado;
     const det=adis.length?('<div class="cx-mini">'+adis.sort((a,b)=>(a.data||'').localeCompare(b.data||'')).map(m=>fmtBR(parseISO(m.data))+' · '+moneyFmt(m.valor)+(m.descricao?(' ('+esc(m.descricao)+')'):'')).join('<br>')+'</div>'):'';
-    const sub = socio ? (sal>0?('Pró-labore '+moneyFmt(sal)+' · retirado '+moneyFmt(adiado)):('Retiradas no mês: '+moneyFmt(adiado))) : ('Salário '+moneyFmt(sal)+' · adiantado '+moneyFmt(adiado));
+    let sub;
+    if(socio){ sub = sal>0?('Pró-labore '+moneyFmt(sal)+' · retirado '+moneyFmt(adiado)):('Retiradas no mês: '+moneyFmt(adiado)); }
+    else { const p=[]; if(sal>0)p.push('Salário '+moneyFmt(sal)); if(com>0)p.push('Comissão '+moneyFmt(com)); p.push('adiantado '+moneyFmt(adiado)); sub=p.join(' · '); }
     return `<div class="row" style="flex-wrap:wrap"><div class="main"><div class="t">${esc(f.nome)}${socio?' <span class="badge rev">gestor</span>':''}${f.funcao?` · <span style="color:var(--muted)">${esc(f.funcao)}</span>`:''}</div>
       <div class="s">${sub}</div>${det}</div>
       <div class="acts">${(!socio||sal>0)?`<span class="valor-tag" style="color:${rest>=0?'var(--green)':'var(--red)'}"><b>${moneyFmt(rest)}</b></span>`:''}
         <button class="btn sm ghost" onclick='adiantamentoFuncModal("${f.id}")'>+ ${socio?'Retirada':'Adiantamento'}</button></div></div>`;
   };
-  const linhas=funcs.map(f=>{ const adis=adiantamentosFunc(f.id,comp); const adiado=adis.reduce((s,m)=>s+(Number(m.valor)||0),0);
-    const sal=Number(f.salario||0); totSal+=sal; totAdi+=adiado; totRest+=(sal-adiado); return linhaFunc(f,false); }).join('');
-  let totSoc=0; const linhasSoc=socios.map(f=>{ totSoc+=adiantamentosFunc(f.id,comp).reduce((s,m)=>s+(Number(m.valor)||0),0); return linhaFunc(f,true); }).join('');
+  const linhas=funcs.map(f=>{ const adiado=adiOf(f); const sal=Number(f.salario||0); const com=comissaoFunc(f.id,comp); totSal+=sal; totCom+=com; totAdi+=adiado; totRest+=(sal+com-adiado); return linhaFunc(f,false); }).join('');
+  let totSoc=0; const linhasSoc=socios.map(f=>{ totSoc+=adiOf(f); return linhaFunc(f,true); }).join('');
   box.innerHTML=`<div class="section-label"><span>Folha — pagamento do dia 8</span></div>
     <div class="field"><label>Competência (pagamento no dia 8 de)</label><div class="dt-wrap"><input id="folhaMes" type="month" value="${comp}" onchange="folhaMudarMes()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('folhaMes')">📅</button></div></div>
-    <div class="hint">Regra: adiantamentos <b>antes do dia 8</b> entram no pagamento do dia 8 <b>deste mês</b>; adiantamentos <b>do dia 8 em diante</b> entram no pagamento do <b>mês seguinte</b>. Cadastre o salário de cada um em <b>Funcionários</b>.</div>
+    <div class="hint">Todo funcionário com <b>salário, comissão ou adiantamento</b> no mês aparece aqui automaticamente. A <b>comissão</b> é a mão de obra executada no mês × o % de cada mecânico. Adiantamentos abatem do total. Cadastre salário/percentual em <b>Funcionários</b>.</div>
     ${funcs.length?`<div class="rows" style="margin-top:8px">${linhas}</div>
       <div class="panel" style="margin-top:12px">
-        <div class="fin-kv"><span>Total de salários</span><b>${moneyFmt(totSal)}</b></div>
+        ${totSal>0?`<div class="fin-kv"><span>Total de salários</span><b>${moneyFmt(totSal)}</b></div>`:''}
+        ${totCom>0?`<div class="fin-kv"><span>Total de comissões</span><b>${moneyFmt(totCom)}</b></div>`:''}
         <div class="fin-kv" style="color:var(--amber)"><span>Total já adiantado</span><b>${moneyFmt(totAdi)}</b></div>
         <div class="fin-kv" style="border-top:1px solid var(--line2);margin-top:6px;padding-top:6px"><span><b>A pagar no dia 8 (${nomeMesComp(comp)})</b></span><b style="color:var(--green)">${moneyFmt(totRest)}</b></div></div>`
-      :'<div class="note empty-note" style="margin-top:10px">Nenhum funcionário com salário cadastrado. Vá em <b>Funcionários</b> e informe o salário fixo.</div>'}
+      :'<div class="note empty-note" style="margin-top:10px">Ninguém com movimento neste mês. Ao lançar um salário, comissão ou adiantamento, a pessoa aparece aqui.</div>'}
     ${(soAdmin&&socios.length)?`<div class="section-label" style="margin-top:16px"><span>🔒 Sócios / gestores (só você vê)</span></div>
       <div class="rows">${linhasSoc}</div>
       <div class="panel" style="margin-top:10px"><div class="fin-kv"><span><b>Total retirado pelos sócios (${nomeMesComp(comp)})</b></span><b style="color:var(--amber)">${moneyFmt(totSoc)}</b></div></div>`:''}`;
