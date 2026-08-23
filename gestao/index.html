@@ -1115,15 +1115,56 @@ function renderReativarPainel(){
 /* ==================================================================
    CLIENTES (lista)
 ================================================================== */
+let clientesAba='ativos';
+function ehSumido(c){ return c && c.lead==='sumido'; }
+function abrirImportarClientes(){ if(!ehAdmin()){ toast('Apenas o administrador'); return; }
+  openModal(`<h3>Importar clientes</h3><p class="sub">Selecione o arquivo <b>.json</b> enviado pelo suporte. Os clientes entram marcados como <b>sumidos</b>.</p>
+    <input type="file" id="impFile" accept=".json,application/json" style="width:100%;padding:11px;background:var(--bg2);border:1px solid var(--line2);border-radius:10px;color:var(--txt);font-size:13px">
+    <div class="hint">Clientes com o mesmo CPF/CNPJ já cadastrado são ignorados (não duplica).</div>
+    <div class="form-actions"><button class="btn gold" onclick="processarImportClientes()">Importar</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
+}
+function processarImportClientes(){ const inp=document.getElementById('impFile'); const f=inp&&inp.files&&inp.files[0]; if(!f){ toast('Escolha o arquivo'); return; }
+  const r=new FileReader(); r.onload=async()=>{ let arr; try{ arr=JSON.parse(r.result); }catch(e){ toast('Arquivo inválido (.json)'); return; } if(!Array.isArray(arr)){ toast('Formato inesperado'); return; } closeModal(); await importarClientes(arr); }; r.readAsText(f); }
+async function importarClientes(arr){
+  const existentes=new Set((state.clientes||[]).map(c=>(c.cpf||'').replace(/\D/g,'')).filter(Boolean));
+  const novos=[]; arr.forEach(o=>{ const doc=(o.cpf||'').replace(/\D/g,''); if(doc&&existentes.has(doc)) return; if(doc) existentes.add(doc);
+    novos.push(normCliente({id:uid(),...o,lead:'sumido',criado:Date.now(),atualizado:Date.now()})); });
+  if(!novos.length){ toast('Nada novo para importar (todos já existem)'); return; }
+  state.clientes.push(...novos); cacheSave(); toast('Enviando '+novos.length+' clientes ao servidor…');
+  for(let i=0;i<novos.length;i+=150){ try{ await apiPost('upsert',{table:'clientes',rows:novos.slice(i,i+150)}); }catch(e){} }
+  if(typeof lastSnapshot!=='undefined' && lastSnapshot) lastSnapshot=deepCopy(state);
+  clientesAba='sumidos'; go('clientes'); toast(novos.length+' clientes importados ✓');
+}
+const MSG_BRINDE_PADRAO='Olá {nome}! 👋 Sentimos sua falta aqui na 3M Centro Automotivo 🚗. Preparamos um *brinde especial* para você — passe aqui para retirar e conhecer nossas novidades! 🎁';
+function msgBrinde(){ return (state.config&&state.config.msg_brinde)||MSG_BRINDE_PADRAO; }
+function chamarSumido(ev,cid){ if(ev) ev.stopPropagation(); const c=getCliente(cid); const n=zapDoCliente(c); if(!n){ toast('Cliente sem WhatsApp'); return; } const primeiro=(c.nome||'').split(' ')[0]; const msg=msgBrinde().replace(/{nome}/g,primeiro); window.open('https://wa.me/'+n+'?text='+encodeURIComponent(msg),'_blank'); }
+function editarMsgBrinde(){ openModal(`<h3>Mensagem do brinde</h3><p class="sub">Use <b>{nome}</b> para inserir o primeiro nome do cliente.</p><div class="field"><textarea id="mbTxt" rows="5" style="width:100%;background:var(--bg2);border:1px solid var(--line2);border-radius:10px;color:var(--txt);padding:10px;font-size:14px">${esc(msgBrinde())}</textarea></div><div class="form-actions"><button class="btn gold" onclick="salvarMsgBrinde()">Salvar</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`); }
+function salvarMsgBrinde(){ state.config.msg_brinde=val('mbTxt').trim()||MSG_BRINDE_PADRAO; salvar(); closeModal(); renderClientes(); toast('Mensagem salva ✓'); }
+function marcarSumido(cid){ const c=getCliente(cid); if(!c) return; c.lead='sumido'; c.atualizado=Date.now(); salvar(); refreshAtual(); toast('Marcado como sumido'); }
+function reativarCliente(cid){ const c=getCliente(cid); if(!c) return; c.lead=''; c.atualizado=Date.now(); salvar(); refreshAtual(); toast('Cliente reativado ✓'); }
+function clientesTab(k){ clientesAba=k; renderClientes(); }
 function renderClientes(){
   const q=(document.getElementById('buscaCliente').value||'').toLowerCase().trim();
-  let lista=state.clientes.slice().sort((a,b)=>a.nome.localeCompare(b.nome));
-  if(q) lista=lista.filter(c=>{ const placas=veiculosDe(c.id).map(v=>v.placa||'').join(' ').toLowerCase();
-    return (c.nome||'').toLowerCase().includes(q)||(c.telefone1||'').includes(q)||(c.telefone2||'').includes(q)||placas.includes(q); });
   const box=document.getElementById('listaClientes');
-  if(!state.clientes.length){ box.innerHTML=emptyState('Nenhum cliente','Toque em “Novo”.'); return; }
-  if(!lista.length){ box.innerHTML=emptyState('Nada encontrado','Tente outro termo.'); return; }
-  box.innerHTML=lista.map(c=>{ const badge=(c.tipo==='Corretiva')?'<span class="badge corr">Corretiva</span>':'<span class="badge prev">Preventiva</span>';
+  const todos=state.clientes||[];
+  const nAtivos=todos.filter(c=>!ehSumido(c)).length, nSumidos=todos.filter(c=>ehSumido(c)).length;
+  const tabs=`<div class="cfg-tabs" style="margin-bottom:10px"><button class="${clientesAba!=='sumidos'?'on':''}" onclick="clientesTab('ativos')">Ativos (${nAtivos})</button><button class="${clientesAba==='sumidos'?'on':''}" onclick="clientesTab('sumidos')">💤 Sumidos (${nSumidos})</button></div>`;
+  let lista=todos.slice().filter(c=> clientesAba==='sumidos'?ehSumido(c):!ehSumido(c)).sort((a,b)=>a.nome.localeCompare(b.nome));
+  if(q) lista=lista.filter(c=>{ const placas=veiculosDe(c.id).map(v=>v.placa||'').join(' ').toLowerCase();
+    return (c.nome||'').toLowerCase().includes(q)||(c.telefone1||'').includes(q)||(c.telefone2||'').includes(q)||(c.cpf||'').includes(q)||placas.includes(q); });
+  if(!todos.length){ box.innerHTML=tabs+emptyState('Nenhum cliente','Toque em “Novo”.'); return; }
+  if(clientesAba==='sumidos'){
+    const comZap=lista.filter(c=>zapDoCliente(c)).length;
+    const topo=`<div class="panel" style="margin-bottom:10px"><div class="row"><div><div class="t">💤 Campanha do brinde</div><div class="s">${lista.length} sumidos${q?' (filtro)':''} · ${comZap} com WhatsApp</div></div><button class="btn sm ghost" onclick="editarMsgBrinde()">✏️ Mensagem</button></div></div>`;
+    const cards=lista.map(c=>{ const zap=zapDoCliente(c);
+      return `<div class="row"><div class="main click" onclick='go("cliente","${c.id}")'><div class="t">${esc(c.nome)} <span class="badge" style="border-color:#a97bd6;color:#c9a3ec">💤 sumido</span></div>
+        <div class="s">${esc(c.telefone1||'sem WhatsApp')}${c.cidade?(' · '+esc(c.cidade)):''}</div></div>
+        ${zap?`<button class="btn sm green" onclick='chamarSumido(event,"${c.id}")'>📲 Brinde</button>`:'<span class="badge" style="border-color:var(--line2);color:var(--muted)">sem zap</span>'}</div>`; }).join('');
+    box.innerHTML=tabs+topo+(lista.length?`<div class="rows">${cards}</div>`:emptyState('Nenhum sumido','Importe sua base antiga em Mais → Importar clientes.'));
+    return;
+  }
+  if(!lista.length){ box.innerHTML=tabs+emptyState('Nada encontrado','Tente outro termo.'); return; }
+  box.innerHTML=tabs+lista.map(c=>{ const badge=(c.tipo==='Corretiva')?'<span class="badge corr">Corretiva</span>':'<span class="badge prev">Preventiva</span>';
     const rev=ehRevenda(c)?'<span class="badge rev">🏢 REVENDA</span> ':'';
     const site=(c.obs||'').startsWith('Pré-cadastro pelo site')?' <span class="badge" style="border-color:#3E7BB6;color:#7db4e6">🌐 site</span>':'';
     return `<div class="row click" onclick='go("cliente","${c.id}")'>
@@ -1162,7 +1203,7 @@ function renderClienteDet(id){
   const muitos = vs.length>=6 || ehRevenda(c);
   box.innerHTML=`
     <div class="det-head"><h2>${revBadge}${esc(c.nome)} ${badge}</h2>
-      <div class="acts"><button class="btn sm gold" onclick='enviarConviteCliente("${c.id}")'>📲 Enviar acesso</button><button class="btn sm ghost" onclick='openCliente("${c.id}")'>Editar ficha</button></div></div>
+      <div class="acts"><button class="btn sm gold" onclick='enviarConviteCliente("${c.id}")'>📲 Enviar acesso</button>${ehSumido(c)?`<button class="btn sm green" onclick='reativarCliente("${c.id}")'>✔ Reativar</button>`:`<button class="btn sm ghost" onclick='marcarSumido("${c.id}")'>💤 Sumido</button>`}<button class="btn sm ghost" onclick='openCliente("${c.id}")'>Editar ficha</button></div></div>
     ${c.lead==='novo'?`<div class="lead-banner">🔔 <b>Novo cadastro do site</b> — aguardando contato. <button class="btn sm green" onclick='chamarLead("${c.id}")'>WhatsApp</button> <button class="btn sm ghost" onclick='concluirLead("${c.id}")'>✔ Concluir (sair da fila)</button></div>`:''}
     <div class="panel" style="margin-top:8px">
       <div class="kv">
@@ -2709,6 +2750,7 @@ function renderMais(){
   }
   if(ehAdmin()||telaLiberada('config')){
     h+=`<div class="lbl-sec-mais">Sistema</div>`;
+    if(ehAdmin()) h+=item('📥','Importar clientes','Trazer base antiga (planilha)',`abrirImportarClientes()`);
     h+=item('⚙️','Configurações','Mensagens, textos e backup',`goTab("config")`);
   }
   box.innerHTML=h||'<div class="note empty-note">Sem itens disponíveis para o seu acesso.</div>';
