@@ -884,11 +884,11 @@ function showScreen(name){
 const RENDER={painel:renderPainel,clientes:renderClientes,veiculos:renderVeiculos,ordens:renderOrdens,regras:renderRegras,config:carregarConfig,
   financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos, boletos:renderBoletosReceber, fornecedores:renderFornecedores, relatorios:renderRelatorios, contas_pagar:renderContasPagar,
   cliente:p=>renderClienteDet(p), veiculo:p=>renderVeiculoDet(p), os:p=>renderOsDet(p)};
-function render(screen,param){ showScreen(screen); window.scrollTo({top:0,behavior:'smooth'}); (RENDER[screen]||(()=>{}))(param); }
+function render(screen,param,keepScroll){ const y=window.scrollY||window.pageYOffset||0; showScreen(screen); (RENDER[screen]||(()=>{}))(param); if(keepScroll){ window.scrollTo({top:y}); } else { window.scrollTo({top:0,behavior:'smooth'}); } }
 function goTab(name){ histStack=[{screen:name,param:null}]; render(name,null); }
-function go(screen,param){ histStack.push({screen,param}); render(screen,param); }
+function go(screen,param){ histStack.push({screen,param}); render(screen,param,false); }
 function back(){ histStack.pop(); const p=histStack[histStack.length-1]||{screen:'painel',param:null}; render(p.screen,p.param); }
-function refreshAtual(){ const p=histStack[histStack.length-1]||{screen:'painel'}; render(p.screen,p.param); }
+function refreshAtual(){ const p=histStack[histStack.length-1]||{screen:'painel'}; render(p.screen,p.param,true); }
 function montarNav(){
   const top=document.getElementById('topnav'),tab=document.getElementById('tabbar'); top.innerHTML=''; tab.innerHTML='';
   const podeMais = ehAdmin() || ['veiculos','regras','fornecedores','boletos','config','acessos'].some(t=>telaLiberada(t));
@@ -3324,7 +3324,7 @@ function renderFolha(){
   const comp=folhaComp; const soAdmin=ehGestor();
   const todos=(state.mecanicos||[]).filter(f=>!ehSocioFunc(f));
   const mecs=todos.filter(ehMecanicoFunc).map(f=>{ const adis=adiantCalend(f.id,comp); const adiado=adis.reduce((s,m)=>s+(Number(m.valor)||0),0); return {f,sal:Number(f.salario||0),com:comissaoFunc(f.id,comp),adiado,adis,socio:false}; }).filter(x=>x.sal>0||x.com>0||x.adiado>0);
-  const assal=todos.filter(f=>!ehMecanicoFunc(f)).map(f=>{ const adis=adiantDia8(f.id,comp); const adiado=adis.reduce((s,m)=>s+(Number(m.valor)||0),0); return {f,sal:Number(f.salario||0),com:0,adiado,adis,socio:false}; }).filter(x=>x.sal>0||x.adiado>0);
+  const assal=todos.filter(f=>!ehMecanicoFunc(f)).map(f=>{ const adis=adiantCalend(f.id,comp); const adiado=adis.reduce((s,m)=>s+(Number(m.valor)||0),0); return {f,sal:Number(f.salario||0),com:0,adiado,adis,socio:false}; }).filter(x=>x.sal>0||x.adiado>0);
   const socios= soAdmin ? (state.mecanicos||[]).filter(ehSocioFunc).map(f=>{ const adis=adiantCalend(f.id,comp); return {f,sal:Number(f.salario||0),com:0,adiado:adis.reduce((s,m)=>s+(Number(m.valor)||0),0),adis,socio:true}; }) : [];
   const secMec = mecs.length?`<div class="section-label" style="margin-top:6px"><span>🔧 Mecânicos — fecham dia 30</span></div><div class="rows">${mecs.map(folhaLinha).join('')}</div>${folhaPainelTot(mecs)}`:'';
   const secAss = assal.length?`<div class="section-label" style="margin-top:16px"><span>👤 Funcionários (salário) — fecham dia 8</span></div><div class="rows">${assal.map(folhaLinha).join('')}</div>${folhaPainelTot(assal)}`:'';
@@ -3332,7 +3332,7 @@ function renderFolha(){
   const vazio = (!mecs.length&&!assal.length&&!socios.length);
   box.innerHTML=`<div class="section-label"><span>Folha de ${nomeMesComp(comp)}</span></div>
     <div class="field"><label>Mês do fechamento</label><div class="dt-wrap"><input id="folhaMes" type="month" value="${comp}" onchange="folhaMudarMes()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('folhaMes')">📅</button></div></div>
-    <div class="hint"><b>Mecânicos</b> fecham dia 30 (comissão = serviço finalizado/recebido no mês; boleto = mês em que finalizou). <b>Funcionários com salário</b> fecham dia 8 (adiantamento antes do dia 8 entra neste mês; do dia 8 em diante, no próximo). Adiantamentos abatem do saldo.</div>
+    <div class="hint"><b>Mecânicos</b> fecham dia 30 (comissão = serviço finalizado/recebido no mês; boleto = mês em que finalizou). <b>Funcionários com salário</b> fecham dia 8 — aqui aparecem os adiantamentos <b>feitos no mês selecionado</b>. Adiantamentos abatem do saldo.</div>
     ${vazio?'<div class="note empty-note" style="margin-top:10px">Ninguém com movimento neste mês.</div>':secMec+secAss+secSoc}`;
 }
 function adiantamentoFuncModal(fid){ const f=(state.mecanicos||[]).find(x=>x.id===fid); if(!f) return;
