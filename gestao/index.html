@@ -138,6 +138,9 @@
   .cp-parc .pr-n{width:24px;font-weight:800;color:var(--gold);font-size:13px}
   .cp-parc .pr-val{flex:1;min-width:0;background:var(--bg2);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:8px 9px;font-size:14px}
   .cp-parc .pr-date{flex:none;width:140px;background:var(--bg2);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:7px 8px;font-size:13px}
+  .adi-item{cursor:pointer;padding:3px 0;border-bottom:1px dashed var(--line2)}
+  .adi-item:last-child{border-bottom:none}
+  .adi-ed{color:var(--gold);font-size:11px;white-space:nowrap}
   .srv-search{display:flex;align-items:center;gap:9px;background:var(--bg2);border:1px solid var(--line2);border-radius:12px;padding:11px 13px;margin-bottom:11px}
   .srv-search svg{width:17px;height:17px;stroke:var(--muted);flex:none}
   .srv-search input{flex:1;background:none;border:none;color:var(--txt);font-size:14.5px;outline:none}
@@ -3311,7 +3314,7 @@ function ehMecanicoFunc(f){ return Number(f&&f.percentual||0)>0; }
 function adiantCalend(fid,comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01'; const ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); return (state.caixa||[]).filter(x=>x.tipo==='saida'&&x.categoria==='adiantamento'&&x.funcionario_id===fid&&x.data&&x.data>=de&&x.data<=ate); }
 function adiantDia8(fid,comp){ return (state.caixa||[]).filter(x=>x.tipo==='saida'&&x.categoria==='adiantamento'&&x.funcionario_id===fid&&competenciaDe(x.data)===comp); }
 function folhaLinha(x){ const {f,sal,com,adiado,adis,socio}=x; const rest=sal+com-adiado;
-  const det=adis.length?('<div class="cx-mini">'+adis.slice().sort((a,b)=>(a.data||'').localeCompare(b.data||'')).map(m=>fmtBR(parseISO(m.data))+' · '+moneyFmt(m.valor)+(m.descricao?(' ('+esc(m.descricao)+')'):'')).join('<br>')+'</div>'):'';
+  const det=adis.length?('<div class="cx-mini">'+adis.slice().sort((a,b)=>(a.data||'').localeCompare(b.data||'')).map(m=>`<div class="adi-item" onclick='event.stopPropagation(); movimentoModal("saida","${m.id}")'>${fmtBR(parseISO(m.data))} · ${moneyFmt(m.valor)}${m.descricao?(' ('+esc(m.descricao)+')'):''} <span class="adi-ed">✎ editar/excluir</span></div>`).join('')+'</div>'):'';
   let sub; if(socio){ sub=sal>0?('Pró-labore '+moneyFmt(sal)+' · retirado '+moneyFmt(adiado)):('Retiradas no mês: '+moneyFmt(adiado)); }
   else { const p=[]; if(sal>0)p.push('Salário '+moneyFmt(sal)); if(com>0)p.push('Comissão '+moneyFmt(com)); p.push('adiantado '+moneyFmt(adiado)); sub=p.join(' · '); }
   return `<div class="row" style="flex-wrap:wrap"><div class="main"><div class="t">${esc(f.nome)}${socio?' <span class="badge rev">gestor</span>':''}${f.funcao?` · <span style="color:var(--muted)">${esc(f.funcao)}</span>`:''}</div><div class="s">${sub}</div>${det}</div><div class="acts">${(!socio||sal>0)?`<span class="valor-tag" style="color:${rest>=0?'var(--green)':'var(--red)'}"><b>${moneyFmt(rest)}</b></span>`:''}<button class="btn sm ghost" onclick='adiantamentoFuncModal("${f.id}")'>+ ${socio?'Retirada':'Adiantamento'}</button></div></div>`; }
