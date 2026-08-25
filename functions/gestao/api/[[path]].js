@@ -25,6 +25,7 @@ export async function onRequest(context) {
   const { request, env } = context;
   const DB = env.DB;
   if (!DB) return jsonResp({ error: 'Banco D1 não conectado (binding DB ausente).' }, 500);
+  await DB.prepare('CREATE TABLE IF NOT EXISTS logs (id TEXT PRIMARY KEY, quando INTEGER, quem TEXT, quem_nome TEXT, acao TEXT, alvo TEXT, detalhe TEXT)').run();
 
   const url = new URL(request.url);
   const parts = url.pathname.split('/').filter(Boolean); // ['gestao','api','<acao>']
@@ -32,7 +33,7 @@ export async function onRequest(context) {
 
   try {
     if (request.method === 'GET' && acao === 'state') {
-      const [cli, vei, ord, reg, cfg, usu, mec, cxa, pec, forn] = await Promise.all([
+      const [cli, vei, ord, reg, cfg, usu, mec, cxa, pec, forn, lgs] = await Promise.all([
         DB.prepare('SELECT * FROM clientes').all(),
         DB.prepare('SELECT * FROM veiculos').all(),
         DB.prepare('SELECT * FROM ordens').all(),
@@ -43,6 +44,7 @@ export async function onRequest(context) {
         DB.prepare('SELECT * FROM caixa').all(),
         DB.prepare('SELECT * FROM pecas').all(),
         DB.prepare('SELECT * FROM fornecedores').all(),
+        DB.prepare('SELECT * FROM logs ORDER BY quando DESC LIMIT 1500').all(),
       ]);
       const config = {};
       (cfg.results || []).forEach(r => { config[r.chave] = r.valor; });
@@ -56,8 +58,19 @@ export async function onRequest(context) {
         caixa:    (cxa.results || []),
         pecas:    (pec.results || []),
         fornecedores: (forn.results || []),
+        logs: (lgs.results || []),
         config,
       });
+    }
+
+    if (request.method === 'POST' && acao === 'log') {
+      const body = await request.json().catch(() => ({}));
+      const e = body.entry || {};
+      if (e && e.id) {
+        await DB.prepare('INSERT OR IGNORE INTO logs (id,quando,quem,quem_nome,acao,alvo,detalhe) VALUES (?,?,?,?,?,?,?)')
+          .bind(e.id, e.quando || Date.now(), e.quem || '', e.quem_nome || '', e.acao || '', e.alvo || '', e.detalhe || '').run();
+      }
+      return jsonResp({ ok: true });
     }
 
     if (request.method === 'POST') {

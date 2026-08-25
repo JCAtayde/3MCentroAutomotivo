@@ -549,6 +549,11 @@
     <div id="contasPagarBox"></div>
   </section>
 
+  <section class="screen" data-screen="auditoria">
+    <div class="view-head"><div><h2>Registro de auditoria</h2><p>Quem fez o quê e quando</p></div></div>
+    <div id="auditoriaBox"></div>
+  </section>
+
   <!-- DETALHE: CLIENTE -->
   <section class="screen" data-screen="cliente">
     <button class="back" onclick="back()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>Voltar</button>
@@ -683,11 +688,12 @@ const API='/gestao/api';
 const CACHE_KEY='oficina_cache_d1';
 function apiGet(){ return fetch(API+'/state',{headers:{'accept':'application/json'}}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
 function apiPost(path,body){ return fetch(API+'/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
+function logAcao(acao,alvo,detalhe){ try{ const u=(typeof usuarioAtual!=='undefined'&&usuarioAtual)||{}; const entry={id:uid(),quando:Date.now(),quem:u.id||'',quem_nome:u.nome||'—',acao:acao||'',alvo:alvo||'',detalhe:detalhe||''}; state.logs=state.logs||[]; state.logs.unshift(entry); if(state.logs.length>1500) state.logs.length=1500; apiPost('log',{entry}).catch(()=>{}); }catch(e){} }
 function deepCopy(o){ return JSON.parse(JSON.stringify(o)); }
 function cacheSave(){ try{ localStorage.setItem(CACHE_KEY,JSON.stringify(state)); }catch(e){} }
-function cacheLoad(){ try{ const r=localStorage.getItem(CACHE_KEY); if(r){ const d=JSON.parse(r); d.clientes||=[]; d.veiculos||=[]; d.ordens||=[]; d.regras||=[]; d.usuarios||=[]; d.mecanicos||=[]; d.caixa||=[]; d.pecas||=[]; d.fornecedores||=[]; d.ordens.forEach(normOrdem); d.config={...CONFIG_PADRAO,...(d.config||{})}; try{ if(d.config.perfis_json){ const a=JSON.parse(d.config.perfis_json); if(Array.isArray(a)&&a.length) d.perfis=a; } }catch(e){} try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); }catch(e){} return d; } }catch(e){} return null; }
+function cacheLoad(){ try{ const r=localStorage.getItem(CACHE_KEY); if(r){ const d=JSON.parse(r); d.clientes||=[]; d.veiculos||=[]; d.ordens||=[]; d.regras||=[]; d.usuarios||=[]; d.mecanicos||=[]; d.caixa||=[]; d.pecas||=[]; d.fornecedores||=[]; d.logs||=[]; d.ordens.forEach(normOrdem); d.config={...CONFIG_PADRAO,...(d.config||{})}; try{ if(d.config.perfis_json){ const a=JSON.parse(d.config.perfis_json); if(Array.isArray(a)&&a.length) d.perfis=a; } }catch(e){} try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); }catch(e){} return d; } }catch(e){} return null; }
 
-let state = cacheLoad() || {clientes:[],veiculos:[],ordens:[],regras:[],usuarios:[],mecanicos:[],caixa:[],pecas:[],fornecedores:[],config:{...CONFIG_PADRAO}};
+let state = cacheLoad() || {clientes:[],veiculos:[],ordens:[],regras:[],usuarios:[],mecanicos:[],caixa:[],pecas:[],fornecedores:[],logs:[],config:{...CONFIG_PADRAO}};
 let lastSnapshot = deepCopy(state);
 let syncTimer=null, syncing=false, syncPend=false;
 
@@ -729,7 +735,7 @@ async function sincronizar(){
     state.mecanicos=data.mecanicos||[];
     state.caixa=data.caixa||[];
     state.pecas=data.pecas||[];
-    state.fornecedores=data.fornecedores||[];
+    state.fornecedores=data.fornecedores||[]; state.logs=data.logs||[];
     state.config={...CONFIG_PADRAO,...(data.config||{})};
     carregarPerfis();
     lastSnapshot=deepCopy(state); cacheSave(); setSync('ok');
@@ -878,14 +884,14 @@ const VIEWS=[
 ];
 const TABS=['painel','ordens','clientes','financeiro','mais'];
 let histStack=[{screen:'painel',param:null}];
-function telaPai(name){ if(['veiculos','regras','equipe','config','boletos','fornecedores','relatorios','contas_pagar'].includes(name)) return 'mais'; if(name==='servicos') return 'painel'; return name; }
+function telaPai(name){ if(['veiculos','regras','equipe','config','boletos','fornecedores','relatorios','contas_pagar','auditoria'].includes(name)) return 'mais'; if(name==='servicos') return 'painel'; return name; }
 function showScreen(name){
   document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===name));
   const tabHi = TABS.includes(name)?name:telaPai(name);
   document.querySelectorAll('#topnav button,#tabbar button').forEach(b=>b.classList.toggle('active',b.dataset.go===tabHi));
 }
 const RENDER={painel:renderPainel,clientes:renderClientes,veiculos:renderVeiculos,ordens:renderOrdens,regras:renderRegras,config:carregarConfig,
-  financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos, boletos:renderBoletosReceber, fornecedores:renderFornecedores, relatorios:renderRelatorios, contas_pagar:renderContasPagar,
+  financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos, boletos:renderBoletosReceber, fornecedores:renderFornecedores, relatorios:renderRelatorios, contas_pagar:renderContasPagar, auditoria:renderAuditoria,
   cliente:p=>renderClienteDet(p), veiculo:p=>renderVeiculoDet(p), os:p=>renderOsDet(p)};
 function render(screen,param,keepScroll){ const y=window.scrollY||window.pageYOffset||0; showScreen(screen); (RENDER[screen]||(()=>{}))(param); if(keepScroll){ window.scrollTo({top:y}); } else { window.scrollTo({top:0,behavior:'smooth'}); } }
 function goTab(name){ histStack=[{screen:name,param:null}]; render(name,null); }
@@ -1867,7 +1873,7 @@ function reabrirOrcamento(oid){ if(!ehAdmin()){ toast('Apenas o gestor geral pod
 function finalizarOS(oid){ const o=getOS(oid); if(!o) return;
   if(restanteOS(o)<=0.005){ confirmar('Não há valor em aberto.\nFinalizar e enviar para Executado?', function(){ o.status='executado'; o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='executado'; renderOsDet(oid); toast('OS finalizada ✓'); }, 'Finalizar', 'green'); return; }
   pagamentoModal(oid,'final'); }
-function liberarCarro(oid){ const o=getOS(oid); if(!o) return; confirmar('Liberar o carro?\nA OS vai para "Carro liberado" — onde o cliente busca o carro e é feito o recebimento.', function(){ o.status='liberado'; o.atualizado=Date.now(); salvar(); osFiltroStatus='liberado'; renderOsDet(oid); toast('Carro liberado ✓'); }, 'Liberar', 'green'); }
+function liberarCarro(oid){ const o=getOS(oid); if(!o) return; confirmar('Liberar o carro?\nA OS vai para "Carro liberado" — onde o cliente busca o carro e é feito o recebimento.', function(){ logAcao('Liberou carro', o.codigo?('OS '+o.codigo):'OS', ''); o.status='liberado'; o.atualizado=Date.now(); salvar(); osFiltroStatus='liberado'; renderOsDet(oid); toast('Carro liberado ✓'); }, 'Liberar', 'green'); }
 function reagendarOS(oid){ const o=getOS(oid); if(!o) return;
   openModal(`<h3>Reagendar — mandar para a Agenda</h3><p class="sub">O carro não ficou hoje. Marque o retorno e a OS volta para a Agenda.</p>
     <div class="grid2"><div class="field"><label>Data do retorno</label><div class="dt-wrap"><input id="ragData" type="date" value="${o.agenda_data||toISO(hoje())}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('ragData')">📅</button></div></div>
@@ -1995,10 +2001,10 @@ function salvarPagamento(oid,modo){ const o=getOS(oid); if(!o) return; const for
   if(modo==='final'){
     const rest=restanteOS(o);
     if(rest>0.005){ o.atualizado=Date.now(); salvar(); closeModal(); renderOsDet(oid); toast('Recebimento registrado. Ainda faltam '+moneyFmt(rest)+' — só finaliza quando estiver quitado.'); return; }
-    o.status='executado'; o.data=toISO(hoje()); o.atualizado=Date.now(); osFiltroStatus='executado';
+    o.status='executado'; o.data=toISO(hoje()); o.atualizado=Date.now(); osFiltroStatus='executado'; logAcao('Recebeu/finalizou OS', o.codigo?('OS '+o.codigo):'OS', 'total '+moneyFmt(osTotal(o)));
   }
   salvar(); closeModal(); renderOsDet(oid); toast(modo==='final'?'OS finalizada e enviada para Executados ✓':'Recebimento registrado ✓'); }
-function removerPagamento(mid,oid){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } confirmar('Remover este pagamento do caixa?', function(){ state.caixa=state.caixa.filter(m=>m.id!==mid); salvar(); renderOsDet(oid); toast('Pagamento removido'); }); }
+function removerPagamento(mid,oid){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } const _pg=state.caixa.find(m=>m.id===mid); confirmar('Remover este pagamento do caixa?', function(){ logAcao('Removeu pagamento de OS', _pg?moneyFmt(_pg.valor):'', ''); state.caixa=state.caixa.filter(m=>m.id!==mid); salvar(); renderOsDet(oid); toast('Pagamento removido'); }); }
 
 /* ---- mensagens de agendamento ---- */
 function avisarClienteAgenda(oid){ const o=getOS(oid); if(!o) return; const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const n=zapDoCliente(c);
@@ -2020,7 +2026,7 @@ function avisarMecanico(oid){ const o=getOS(oid); if(!o) return; const mec=(stat
   }
   window.open('https://wa.me/'+tel+'?text='+encodeURIComponent(msg),'_blank'); }
 
-function delOS(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } confirmar('Excluir esta ordem de serviço?', function(){ state.ordens=state.ordens.filter(o=>o.id!==id); state.caixa=state.caixa.filter(m=>m.ordem_id!==id); salvar(); back(); toast('OS excluída'); }); }
+function delOS(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } const _o=getOS(id); confirmar('Excluir esta ordem de serviço?', function(){ logAcao('Excluiu OS', _o&&_o.codigo?('OS '+_o.codigo):'OS', _o?('total '+moneyFmt(osTotal(_o))):''); state.ordens=state.ordens.filter(o=>o.id!==id); state.caixa=state.caixa.filter(m=>m.ordem_id!==id); salvar(); back(); toast('OS excluída'); }); }
 
 /* ==================================================================
    FORM: CLIENTE
@@ -2107,8 +2113,8 @@ function saveCliente(id){
   if(id) Object.assign(getCliente(id),dados); else state.clientes.push({id:uid(),...dados,criado:Date.now()});
   salvar(); closeModal(); refreshAtual(); toast('Cliente salvo');
 }
-function delCliente(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; }
-  confirmar('Excluir o cliente e todos os veículos/OS dele?', function(){
+function delCliente(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } const _c=getCliente(id);
+  confirmar('Excluir o cliente e todos os veículos/OS dele?', function(){ logAcao('Excluiu cliente', _c?(_c.nome||''):'', _c?(_c.telefone1||''):'');
     const vids=veiculosDe(id).map(v=>v.id); state.ordens=state.ordens.filter(o=>!vids.includes(o.veiculo_id));
     state.veiculos=state.veiculos.filter(v=>v.cliente_id!==id); state.clientes=state.clientes.filter(c=>c.id!==id);
     salvar(); closeModal(); goTab('clientes'); toast('Cliente excluído'); }); }
@@ -2142,8 +2148,8 @@ function saveVeiculo(id){
     go('veiculo',nv.id); openEntrevista(nv.id,true); toast('Veículo cadastrado'); }
 }
 function autoResolveLead(cid,placa){ const c=getCliente(cid); if(c&&c.lead==='novo'&&placa&&placa.trim()){ c.lead=''; c.atualizado=Date.now(); toast('Cadastro completo — saiu da fila de prioridade'); } }
-function delVeiculo(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; }
-  confirmar('Excluir o veículo e suas OS?', function(){
+function delVeiculo(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } const _v=getVeiculo(id);
+  confirmar('Excluir o veículo e suas OS?', function(){ logAcao('Excluiu veículo', _v?((_v.placa||'')+' '+(_v.modelo||'')):'', '');
     state.ordens=state.ordens.filter(o=>o.veiculo_id!==id); state.veiculos=state.veiculos.filter(v=>v.id!==id);
     salvar(); closeModal(); goTab('veiculos'); toast('Veículo excluído'); }); }
 
@@ -2675,7 +2681,7 @@ function saveRegra(id){ const nome=tc(val('fRNome').trim()),km=num('fRKm')||0,me
   if(!nome){ toast('Informe o nome'); return; } if(km<=0&&meses<=0){ toast('Preencha KM ou meses'); return; }
   if(id) Object.assign(getRegra(id),{nome,km,meses}); else state.regras.push({id:uid(),nome,km,meses});
   salvar(); document.getElementById('regrasList').innerHTML=state.regras.map(r=>`<option value="${esc(r.nome)}">`).join(''); closeModal(); renderRegras(); toast('Regra salva'); }
-function delRegra(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } confirmar('Excluir esta regra?', function(){ state.regras=state.regras.filter(r=>r.id!==id); salvar(); closeModal(); renderRegras(); toast('Regra excluída'); }); }
+function delRegra(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } const _r=state.regras.find(x=>x.id===id); confirmar('Excluir esta regra?', function(){ logAcao('Excluiu regra', _r?(_r.nome||''):'', ''); state.regras=state.regras.filter(r=>r.id!==id); salvar(); closeModal(); renderRegras(); toast('Regra excluída'); }); }
 
 function carregarConfig(){ document.getElementById('cfgMsg').value=state.config.msg; document.getElementById('cfgJanela').value=state.config.janela_dias; document.getElementById('cfgMedia').value=state.config.media_km_mes_padrao; const l=document.getElementById('cfgLink'); if(l) l.value=state.config.link_manutencao||''; const rm=document.getElementById('cfgMsgReat'); if(rm) rm.value=state.config.msg_reativacao||CONFIG_PADRAO.msg_reativacao; const rmv=document.getElementById('cfgReatMeses'); if(rmv) rmv.value=(state.config.reativacao_meses!=null&&state.config.reativacao_meses!=='')?state.config.reativacao_meses:'3'; montarCfgTabs(); cfgTab(cfgAtiva); }
 let cfgAtiva='mensagens';
@@ -2755,6 +2761,7 @@ function renderMais(){
   }
   if(ehAdmin()||telaLiberada('config')){
     h+=`<div class="lbl-sec-mais">Sistema</div>`;
+    if(ehAdmin()) h+=item('🕵️','Registro de auditoria','Quem fez o quê e quando (exclusões etc.)',`goTab("auditoria")`);
     if(ehAdmin()) h+=item('📥','Importar clientes','Trazer base antiga (planilha)',`abrirImportarClientes()`);
     h+=item('⚙️','Configurações','Mensagens, textos e backup',`goTab("config")`);
   }
@@ -3029,7 +3036,7 @@ function salvarFornecedor(id){ const nome=tc(val('fnNome').trim()); if(!nome){ t
   const dados={nome,cnpj:fmtCNPJ(val('fnCnpj')),telefone:val('fnTel').trim(),obs:val('fnObs').trim(),atualizado:Date.now()};
   if(id){ Object.assign(getFornecedor(id),dados); } else { state.fornecedores.push({id:uid(),...dados,criado:Date.now()}); }
   salvar(); closeModal(); if(document.querySelector('[data-screen="fornecedores"].active')) renderFornecedores(); toast('Fornecedor salvo ✓'); }
-function excluirFornecedor(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } confirmar('Excluir este fornecedor? Os lançamentos antigos continuam registrados.', function(){ state.fornecedores=(state.fornecedores||[]).filter(f=>f.id!==id); salvar(); closeModal(); renderFornecedores(); }); }
+function excluirFornecedor(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } const _f=(state.fornecedores||[]).find(x=>x.id===id); confirmar('Excluir este fornecedor? Os lançamentos antigos continuam registrados.', function(){ logAcao('Excluiu fornecedor', _f?(_f.nome||''):'', ''); state.fornecedores=(state.fornecedores||[]).filter(f=>f.id!==id); salvar(); closeModal(); renderFornecedores(); }); }
 /* ===== RELATÓRIOS & DASHBOARD ===== */
 let relAba='dashboard', relCxTipo='tudo';
 let relPer={de:'',ate:''}, relPerB={de:'',ate:''};
@@ -3109,6 +3116,22 @@ function relDashboard(){ const A=relPer,B=relPerB;
 function contasPagarAbertas(){ return (state.caixa||[]).filter(m=>m.tipo==='saida'&&(m.forma==='cartao'||m.forma==='boleto')&&!m.pagamento); }
 function contasPagarGrupos(){ const map={}; contasPagarAbertas().forEach(m=>{ const k=m.parcela_grupo||('_'+m.id); (map[k]=map[k]||[]).push(m); });
   return Object.entries(map).map(([k,list])=>{ list.sort((a,b)=>String(a.vencimento||'').localeCompare(String(b.vencimento||''))); const g=list[0]; return {key:k,list,total:list.reduce((s,m)=>s+(Number(m.valor)||0),0),prox:list[0].vencimento,nota:g.nota,fornecedor_id:g.fornecedor_id,desc:g.descricao}; }).sort((a,b)=>String(a.prox||'').localeCompare(String(b.prox||''))); }
+let audFiltroUser='', audBusca='';
+function renderAuditoria(){ const box=document.getElementById('auditoriaBox'); if(!box) return;
+  if(!ehAdmin()){ box.innerHTML='<div class="note empty-note">Somente o proprietário vê o registro de auditoria.</div>'; return; }
+  const logs=(state.logs||[]).slice().sort((a,b)=>(b.quando||0)-(a.quando||0));
+  const users=[...new Set(logs.map(l=>l.quem_nome).filter(Boolean))].sort();
+  let lista=logs;
+  if(audFiltroUser) lista=lista.filter(l=>l.quem_nome===audFiltroUser);
+  const q=audBusca.toLowerCase().trim();
+  if(q) lista=lista.filter(l=>((l.acao||'')+' '+(l.alvo||'')+' '+(l.detalhe||'')+' '+(l.quem_nome||'')).toLowerCase().includes(q));
+  const filtro=`<div class="grid2"><div class="field"><label>Usuário</label><select onchange="audFiltroUser=this.value; renderAuditoria()"><option value="">Todos</option>${users.map(u=>`<option value="${esc(u)}" ${audFiltroUser===u?'selected':''}>${esc(u)}</option>`).join('')}</select></div><div class="field"><label>Buscar</label><input value="${esc(audBusca)}" oninput="audBusca=this.value; renderAuditoria()" placeholder="ação, OS, valor…"></div></div>
+    <div class="rel-atalhos" style="margin-bottom:6px"><button class="btn sm ghost" onclick="sincronizar().then(()=>renderAuditoria())">🔄 Atualizar</button></div>`;
+  const icon=a=>(a.startsWith('Excluiu')||a.startsWith('Removeu'))?'🗑️':(a.startsWith('Recebeu')||a.startsWith('Lançou'))?'💰':a.startsWith('Liberou')?'🚗':a.startsWith('Adiantamento')?'💵':'✎';
+  const linhas=lista.slice(0,600).map(l=>{ const d=new Date(l.quando||0); const dt=fmtBR(d)+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); const del=(l.acao||'').startsWith('Excluiu')||(l.acao||'').startsWith('Removeu');
+    return `<div class="row"${del?' style="border-left:3px solid var(--red)"':''}><div class="main"><div class="t">${icon(l.acao||'')} ${esc(l.acao||'')}${l.alvo?(' — '+esc(l.alvo)):''}</div><div class="s">👤 ${esc(l.quem_nome||'—')} · ${dt}${l.detalhe?(' · '+esc(l.detalhe)):''}</div></div></div>`; }).join('');
+  box.innerHTML=filtro+`<div class="hint" style="margin:8px 0">${lista.length} registro(s). As exclusões aparecem com barra vermelha.</div>`+(lista.length?`<div class="rows">${linhas}</div>`:emptyState('Sem registros ainda','As ações passam a ser gravadas a partir de agora.'));
+}
 function renderContasPagar(){ const box=document.getElementById('contasPagarBox'); if(!box) return;
   if(!ehGestor()&&!pode('valores')){ box.innerHTML='<div class="note empty-note">Sem permissão.</div>'; return; }
   const grupos=contasPagarGrupos(); const total=grupos.reduce((s,g)=>s+g.total,0); const hoje0=toISO(hoje());
@@ -3286,12 +3309,12 @@ function salvarMovimento(id,tipo){ const data=val('mvData')||toISO(hoje()); cons
     if(Math.abs(soma-valor)>0.05){ toast('A soma das parcelas não bate com o total'); return; }
     mvParcelas.forEach((p,i)=>{ const v=Math.round((Number(p.valor)||0)*100)/100;
       state.caixa.push({id:uid(),ordem_id:null,tipo:'saida',data,valor:v,forma:'boleto',taxa:0,liquido:v,descricao:(descricao||catSaidaLabel(categoria))+(nota?(' · NF '+nota):'')+' ('+(i+1)+'/'+n+')',categoria,funcionario_id:'',socio:'',conta:'banco',vencimento:p.venc,pagamento:'',fornecedor_id,parcela_grupo:grupo,nota,criado:Date.now()}); });
-    salvar(); closeModal(); renderCaixa(); toast(n+' parcelas lançadas ✓'); return;
+    logAcao('Lançou saída parcelada', moneyFmt(valor)+' em '+n+'x', descricao||catSaidaLabel(categoria)); salvar(); closeModal(); renderCaixa(); toast(n+' parcelas lançadas ✓'); return;
   }
   const dados={tipo,data,valor,forma,taxa,liquido:valor-taxa,descricao,categoria,funcionario_id,socio,conta,vencimento,fornecedor_id,nota:(tipo==='saida'&&forma==='boleto')?val('mvNota').trim():'',atualizado:Date.now()};
   if(id){ Object.assign(state.caixa.find(x=>x.id===id),dados); } else { state.caixa.push({id:uid(),ordem_id:null,criado:Date.now(),...dados}); }
-  salvar(); closeModal(); renderCaixa(); toast('Lançamento salvo'); }
-function excluirMovimento(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } confirmar('Excluir este lançamento do caixa?', function(){ state.caixa=state.caixa.filter(x=>x.id!==id); salvar(); closeModal(); renderCaixa(); toast('Lançamento excluído'); }); }
+  logAcao(id?'Editou lançamento':(tipo==='entrada'?'Lançou entrada':'Lançou saída'), (tipo==='entrada'?'Entrada ':'Saída ')+moneyFmt(valor), descricao||catSaidaLabel(categoria)); salvar(); closeModal(); renderCaixa(); toast('Lançamento salvo'); }
+function excluirMovimento(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } const _m=state.caixa.find(x=>x.id===id); confirmar('Excluir este lançamento do caixa?', function(){ logAcao('Excluiu lançamento', _m?((_m.tipo==='entrada'?'Entrada ':'Saída ')+moneyFmt(_m.valor)):'lançamento', _m?(_m.descricao||''):''); state.caixa=state.caixa.filter(x=>x.id!==id); salvar(); closeModal(); renderCaixa(); toast('Lançamento excluído'); }); }
 
 /* ==================================================================
    FOLHA DE PAGAMENTO (regra do dia 8)
@@ -3354,7 +3377,7 @@ function salvarAdiantamentoFunc(fid){ const f=(state.mecanicos||[]).find(x=>x.id
   const data=val('adData')||toISO(hoje()); const valor=moneyParse(val('adValor')); const forma=val('adForma'); const desc=val('adDesc').trim();
   if(valor<=0){ toast('Informe o valor'); return; }
   state.caixa.push({id:uid(),tipo:'saida',data,valor,forma,taxa:0,liquido:valor,descricao:desc||('Adiantamento '+f.nome),categoria:'adiantamento',funcionario_id:fid,ordem_id:null,criado:Date.now()});
-  salvar(); closeModal(); renderFolha(); toast('Adiantamento registrado ✓'); }
+  logAcao('Adiantamento a funcionário', f.nome+' · '+moneyFmt(valor), desc||''); salvar(); closeModal(); renderFolha(); toast('Adiantamento registrado ✓'); }
 
 /* ==================================================================
    MECÂNICOS + RELATÓRIO FINANCEIRO DE MÃO DE OBRA
@@ -3394,7 +3417,7 @@ function salvarMecanico(id){ const nome=tc(val('mNome').trim()); if(!nome){ toas
   else state.mecanicos.push({id:uid(),nome,percentual:perc,telefone,salario,funcao,socio,ativo:1,criado:Date.now()});
   salvar(); closeModal(); renderMecanicos(); toast('Funcionário salvo'); }
 function toggleMecanico(id){ const m=state.mecanicos.find(x=>x.id===id); if(!m) return; m.ativo=(m.ativo!==0&&m.ativo!==false)?0:1; m.atualizado=Date.now(); salvar(); renderMecanicos(); }
-function excluirMecanico(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } confirmar('Excluir este mecânico? As OS antigas mantêm o registro do serviço.', function(){ state.mecanicos=state.mecanicos.filter(x=>x.id!==id); salvar(); closeModal(); renderMecanicos(); }); }
+function excluirMecanico(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } const _mec=(state.mecanicos||[]).find(x=>x.id===id); confirmar('Excluir este mecânico? As OS antigas mantêm o registro do serviço.', function(){ logAcao('Excluiu funcionário', _mec?(_mec.nome||''):'', ''); state.mecanicos=state.mecanicos.filter(x=>x.id!==id); salvar(); closeModal(); renderMecanicos(); }); }
 
 let finDe='',finAte='',finMec='',finStatus='executado';
 function renderFinanceiro(){
