@@ -685,6 +685,8 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
+const APP_VERSAO='2026-08-26.1';
+function mostrarUpdate(){ if(document.getElementById('updBanner')) return; const b=document.createElement('div'); b.id='updBanner'; b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:var(--gold);color:#1a1200;padding:14px;text-align:center;font-weight:800;cursor:pointer;box-shadow:0 -4px 16px rgba(0,0,0,.4)'; b.innerHTML='🔄 Nova versão disponível — toque aqui para atualizar'; b.onclick=function(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){} location.reload(true); }; document.body.appendChild(b); }
 const CACHE_KEY='oficina_cache_d1';
 function apiGet(){ return fetch(API+'/state',{headers:{'accept':'application/json'}}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
 function apiPost(path,body){ return fetch(API+'/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
@@ -736,6 +738,7 @@ async function sincronizar(){
     state.caixa=data.caixa||[];
     state.pecas=data.pecas||[];
     state.fornecedores=data.fornecedores||[]; state.logs=data.logs||[];
+    if(data.app_versao && data.app_versao!==APP_VERSAO) mostrarUpdate();
     state.config={...CONFIG_PADRAO,...(data.config||{})};
     carregarPerfis();
     lastSnapshot=deepCopy(state); cacheSave(); setSync('ok');
