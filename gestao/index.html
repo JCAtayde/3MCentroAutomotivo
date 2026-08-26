@@ -3187,9 +3187,16 @@ function openPagarNota(key){ const arr=(state.caixa||[]).filter(x=>!x.pagamento&
     <div class="totline" style="margin:8px 0"><span>Selecionado</span><b id="pgnTot" style="color:var(--red)">${moneyFmt(arr.reduce((s,m)=>s+(Number(m.valor)||0),0))}</b></div>
     <div class="grid2"><div class="field"><label>Como vai pagar?</label><select id="pgnForma"><option value="pix">PIX (sai do banco)</option><option value="dinheiro">Dinheiro (sai do caixa)</option><option value="cartao">Cartão (sai do banco)</option></select></div>
       <div class="field"><label>Data do pagamento</label><div class="dt-wrap"><input id="pgnData" type="date" value="${toISO(hoje())}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('pgnData')">📅</button></div></div></div>
-    <div class="form-actions"><button class="btn green" onclick='confirmarPagarNota("${key}")'>Pagar selecionadas</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
+    <div class="form-actions"><button class="btn green" onclick='confirmarPagarNota("${key}")'>Pagar selecionadas</button>${pode('excluir')?`<button class="btn danger" onclick='excluirContaPagar("${key}")'>🗑️ Excluir fatura</button>`:''}<button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
 function pgnTotal(){ let t=0; document.querySelectorAll('[data-pg]:checked').forEach(e=>{ const m=(state.caixa||[]).find(x=>x.id===e.dataset.pg); if(m) t+=Number(m.valor)||0; }); const el=document.getElementById('pgnTot'); if(el) el.textContent=moneyFmt(t); }
+function excluirContaPagar(key){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; }
+  const arr=(state.caixa||[]).filter(x=>!x.pagamento&&(x.parcela_grupo===key||x.id===key)); if(!arr.length){ toast('Nada em aberto para excluir'); return; }
+  const g=arr[0];
+  confirmar('Excluir esta fatura'+(g.nota?(' (NF '+g.nota+')'):'')+' e suas '+arr.length+' parcela(s) em aberto? As parcelas já pagas, se houver, continuam no caixa.', function(){
+    const ids=new Set(arr.map(x=>x.id));
+    logAcao('Excluiu fatura (contas a pagar)', (g.nota?('NF '+g.nota):'Boleto')+' · '+arr.length+' parc.', g.fornecedor_id?fornecedorNome(g.fornecedor_id):'');
+    state.caixa=(state.caixa||[]).filter(x=>!ids.has(x.id)); salvar(); closeModal(); renderContasPagar(); toast('Fatura excluída'); }, 'Excluir', 'danger'); }
 function confirmarPagarNota(key){ const ids=[...document.querySelectorAll('[data-pg]:checked')].map(e=>e.dataset.pg); if(!ids.length){ toast('Selecione ao menos uma parcela'); return; }
   const forma=val('pgnForma')||'pix'; const data=val('pgnData')||toISO(hoje()); const conta=['dinheiro','especie'].includes(forma)?'caixa':'banco'; let tot=0,n=0;
   ids.forEach(id=>{ const m=(state.caixa||[]).find(x=>x.id===id); if(m&&!m.pagamento){ m.pagamento=data; m.forma=forma; m.conta=conta; m.atualizado=Date.now(); tot+=Number(m.valor)||0; n++; } });
