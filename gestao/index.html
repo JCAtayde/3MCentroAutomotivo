@@ -71,6 +71,17 @@
   .lbl-sec-mais{font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin:16px 2px 9px}
   .lbl-sec-mais:first-child{margin-top:2px}
   .saldo-card{border-radius:15px;padding:14px;margin-bottom:10px;border:1px solid var(--line2)}
+  .saldo-fixo{position:sticky;top:0;z-index:20;background:var(--bg);padding:8px 0;margin-bottom:6px;border-bottom:1px solid var(--line2)}
+  .sf-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .sf-item{background:var(--panel);border:1px solid var(--line2);border-radius:12px;padding:9px 11px;display:flex;flex-direction:column;gap:2px}
+  .sf-item .sf-l{font-size:11px;color:var(--muted)}
+  .sf-item .sf-v{font-size:17px;font-weight:800}
+  .sf-final{border-color:var(--gold);background:linear-gradient(160deg,rgba(232,178,58,.14),rgba(232,178,58,.03))}
+  .collapse-head{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--panel);border:1px solid var(--line2);border-radius:12px;padding:12px;margin-top:10px;cursor:pointer}
+  .collapse-head .t{font-weight:700}.collapse-head .s{font-size:12px;color:var(--muted)}
+  .collapse-head .ch-right{display:flex;align-items:center;gap:10px;white-space:nowrap}
+  .chev-tog{color:var(--gold);font-weight:800;font-size:15px}
+  .collapse-body{margin-top:8px}
   .saldo-card .lab{font-size:12.5px;color:var(--muted)}
   .saldo-card .v{font-size:23px;font-weight:800;margin-top:5px}
   .saldo-card.caixa{background:linear-gradient(160deg,rgba(72,185,138,.15),rgba(72,185,138,.03));border-color:var(--green)}
@@ -685,7 +696,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-08-26.1';
+const APP_VERSAO='2026-08-26.3';
 function mostrarUpdate(){ if(document.getElementById('updBanner')) return; const b=document.createElement('div'); b.id='updBanner'; b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:var(--gold);color:#1a1200;padding:14px;text-align:center;font-weight:800;cursor:pointer;box-shadow:0 -4px 16px rgba(0,0,0,.4)'; b.innerHTML='🔄 Nova versão disponível — toque aqui para atualizar'; b.onclick=function(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){} location.reload(true); }; document.body.appendChild(b); }
 const CACHE_KEY='oficina_cache_d1';
 function apiGet(){ return fetch(API+'/state',{headers:{'accept':'application/json'}}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
@@ -2964,7 +2975,7 @@ let toastT; function toast(m){ const t=document.getElementById('toast'); t.textC
    CONTROLE DE CAIXA (entradas / saídas)
 ================================================================== */
 let cxDe='',cxAte='';
-let saldoAte='';
+let saldoAte='', saldoAPagarAberto=false;
 function renderSaldos(){
   const box=document.getElementById('saldosBox'); if(!box) return;
   if(!saldoAte) saldoAte=toISO(hoje());
@@ -2990,14 +3001,18 @@ function renderSaldos(){
     return h; })();
   box.innerHTML=`
     <div class="field"><label>Posição até a data</label><div class="dt-wrap"><input id="saldoAteInp" type="date" value="${ate}" onchange="saldoAte=this.value; renderSaldos()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('saldoAteInp')">📅</button></div></div>
-    <div class="saldo-card caixa"><div class="lab">💵 Caixa (espécie) — dinheiro na oficina</div><div class="v">${moneyFmt(sc)}</div></div>
-    <div class="saldo-card banco"><div class="lab">🏦 Banco — já disponível (PIX, cartão e boleto compensados)</div><div class="v">${moneyFmt(sb)}</div></div>
+    <div class="saldo-fixo"><div class="sf-grid">
+      <div class="sf-item"><span class="sf-l">💵 Caixa</span><b class="sf-v">${moneyFmt(sc)}</b></div>
+      <div class="sf-item"><span class="sf-l">🏦 Banco</span><b class="sf-v">${moneyFmt(sb)}</b></div>
+      <div class="sf-item"><span class="sf-l">🔴 Contas a pagar</span><b class="sf-v" style="color:var(--red)">${moneyFmt(totalPag)}</b></div>
+      <div class="sf-item sf-final"><span class="sf-l">💰 Saldo final</span><b class="sf-v" style="color:var(--gold)">${moneyFmt(sc+sb-totalPag)}</b></div>
+    </div></div>
     <div class="section-label">A receber (ainda não caiu)</div>
     ${rec.length?cards:emptyState('Nada a receber','Tudo já caiu até essa data.')}
     ${rec.length?`<div class="totline"><span>Total a receber</span><b style="color:var(--amber)">${moneyFmt(totalRec)}</b></div>`:''}
-    ${pag.length?`<div class="section-label">A pagar (contas futuras — cartão/boleto)</div>${pagCards}<div class="totline"><span>Total a pagar</span><b style="color:var(--red)">−${moneyFmt(totalPag)}</b></div>`:''}
-    <div class="totline" style="margin-top:6px"><span><b>Saldo previsto</b> (caixa + banco + a receber − a pagar)</span><b style="color:var(--gold)">${moneyFmt(sc+sb+totalRec-totalPag)}</b></div>`;
+    ${pag.length?`<div class="collapse-head" onclick="toggleAPagar()"><div><div class="t">🔴 Contas a pagar</div><div class="s">${pag.length} conta(s) em aberto · toque para ${saldoAPagarAberto?'recolher':'ver e pagar'}</div></div><div class="ch-right"><b style="color:var(--red)">−${moneyFmt(totalPag)}</b><span class="chev-tog">${saldoAPagarAberto?'▾':'▸'}</span></div></div>${saldoAPagarAberto?`<div class="collapse-body">${pagCards}</div>`:''}`:'<div class="hint" style="margin-top:12px">Nenhuma conta a pagar em aberto.</div>'}`;
 }
+function toggleAPagar(){ saldoAPagarAberto=!saldoAPagarAberto; renderSaldos(); }
 function renderBoletosReceber(){
   const box=document.getElementById('boletosBox'); if(!box) return;
   if(!ehAdmin()&&!pode('editar')&&!pode('valores')){ box.innerHTML='<div class="note empty-note">Você não tem permissão para ver os boletos.</div>'; return; }
@@ -3358,9 +3373,9 @@ function renderFolha(){
   if(!ehAdmin()&&!pode('valores')){ box.innerHTML='<div class="note empty-note">Você não tem permissão para ver a folha.</div>'; return; }
   if(!folhaComp) folhaComp=toISO(hoje()).slice(0,7);
   const comp=folhaComp; const soAdmin=ehGestor();
-  const todos=(state.mecanicos||[]).filter(f=>!ehSocioFunc(f));
-  const mecs=todos.filter(ehMecanicoFunc).map(f=>{ const adis=adiantCalend(f.id,comp); const adiado=adis.reduce((s,m)=>s+(Number(m.valor)||0),0); return {f,sal:Number(f.salario||0),com:comissaoFunc(f.id,comp),adiado,adis,socio:false}; }).filter(x=>x.sal>0||x.com>0||x.adiado>0);
-  const assal=todos.filter(f=>!ehMecanicoFunc(f)).map(f=>{ const adis=adiantCalend(f.id,comp); const adiado=adis.reduce((s,m)=>s+(Number(m.valor)||0),0); return {f,sal:Number(f.salario||0),com:0,adiado,adis,socio:false}; }).filter(x=>x.sal>0||x.adiado>0);
+  const todos=(state.mecanicos||[]).filter(f=>!ehSocioFunc(f) && f.ativo!==0 && f.ativo!=='0');
+  const mecs=todos.filter(ehMecanicoFunc).map(f=>{ const adis=adiantCalend(f.id,comp); const adiado=adis.reduce((s,m)=>s+(Number(m.valor)||0),0); return {f,sal:Number(f.salario||0),com:comissaoFunc(f.id,comp),adiado,adis,socio:false}; });
+  const assal=todos.filter(f=>!ehMecanicoFunc(f)).map(f=>{ const adis=adiantCalend(f.id,comp); const adiado=adis.reduce((s,m)=>s+(Number(m.valor)||0),0); return {f,sal:Number(f.salario||0),com:0,adiado,adis,socio:false}; });
   const socios= soAdmin ? (state.mecanicos||[]).filter(ehSocioFunc).map(f=>{ const adis=adiantCalend(f.id,comp); return {f,sal:Number(f.salario||0),com:0,adiado:adis.reduce((s,m)=>s+(Number(m.valor)||0),0),adis,socio:true}; }) : [];
   const secMec = mecs.length?`<div class="section-label" style="margin-top:6px"><span>🔧 Mecânicos — fecham dia 30</span></div><div class="rows">${mecs.map(folhaLinha).join('')}</div>${folhaPainelTot(mecs)}`:'';
   const secAss = assal.length?`<div class="section-label" style="margin-top:16px"><span>👤 Funcionários (salário) — fecham dia 8</span></div><div class="rows">${assal.map(folhaLinha).join('')}</div>${folhaPainelTot(assal)}`:'';
@@ -3408,6 +3423,7 @@ function renderMecanicos(){
 }
 function editMecanico(id){ const m=id?(state.mecanicos.find(x=>x.id===id)||{}):{nome:'',percentual:50,telefone:'',salario:0,funcao:'',socio:''};
   const isSocio=(m.socio==='1'||m.socio===1||m.socio===true);
+  const u=id?(state.usuarios||[]).find(x=>x.mecanico_id===id):null; const temUser=!!u; const perfilAtual=(u&&u.perfil)||'mecanico';
   openModal(`<h3>${id?'Editar funcionário':'Novo funcionário'}</h3>
     <div class="grid2"><div class="field"><label>Nome</label><input id="mNome" value="${esc(m.nome||'')}" placeholder="Nome"></div>
       <div class="field"><label>Função</label><input id="mFuncao" value="${esc(m.funcao||'')}" placeholder="Mecânico, Secretária…"></div></div>
@@ -3416,15 +3432,38 @@ function editMecanico(id){ const m=id?(state.mecanicos.find(x=>x.id===id)||{}):{
     <div class="field"><label>Salário fixo mensal (R$)</label><input id="mSalario" inputmode="decimal" value="${m.salario?String(m.salario).replace('.',','):''}" placeholder="0,00"></div>
     <label class="check-row" style="display:flex;align-items:center;gap:9px;background:var(--bg2);border:1px solid var(--line2);border-radius:11px;padding:11px 13px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="mSocio" ${isSocio?'checked':''} style="width:18px;height:18px"><span><b>Sócio / gestor</b><br><span style="color:var(--muted);font-size:12px">A folha e as saídas desta pessoa ficam visíveis só para o gestor (admin) — o administrativo não vê.</span></span></label>
     <div class="hint">O % é para quem ganha por mão de obra. O salário fixo entra na Folha (os adiantamentos abatem do pagamento do dia 8). Pode ter os dois, um só, ou nenhum.</div>
+    ${ehAdmin()?`<div class="lbl-perfil" style="margin-top:4px">Acesso ao sistema (login)</div>
+    <label class="check-row" style="display:flex;align-items:center;gap:9px;background:var(--bg2);border:1px solid var(--line2);border-radius:11px;padding:11px 13px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="mAcesso" ${temUser?'checked':''} onchange="mAcessoToggle()" style="width:18px;height:18px"><span><b>Dar acesso ao app</b><br><span style="color:var(--muted);font-size:12px">Cria login e senha para essa pessoa entrar no sistema.</span></span></label>
+    <div id="mAcessoBox" style="display:${temUser?'':'none'}">
+      <div class="grid2"><div class="field"><label>Login</label><input id="mLogin" value="${esc(u?u.login:'')}" placeholder="ex: joao"></div>
+        <div class="field"><label>${temUser?'Nova senha (em branco = manter)':'Senha'}</label><input id="mSenha" type="password" placeholder="senha"></div></div>
+      <div class="field"><label>Perfil de acesso (liberações)</label><div style="display:flex;gap:8px;align-items:stretch"><select id="mPerfil" style="flex:1">${getPerfis().filter(p=>p.id!=='admin').map(p=>`<option value="${p.id}" ${perfilAtual===p.id?'selected':''}>${p.icone||''} ${esc(p.nome)}</option>`).join('')}</select><button type="button" class="btn ghost" style="flex:none" onclick="abrirLiberacoesPerfil()">⚙️ Liberações</button></div>
+        <div class="hint" style="margin-top:6px">O perfil define o que a pessoa vê e faz. Toque em <b>⚙️ Liberações</b> para ajustar as permissões desse perfil.</div></div>
+    </div>`:''}
     <div class="form-actions"><button class="btn gold" onclick='salvarMecanico(${id?`"${id}"`:'null'})'>Salvar</button>
       ${id&&pode('excluir')?`<button class="btn danger" onclick='excluirMecanico("${id}")'>Excluir</button>`:''}
       <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
-function salvarMecanico(id){ const nome=tc(val('mNome').trim()); if(!nome){ toast('Informe o nome'); return; }
+function mAcessoToggle(){ const on=document.getElementById('mAcesso')&&document.getElementById('mAcesso').checked; const box=document.getElementById('mAcessoBox'); if(box) box.style.display=on?'':'none'; }
+function abrirLiberacoesPerfil(){ if(!ehAdmin()){ toast('Apenas o administrador'); return; } const pid=val('mPerfil'); if(!pid){ toast('Escolha o perfil'); return; } editarPerfil(pid); }
+async function salvarMecanico(id){ const nome=tc(val('mNome').trim()); if(!nome){ toast('Informe o nome'); return; }
   const perc=Math.max(0,Math.min(100,num('mPerc')||0)); const telefone=val('mTel').trim(); const salario=moneyParse(val('mSalario'))||0; const funcao=tc(val('mFuncao').trim());
   const socio=(document.getElementById('mSocio')&&document.getElementById('mSocio').checked)?'1':'';
+  let mecId=id;
   if(id){ Object.assign(state.mecanicos.find(x=>x.id===id),{nome,percentual:perc,telefone,salario,funcao,socio,atualizado:Date.now()}); }
-  else state.mecanicos.push({id:uid(),nome,percentual:perc,telefone,salario,funcao,socio,ativo:1,criado:Date.now()});
+  else { mecId=uid(); state.mecanicos.push({id:mecId,nome,percentual:perc,telefone,salario,funcao,socio,ativo:1,criado:Date.now()}); }
+  const acesso=document.getElementById('mAcesso')&&document.getElementById('mAcesso').checked;
+  if(ehAdmin() && acesso){
+    const login=val('mLogin').trim().toLowerCase(); const senha=val('mSenha'); const perfil=val('mPerfil')||'mecanico'; const pf=getPerfil(perfil);
+    if(!login){ toast('Informe o login para o acesso'); return; }
+    let u=(state.usuarios||[]).find(x=>x.mecanico_id===mecId);
+    const outro=usuarioPorLogin(login);
+    if(outro && (!u || outro.id!==u.id)){ toast('Esse login já existe'); return; }
+    if(u){ u.login=login; u.nome=nome; u.perfil=perfil; u.papel=(perfil==='admin'?'admin':'operador'); u.modo_mec=((pf&&pf.flags.modo_mec)?'1':'0'); u.status='ativo'; u.atualizado=Date.now();
+      if(senha){ const salt=randSalt(); u.salt=salt; u.senha_hash=await hashSenha(senha,salt); } }
+    else { if(!senha){ toast('Defina a senha do novo acesso'); return; } const salt=randSalt(); const hash=await hashSenha(senha,salt);
+      state.usuarios.push({id:uid(),nome,login,email:'',senha_hash:hash,salt,status:'ativo',papel:(perfil==='admin'?'admin':'operador'),perfil,perms:permsPadrao(),reset:'',mecanico_id:mecId,modo_mec:((pf&&pf.flags.modo_mec)?'1':'0'),criado:Date.now()}); }
+  }
   salvar(); closeModal(); renderMecanicos(); toast('Funcionário salvo'); }
 function toggleMecanico(id){ const m=state.mecanicos.find(x=>x.id===id); if(!m) return; m.ativo=(m.ativo!==0&&m.ativo!==false)?0:1; m.atualizado=Date.now(); salvar(); renderMecanicos(); }
 function excluirMecanico(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } const _mec=(state.mecanicos||[]).find(x=>x.id===id); confirmar('Excluir este mecânico? As OS antigas mantêm o registro do serviço.', function(){ logAcao('Excluiu funcionário', _mec?(_mec.nome||''):'', ''); state.mecanicos=state.mecanicos.filter(x=>x.id!==id); salvar(); closeModal(); renderMecanicos(); }); }
