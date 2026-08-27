@@ -696,7 +696,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-08-26.3';
+const APP_VERSAO='2026-08-26.4';
 function mostrarUpdate(){ if(document.getElementById('updBanner')) return; const b=document.createElement('div'); b.id='updBanner'; b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:var(--gold);color:#1a1200;padding:14px;text-align:center;font-weight:800;cursor:pointer;box-shadow:0 -4px 16px rgba(0,0,0,.4)'; b.innerHTML='🔄 Nova versão disponível — toque aqui para atualizar'; b.onclick=function(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){} location.reload(true); }; document.body.appendChild(b); }
 const CACHE_KEY='oficina_cache_d1';
 function apiGet(){ return fetch(API+'/state',{headers:{'accept':'application/json'}}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
@@ -1651,7 +1651,7 @@ function renderOsDetMecanico(o,mid){
     <div class="section-label">Sua mão de obra</div>
     ${minhas.length?`<div class="rows">${minhas.map(m=>`<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div></div><span class="valor-tag">${moneyFmt(m.valor)}</span></div>`).join('')}</div>
       <div class="os-total"><span class="l"><b>Seu total de mão de obra</b></span><span class="v"><b>${moneyFmt(meuTotal)}</b></span></div>`:'<div class="note empty-note">Nenhuma mão de obra sua nesta OS ainda.</div>'}
-    ${(st==='andamento'&&podeLiberar())?`<div class="form-actions" style="margin-top:16px"><button class="btn green" style="width:100%" onclick='liberarCarro("${o.id}")'>🚗 Carro pronto — Liberar para entrega</button></div><div class="hint" style="margin-top:6px">Ao liberar, o carro vai para "Liberados" e o administrativo recebe o aviso de entrega.</div>`:''}`;
+    ${(st==='andamento'&&podeLiberarOS(o))?`<div class="form-actions" style="margin-top:16px"><button class="btn green" style="width:100%" onclick='liberarCarro("${o.id}")'>🚗 Carro pronto — Liberar para entrega</button></div><div class="hint" style="margin-top:6px">Ao liberar, o carro vai para "Liberados" e o administrativo recebe o aviso de entrega.</div>`:''}`;
 }
 function blocoDiagnostico(o){
   const pp=o.pecas_prev||[];
@@ -1757,7 +1757,7 @@ function entregarLojista(oid){ const o=getOS(oid); if(!o) return; const c=osEhLo
 function acoesFase(o,st){
   const loj=osEhLojista(o);
   if(st==='aguardando') return `<button class="btn sm green" onclick='aprovarOrcamento("${o.id}")'>✓ Aprovado</button><button class="btn sm ghost" onclick='reagendarOS("${o.id}")'>📅 Reagendar</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>✕ Rejeitar</button>`;
-  if(st==='andamento') return `${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Entregar (conta do lojista)</button>`:''}${podeLiberar()?`<button class="btn sm ${loj?'ghost':'green'}" onclick='liberarCarro("${o.id}")'>🚗 Liberar carro</button>`:''}<button class="btn sm ghost" onclick='reagendarOS("${o.id}")'>📅 Reagendar</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>Rejeitar</button>`;
+  if(st==='andamento') return `${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Entregar (conta do lojista)</button>`:''}${podeLiberarOS(o)?`<button class="btn sm ${loj?'ghost':'green'}" onclick='liberarCarro("${o.id}")'>🚗 Liberar carro</button>`:''}<button class="btn sm ghost" onclick='reagendarOS("${o.id}")'>📅 Reagendar</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>Rejeitar</button>`;
   if(st==='liberado') return `${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Lançar na conta do lojista</button>`:''}${podeReceber()?`<button class="btn sm ${loj?'ghost':'green'}" onclick='finalizarOS("${o.id}")'>💵 Receber / Finalizar</button>`:''}${ehAdmin()?`<button class="btn sm ghost" onclick='voltarAndamento("${o.id}")'>Voltar p/ andamento</button>`:''}`;
   if(st==='executado') return `<span class="cx-mini">Finalizada</span>${pode('editar')?` <button class="btn sm ghost" onclick='abrirRetorno("${o.id}")'>🔁 Abrir retorno (garantia)</button>`:''}${ehAdmin()?` <button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir</button>`:''}`;
   if(st==='rejeitado') return ehAdmin()?`<button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir orçamento</button>`:`<span class="cx-mini">Orçamento não aprovado</span>`;
@@ -1887,7 +1887,7 @@ function reabrirOrcamento(oid){ if(!ehAdmin()){ toast('Apenas o gestor geral pod
 function finalizarOS(oid){ const o=getOS(oid); if(!o) return;
   if(restanteOS(o)<=0.005){ confirmar('Não há valor em aberto.\nFinalizar e enviar para Executado?', function(){ o.status='executado'; o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='executado'; renderOsDet(oid); toast('OS finalizada ✓'); }, 'Finalizar', 'green'); return; }
   pagamentoModal(oid,'final'); }
-function liberarCarro(oid){ const o=getOS(oid); if(!o) return; confirmar('Liberar o carro?\nA OS vai para "Carro liberado" — onde o cliente busca o carro e é feito o recebimento.', function(){ logAcao('Liberou carro', o.codigo?('OS '+o.codigo):'OS', ''); o.status='liberado'; o.atualizado=Date.now(); salvar(); osFiltroStatus='liberado'; renderOsDet(oid); toast('Carro liberado ✓'); }, 'Liberar', 'green'); }
+function liberarCarro(oid){ const o=getOS(oid); if(!o) return; if(!podeLiberarOS(o)){ toast('Só o mecânico responsável pode liberar este carro'); return; } confirmar('Liberar o carro?\nA OS vai para "Carro liberado" — onde o cliente busca o carro e é feito o recebimento.', function(){ logAcao('Liberou carro', o.codigo?('OS '+o.codigo):'OS', ''); o.status='liberado'; o.atualizado=Date.now(); salvar(); osFiltroStatus='liberado'; renderOsDet(oid); toast('Carro liberado ✓'); }, 'Liberar', 'green'); }
 function reagendarOS(oid){ const o=getOS(oid); if(!o) return;
   openModal(`<h3>Reagendar — mandar para a Agenda</h3><p class="sub">O carro não ficou hoje. Marque o retorno e a OS volta para a Agenda.</p>
     <div class="grid2"><div class="field"><label>Data do retorno</label><div class="dt-wrap"><input id="ragData" type="date" value="${o.agenda_data||toISO(hoje())}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('ragData')">📅</button></div></div>
@@ -2879,6 +2879,7 @@ function permsPadrao(){ return {editar:true, excluir:false, valores:true, config
 function pode(perm){ if(!usuarioAtual) return false; if(usuarioAtual.papel==='admin') return true; return !!permAtual()[perm]; }
 function telaLiberada(t){ return flag(t); }
 function podeLiberar(){ return flag('liberar'); }
+function podeLiberarOS(o){ if(!podeLiberar()) return false; if(ehMecanico()){ return !!souMecanico() && o && o.mecanico_id===souMecanico(); } return true; }
 function podeReceber(){ return flag('receber'); }
 function podeMidiaEntrada(){ return flag('midia_entrada'); }
 function podeMidiaProblemas(){ return flag('midia_problemas'); }
