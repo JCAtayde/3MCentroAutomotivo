@@ -82,6 +82,14 @@
   .collapse-head .ch-right{display:flex;align-items:center;gap:10px;white-space:nowrap}
   .chev-tog{color:var(--gold);font-weight:800;font-size:15px}
   .collapse-body{margin-top:8px}
+  .dre{background:var(--panel);border:1px solid var(--line2);border-radius:14px;padding:14px;margin-top:8px}
+  .dre-head{font-size:11px;font-weight:800;letter-spacing:.5px;color:var(--gold);text-transform:uppercase;margin-bottom:4px}
+  .dre-row{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+  .dre-row .dre-v{font-weight:700;white-space:nowrap}
+  .dre-sub{border-top:1px solid var(--line2);border-bottom:none;font-weight:800;margin-top:2px}
+  .dre-final{display:flex;justify-content:space-between;gap:12px;margin-top:12px;padding:13px 15px;border-radius:11px;font-size:16px;font-weight:800}
+  .dre-final.pos{background:linear-gradient(160deg,rgba(72,185,138,.16),rgba(72,185,138,.03));color:var(--green);border:1px solid #1f5c3f}
+  .dre-final.neg{background:linear-gradient(160deg,rgba(229,72,77,.16),rgba(229,72,77,.03));color:var(--red);border:1px solid #6e2529}
   .saldo-card .lab{font-size:12.5px;color:var(--muted)}
   .saldo-card .v{font-size:23px;font-weight:800;margin-top:5px}
   .saldo-card.caixa{background:linear-gradient(160deg,rgba(72,185,138,.15),rgba(72,185,138,.03));border-color:var(--green)}
@@ -696,7 +704,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-08-27.1';
+const APP_VERSAO='2026-08-27.2';
 function mostrarUpdate(){ if(document.getElementById('updBanner')) return; const b=document.createElement('div'); b.id='updBanner'; b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:var(--gold);color:#1a1200;padding:14px;text-align:center;font-weight:800;cursor:pointer;box-shadow:0 -4px 16px rgba(0,0,0,.4)'; b.innerHTML='🔄 Nova versão disponível — toque aqui para atualizar'; b.onclick=function(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){} location.reload(true); }; document.body.appendChild(b); }
 const CACHE_KEY='oficina_cache_d1';
 function apiGet(){ return fetch(API+'/state',{headers:{'accept':'application/json'}}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
@@ -3094,11 +3102,11 @@ function renderRelatorios(){
   const box=document.getElementById('relBox'); if(!box) return;
   if(!ehGestor()){ box.innerHTML='<div class="note empty-note">Somente gestores têm acesso aos relatórios.</div>'; return; }
   relInit();
-  const abas=[['dashboard','📈 Dashboard'],['cliente','Por cliente'],['mecanico','Por mecânico'],['caixa','Caixa']];
+  const abas=[['dashboard','📈 Dashboard'],['dre','📊 DRE'],['cliente','Por cliente'],['mecanico','Por mecânico'],['caixa','Caixa']];
   const tabbar=`<div class="cfg-tabs rel-tabs">${abas.map(([k,r])=>`<button class="${k===relAba?'on':''}" onclick="relTab('${k}')">${r}</button>`).join('')}</div>`;
   let conteudo='';
   if(relAba==='dashboard') conteudo=relDashboard();
-  else conteudo=relPeriodoBar()+(relAba==='cliente'?relPorCliente():relAba==='mecanico'?relPorMecanico():relCaixa());
+  else conteudo=relPeriodoBar()+(relAba==='dre'?relDRE():relAba==='cliente'?relPorCliente():relAba==='mecanico'?relPorMecanico():relCaixa());
   box.innerHTML=tabbar+conteudo;
 }
 function relTab(k){ relAba=k; renderRelatorios(); }
@@ -3121,6 +3129,35 @@ function relPorMecanico(){ const os=osExecPeriodo(relPer.de,relPer.ate); const m
   const max=Math.max(...arr.map(x=>x.mo),1), totMO=arr.reduce((s,x)=>s+x.mo,0), totCom=arr.reduce((s,x)=>s+x.com,0);
   return `<div class="rel-kpi"><div class="rk"><div class="rl">Mão de obra total</div><div class="rv">${moneyFmt(totMO)}</div></div><div class="rk"><div class="rl">Comissões</div><div class="rv">${moneyFmt(totCom)}</div></div></div>
     <div class="section-label">Por mecânico</div>${arr.map(x=>relBar(x.nome,x.mo,max,`${x.n} OS · comissão ${moneyFmt(x.com)} (${x.perc}%)`)).join('')}`;
+}
+function relDRE(){ const de=relPer.de,ate=relPer.ate;
+  const entradas=entradasPeriodo(de,ate);
+  const catT=cat=>caixaPeriodo(de,ate,'saida').filter(m=>m.categoria===cat).reduce((s,m)=>s+(Number(m.valor)||0),0);
+  const forn=catT('fornecedor'), adiant=catT('adiantamento'), fixa=catT('conta_fixa'), varv=catT('variavel'), prol=catT('prolabore'), outrosC=catT('outros');
+  const conhecidas=['fornecedor','adiantamento','conta_fixa','variavel','prolabore','outros'];
+  const semCat=caixaPeriodo(de,ate,'saida').filter(m=>!conhecidas.includes(m.categoria)).reduce((s,m)=>s+(Number(m.valor)||0),0);
+  const outros=outrosC+semCat;
+  const saiTotal=forn+adiant+fixa+varv+prol+outros;
+  const resultado=entradas-saiTotal;
+  const fat=fatPeriodo(de,ate), lucroP=lucroPecasPeriodo(de,ate), custoP=pecasCustoPeriodo(de,ate);
+  const linha=(lbl,v)=>`<div class="dre-row"><span>${lbl}</span><span class="dre-v">${moneyFmt(v)}</span></div>`;
+  return `<div class="dre">
+    <div class="dre-head">Receitas</div>
+    ${linha('(+) Entradas recebidas no período', entradas)}
+    <div class="dre-head" style="margin-top:12px">(−) Custos e despesas</div>
+    ${forn?linha('Fornecedores / peças', forn):''}
+    ${adiant?linha('Comissões e adiantamentos', adiant):''}
+    ${fixa?linha('Contas fixas', fixa):''}
+    ${varv?linha('Despesas variáveis', varv):''}
+    ${prol?linha('Pró-labore (sócios)', prol):''}
+    ${outros?linha('Outras despesas', outros):''}
+    ${saiTotal===0?'<div class="dre-row" style="color:var(--muted)"><span>Sem despesas no período</span><span class="dre-v">R$ 0,00</span></div>':''}
+    <div class="dre-row dre-sub"><span>(=) Total de saídas</span><span class="dre-v" style="color:var(--red)">${moneyFmt(saiTotal)}</span></div>
+    <div class="dre-final ${resultado>=0?'pos':'neg'}"><span>Resultado do período</span><span>${moneyFmt(resultado)}</span></div>
+    <div class="hint" style="margin-top:10px">DRE em <b>regime de caixa</b> — pelo dinheiro que efetivamente entrou e saiu entre as datas escolhidas. ${resultado>=0?'✅ Resultado positivo (lucro).':'⚠️ Resultado negativo (prejuízo).'}</div>
+  </div>
+  <div class="section-label" style="margin-top:14px">Complemento — serviços do período</div>
+  <div class="rel-kpi"><div class="rk"><div class="rl">Faturamento (OS executadas)</div><div class="rv">${moneyFmt(fat)}</div></div><div class="rk"><div class="rl">Custo de peças</div><div class="rv" style="color:var(--red)">${moneyFmt(custoP)}</div></div><div class="rk"><div class="rl">🔒 Lucro em peças</div><div class="rv" style="color:var(--green)">${moneyFmt(lucroP)}</div></div></div>`;
 }
 function relCaixa(){ const de=relPer.de,ate=relPer.ate; const ent=entradasPeriodo(de,ate),sai=saidasPeriodo(de,ate);
   const catMap={}; caixaPeriodo(de,ate,'saida').forEach(m=>{ const c=catSaidaLabel(m.categoria); catMap[c]=(catMap[c]||0)+(Number(m.valor)||0); });
