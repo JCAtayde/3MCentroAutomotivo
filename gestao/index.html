@@ -90,6 +90,18 @@
   .dre-final{display:flex;justify-content:space-between;gap:12px;margin-top:12px;padding:13px 15px;border-radius:11px;font-size:16px;font-weight:800}
   .dre-final.pos{background:linear-gradient(160deg,rgba(72,185,138,.16),rgba(72,185,138,.03));color:var(--green);border:1px solid #1f5c3f}
   .dre-final.neg{background:linear-gradient(160deg,rgba(229,72,77,.16),rgba(229,72,77,.03));color:var(--red);border:1px solid #6e2529}
+  .meta-card{background:var(--panel);border:1px solid var(--line2);border-radius:14px;padding:14px;margin-top:10px}
+  .meta-card .mc-top{display:flex;justify-content:space-between;align-items:baseline}
+  .meta-card .mc-nome{font-size:17px;font-weight:800;color:var(--txt)}
+  .meta-card .mc-pct{font-size:22px;font-weight:800}
+  .meta-card .mc-vals{font-size:15px;margin:2px 0 8px}.meta-card .mc-vals b{font-size:18px}
+  .meta-card .mc-track{height:12px;background:var(--bg2);border-radius:7px;overflow:hidden;display:flex}
+  .meta-card .mc-fill{height:100%;background:var(--gold)}
+  .meta-card .mc-fill.and{background:repeating-linear-gradient(45deg,#7a6224,#7a6224 6px,#5f4c1c 6px,#5f4c1c 12px)}
+  .meta-card .mc-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
+  .meta-card .mc-grid>div{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:7px 9px}
+  .meta-card .mc-grid span{display:block;font-size:10.5px;color:var(--muted)}
+  .meta-card .mc-grid b{font-size:14px;white-space:nowrap}
   .saldo-card .lab{font-size:12.5px;color:var(--muted)}
   .saldo-card .v{font-size:23px;font-weight:800;margin-top:5px}
   .saldo-card.caixa{background:linear-gradient(160deg,rgba(72,185,138,.15),rgba(72,185,138,.03));border-color:var(--green)}
@@ -707,8 +719,19 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-08-27.3';
-function mostrarUpdate(){ if(document.getElementById('updBanner')) return; const b=document.createElement('div'); b.id='updBanner'; b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:var(--gold);color:#1a1200;padding:14px;text-align:center;font-weight:800;cursor:pointer;box-shadow:0 -4px 16px rgba(0,0,0,.4)'; b.innerHTML='🔄 Nova versão disponível — toque aqui para atualizar'; b.onclick=function(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){} location.reload(true); }; document.body.appendChild(b); }
+const APP_VERSAO='2026-08-28.2';
+function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
+  try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
+  const base=location.href.split('?')[0].split('#')[0];
+  setTimeout(function(){ location.replace(base+'?v='+Date.now()); }, 200); }
+function mostrarUpdate(){ if(document.getElementById('updBanner')||window.__updDismiss) return;
+  const b=document.createElement('div'); b.id='updBanner';
+  b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#E8B23A;color:#1a1200;padding:14px 46px 14px 16px;text-align:center;font-weight:800;cursor:pointer;box-shadow:0 -4px 16px rgba(0,0,0,.4)';
+  b.textContent='🔄 Nova versão disponível — toque para atualizar';
+  b.onclick=function(){ atualizarApp(); };
+  const x=document.createElement('div'); x.textContent='✕'; x.style.cssText='position:absolute;right:15px;top:50%;transform:translateY(-50%);font-size:18px;color:#1a1200;cursor:pointer';
+  x.onclick=function(ev){ ev.stopPropagation(); window.__updDismiss=true; b.remove(); };
+  b.appendChild(x); document.body.appendChild(b); }
 const CACHE_KEY='oficina_cache_d1';
 function apiGet(){ return fetch(API+'/state',{headers:{'accept':'application/json'}}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
 function apiPost(path,body){ return fetch(API+'/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
@@ -760,7 +783,7 @@ async function sincronizar(){
     state.caixa=data.caixa||[];
     state.pecas=data.pecas||[];
     state.fornecedores=data.fornecedores||[]; state.logs=data.logs||[];
-    if(data.app_versao && data.app_versao!==APP_VERSAO) mostrarUpdate();
+    if(data.app_versao && data.app_versao>APP_VERSAO) mostrarUpdate();
     state.config={...CONFIG_PADRAO,...(data.config||{})};
     carregarPerfis();
     lastSnapshot=deepCopy(state); cacheSave(); setSync('ok');
@@ -3107,11 +3130,12 @@ function renderRelatorios(){
   const box=document.getElementById('relBox'); if(!box) return;
   if(!ehGestor()){ box.innerHTML='<div class="note empty-note">Somente gestores têm acesso aos relatórios.</div>'; return; }
   relInit();
-  const abas=[['dashboard','📈 Dashboard'],['dre','📊 DRE'],['cliente','Por cliente'],['mecanico','Por mecânico'],['caixa','Caixa']];
+  const abas=[['dashboard','📈 Dashboard'],['metas','🎯 Metas'],['dre','📊 DRE'],['contas','💰 Contas'],['cliente','Por cliente'],['mecanico','Por mecânico'],['caixa','Caixa']];
   const tabbar=`<div class="cfg-tabs rel-tabs">${abas.map(([k,r])=>`<button class="${k===relAba?'on':''}" onclick="relTab('${k}')">${r}</button>`).join('')}</div>`;
   let conteudo='';
   if(relAba==='dashboard') conteudo=relDashboard();
-  else conteudo=relPeriodoBar()+(relAba==='dre'?relDRE():relAba==='cliente'?relPorCliente():relAba==='mecanico'?relPorMecanico():relCaixa());
+  else if(relAba==='metas') conteudo=relMetas();
+  else conteudo=relPeriodoBar()+(relAba==='dre'?relDRE():relAba==='contas'?relContas():relAba==='cliente'?relPorCliente():relAba==='mecanico'?relPorMecanico():relCaixa());
   box.innerHTML=tabbar+conteudo;
 }
 function relTab(k){ relAba=k; renderRelatorios(); }
@@ -3134,6 +3158,66 @@ function relPorMecanico(){ const os=osExecPeriodo(relPer.de,relPer.ate); const m
   const max=Math.max(...arr.map(x=>x.mo),1), totMO=arr.reduce((s,x)=>s+x.mo,0), totCom=arr.reduce((s,x)=>s+x.com,0);
   return `<div class="rel-kpi"><div class="rk"><div class="rl">Mão de obra total</div><div class="rv">${moneyFmt(totMO)}</div></div><div class="rk"><div class="rl">Comissões</div><div class="rv">${moneyFmt(totCom)}</div></div></div>
     <div class="section-label">Por mecânico</div>${arr.map(x=>relBar(x.nome,x.mo,max,`${x.n} OS · comissão ${moneyFmt(x.com)} (${x.perc}%)`)).join('')}`;
+}
+let rcTipo='pagar', rcSit='aberto', rcForn=false, rcAberto=false;
+function rcSet(k,v){ if(k==='tipo'){ rcTipo=v; } else if(k==='sit'){ rcSit=v; } else if(k==='forn'){ rcForn=!rcForn; } renderRelatorios(); }
+function rcLinha(m,campo){ const d=m[campo]||m.data; const ent=m.tipo==='entrada'; const forn=m.fornecedor_id?(' · 🏭 '+esc(fornecedorNome(m.fornecedor_id))):'';
+  return `<div class="row"><div class="main"><div class="t">${esc(m.descricao||(ent?'Entrada':catSaidaLabel(m.categoria)))}</div><div class="s">${d?fmtBR(parseISO(d)):'—'}${m.nota?(' · NF '+esc(m.nota)):''}${forn}</div></div><span class="valor-tag" style="color:${ent?'var(--green)':'var(--red)'}">${ent?'+':'−'}${moneyFmt(m.valor)}</span></div>`; }
+function relContas(){ const de=relPer.de,ate=relPer.ate;
+  const seg=(lbl,on,cb)=>`<button class="btn sm ${on?'gold':'ghost'}" onclick="${cb}">${lbl}</button>`;
+  const barra=`<div class="rel-atalhos" style="margin-top:8px">${seg('💸 A pagar',rcTipo==='pagar',"rcSet('tipo','pagar')")}${seg('💰 A receber',rcTipo==='receber',"rcSet('tipo','receber')")}</div>
+    <div class="rel-atalhos" style="margin-top:6px">${seg(rcTipo==='pagar'?'Em aberto':'A receber',rcSit==='aberto',"rcSet('sit','aberto')")}${seg(rcTipo==='pagar'?'Pagos':'Recebidos',rcSit==='ok',"rcSet('sit','ok')")}${rcTipo==='pagar'?seg((rcForn?'✓ ':'')+'Por fornecedor',rcForn,"rcSet('forn')"):''}</div>`;
+  let itens=[], campo='data', titulo='', cor='var(--red)', lojExtra=0, lojCards='';
+  if(rcTipo==='pagar'){
+    if(rcSit==='aberto'){ itens=(state.caixa||[]).filter(m=>m.tipo==='saida'&&(m.forma==='boleto'||m.forma==='cartao')&&!m.pagamento&&m.vencimento).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))); campo='vencimento'; titulo='Contas a pagar em aberto'; }
+    else { itens=(state.caixa||[]).filter(m=>m.tipo==='saida'&&m.pagamento&&m.pagamento>=de&&m.pagamento<=ate).sort((a,b)=>String(b.pagamento).localeCompare(String(a.pagamento))); campo='pagamento'; titulo='Contas pagas no período'; }
+  } else { cor='var(--green)';
+    if(rcSit==='aberto'){ itens=aReceberList(ate).map(x=>x.m); campo='vencimento'; titulo='Valores a receber';
+      const loj=lojistasAReceber(); lojExtra=loj.total; lojCards=loj.itens.map(x=>`<div class="row"><div class="main click" onclick='go("cliente","${x.c.id}")'><div class="t">🏢 ${esc(x.c.nome)} <span class="badge rev">lojista</span></div><div class="s">${x.n} serviço(s) entregue(s), não pago(s)</div></div><span class="valor-tag" style="color:var(--amber)">${moneyFmt(x.total)}</span></div>`).join(''); }
+    else { itens=(state.caixa||[]).filter(m=>m.tipo==='entrada'&&m.data>=de&&m.data<=ate).sort((a,b)=>String(b.data).localeCompare(String(a.data))); campo='data'; titulo='Recebidos no período'; }
+  }
+  const total=itens.reduce((s,m)=>s+(Number(m.valor)||0),0)+lojExtra;
+  const qtde=itens.length+(lojCards?lojistasAReceber().itens.length:0);
+  let lista;
+  if(rcTipo==='pagar'&&rcForn){ const g={}; itens.forEach(m=>{ const k=m.fornecedor_id||'__s'; (g[k]=g[k]||[]).push(m); });
+    lista=Object.entries(g).sort((a,b)=>b[1].reduce((s,m)=>s+(+m.valor||0),0)-a[1].reduce((s,m)=>s+(+m.valor||0),0)).map(([k,arr])=>{ const nome=k==='__s'?'Sem fornecedor':fornecedorNome(k); const t=arr.reduce((s,m)=>s+(+m.valor||0),0); return `<div class="section-label" style="display:flex;justify-content:space-between"><span>🏭 ${esc(nome)}</span><span style="color:var(--red)">${moneyFmt(t)}</span></div><div class="rows">${arr.map(m=>rcLinha(m,campo)).join('')}</div>`; }).join('');
+  } else { lista=(itens.length||lojCards)?`<div class="rows">${lojCards}${itens.map(m=>rcLinha(m,campo)).join('')}</div>`:emptyState('Nada aqui','Ajuste os filtros ou o período.'); }
+  return barra+`<div class="rel-kpi" style="margin-top:10px"><div class="rk"><div class="rl">${titulo}</div><div class="rv" style="color:${cor}">${moneyFmt(total)}</div></div><div class="rk"><div class="rl">Qtde</div><div class="rv">${qtde}</div></div></div>
+    <div class="collapse-head" onclick="rcAberto=!rcAberto; renderRelatorios()"><div><div class="t">${titulo}</div><div class="s">${qtde} conta(s) · toque para ${rcAberto?'recolher':'ver a lista'}</div></div><div class="ch-right"><b style="color:${cor}">${moneyFmt(total)}</b><span class="chev-tog">${rcAberto?'▾':'▸'}</span></div></div>
+    ${rcAberto?`<div style="margin-top:8px">${(rcSit==='ok')?'<div class="hint" style="margin:0 0 8px">Filtrando pelo período escolhido acima.</div>':'<div class="hint" style="margin:0 0 8px">Tudo em aberto (independente da data).</div>'}${lista}</div>`:''}`;
+}
+let metaComp='';
+function getMeta(comp){ const all=(state.config&&state.config.metas_json)||{}; return all[comp]||{mo:0,pecas:0,dias:22,trab:0}; }
+function salvarMeta(comp){ const all=(state.config&&state.config.metas_json)||{}; all[comp]={mo:moneyParse(val('mtMO')),pecas:moneyParse(val('mtPec')),dias:parseInt(val('mtDias'))||22,trab:parseInt(val('mtTrab'))||0}; state.config.metas_json=all; salvar(); renderRelatorios(); toast('Meta salva ✓'); }
+function osExecMes(comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01', ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); return (state.ordens||[]).filter(o=>osStatus(o)==='executado'&&o.data&&o.data>=de&&o.data<=ate); }
+function osAndamentoAtivas(){ return (state.ordens||[]).filter(o=>osStatus(o)==='andamento'); }
+function metaCard(nome,meta,real,and,dias,trab){ meta=Number(meta)||0;
+  const pct=meta>0?Math.round((real/meta)*100):0; const metaDia=dias>0?meta/dias:0; const ritmo=trab>0?real/trab:0; const proj=ritmo*dias;
+  const falta=Math.max(0,meta-real); const diasRest=Math.max(0,dias-trab); const porDia=diasRest>0?falta/diasRest:0; const previsto=real+and;
+  const barR=Math.min(100,meta>0?(real/meta)*100:0); const barA=Math.min(100-barR,meta>0?(and/meta)*100:0);
+  return `<div class="meta-card"><div class="mc-top"><span class="mc-nome">${nome}</span><span class="mc-pct" style="color:${pct>=100?'var(--green)':'var(--gold)'}">${pct}%</span></div>
+    <div class="mc-vals"><b>${moneyFmt(real)}</b> <span style="color:var(--muted)">de ${moneyFmt(meta)}</span></div>
+    <div class="mc-track"><div class="mc-fill" style="width:${barR}%"></div><div class="mc-fill and" style="width:${barA}%"></div></div>
+    <div class="mc-grid">
+      <div><span>Em andamento</span><b style="color:var(--amber)">${moneyFmt(and)}</b></div>
+      <div><span>Previsto (real+and.)</span><b style="color:${previsto>=meta?'var(--green)':'var(--txt)'}">${moneyFmt(previsto)}</b></div>
+      <div><span>Meta por dia útil</span><b>${moneyFmt(metaDia)}</b></div>
+      <div><span>Projeção no ritmo</span><b style="color:${proj>=meta?'var(--green)':'var(--red)'}">${moneyFmt(proj)}</b></div>
+      <div><span>Falta p/ meta</span><b>${moneyFmt(falta)}</b></div>
+      <div><span>Precisa/dia restante</span><b>${moneyFmt(porDia)}</b></div>
+    </div></div>`; }
+function relMetas(){ if(!metaComp) metaComp=toISO(hoje()).slice(0,7); const comp=metaComp; const meta=getMeta(comp);
+  const exec=osExecMes(comp), and=osAndamentoAtivas();
+  const rMO=exec.reduce((s,o)=>s+osMdoTotal(o),0), rPec=exec.reduce((s,o)=>s+pecasTotal(o),0);
+  const aMO=and.reduce((s,o)=>s+osMdoTotal(o),0), aPec=and.reduce((s,o)=>s+pecasTotal(o),0);
+  const form=`<div class="panel"><div class="field"><label>Mês da meta</label><div class="dt-wrap"><input id="mtMes" type="month" value="${comp}" onchange="metaComp=this.value; renderRelatorios()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('mtMes')">📅</button></div></div>
+    <div class="grid2"><div class="field"><label>Meta de mão de obra (R$)</label><input id="mtMO" inputmode="decimal" value="${meta.mo?String(meta.mo).replace('.',','):''}" placeholder="0,00"></div>
+      <div class="field"><label>Meta de peças (R$)</label><input id="mtPec" inputmode="decimal" value="${meta.pecas?String(meta.pecas).replace('.',','):''}" placeholder="0,00"></div></div>
+    <div class="grid2"><div class="field"><label>Dias úteis no mês</label><input id="mtDias" inputmode="numeric" value="${meta.dias||22}"></div>
+      <div class="field"><label>Dias já trabalhados</label><input id="mtTrab" inputmode="numeric" value="${meta.trab||0}"></div></div>
+    <div class="form-actions"><button class="btn gold" onclick="salvarMeta('${comp}')">Salvar meta</button></div></div>
+    <div class="hint" style="margin:8px 0"><b>Realizado</b> = OS executadas no mês. <b>Em andamento</b> = OS em execução agora (previsão). Uma OS conta em um lugar só: quando finaliza, sai do "em andamento" e entra no realizado — sem dobrar valor.</div>`;
+  return form+metaCard('🔧 Mão de obra',meta.mo,rMO,aMO,meta.dias,meta.trab)+metaCard('⚙️ Peças',meta.pecas,rPec,aPec,meta.dias,meta.trab)+metaCard('💰 Total (faturamento)',(Number(meta.mo)||0)+(Number(meta.pecas)||0),rMO+rPec,aMO+aPec,meta.dias,meta.trab);
 }
 function relDRE(){ const de=relPer.de,ate=relPer.ate;
   const entradas=entradasPeriodo(de,ate);
