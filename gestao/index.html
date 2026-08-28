@@ -102,6 +102,10 @@
   .meta-card .mc-grid>div{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:7px 9px}
   .meta-card .mc-grid span{display:block;font-size:10.5px;color:var(--muted)}
   .meta-card .mc-grid b{font-size:14px;white-space:nowrap}
+  .meta-card .ms-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
+  .meta-card .ms-grid>div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 8px;text-align:center}
+  .meta-card .ms-grid span{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
+  .meta-card .ms-grid b{font-size:15px}
   .saldo-card .lab{font-size:12.5px;color:var(--muted)}
   .saldo-card .v{font-size:23px;font-weight:800;margin-top:5px}
   .saldo-card.caixa{background:linear-gradient(160deg,rgba(72,185,138,.15),rgba(72,185,138,.03));border-color:var(--green)}
@@ -719,7 +723,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-08-28.3';
+const APP_VERSAO='2026-08-28.4';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -3187,52 +3191,32 @@ function relContas(){ const de=relPer.de,ate=relPer.ate;
     ${rcAberto?`<div style="margin-top:8px">${(rcSit==='ok')?'<div class="hint" style="margin:0 0 8px">Filtrando pelo período escolhido acima.</div>':'<div class="hint" style="margin:0 0 8px">Tudo em aberto (independente da data).</div>'}${lista}</div>`:''}`;
 }
 let metaComp='';
-function getMeta(comp){ const all=(state.config&&state.config.metas_json)||{}; return all[comp]||{mo:0,pecas:0,dias:22,trab:0}; }
+function getMeta(comp){ const all=(state.config&&state.config.metas_json)||{}; const m=all[comp]||{}; return {mo_dia:Number(m.mo_dia)||0, pec_dia:Number(m.pec_dia)||0, dias:Number(m.dias)||22}; }
 function temMetaSalva(comp){ return !!(state.config&&state.config.metas_json&&state.config.metas_json[comp]); }
-function mesesComMeta(){ const all=(state.config&&state.config.metas_json)||{}; const set=new Set(Object.keys(all)); set.add(toISO(hoje()).slice(0,7)); if(metaComp) set.add(metaComp); return [...set].sort().reverse(); }
-function salvarMeta(comp){ const all=(state.config&&state.config.metas_json)||{}; all[comp]={mo:moneyParse(val('mtMO')),pecas:moneyParse(val('mtPec')),dias:parseInt(val('mtDias'))||22,trab:parseInt(val('mtTrab'))||0}; state.config.metas_json=all; logAcao&&logAcao('Salvou meta', nomeMesComp(comp), 'MO '+moneyFmt(all[comp].mo)+' · Peças '+moneyFmt(all[comp].pecas)); salvar(); renderRelatorios(); toast('Meta salva ✓'); }
-function excluirMeta(comp){ confirmar('Excluir a meta de '+nomeMesComp(comp)+'?\nIsso apaga só a meta cadastrada — as OS e os valores continuam.', function(){ const all=(state.config&&state.config.metas_json)||{}; delete all[comp]; state.config.metas_json=all; logAcao&&logAcao('Excluiu meta', nomeMesComp(comp), ''); salvar(); metaComp=toISO(hoje()).slice(0,7); renderRelatorios(); toast('Meta excluída'); }, 'Excluir','danger'); }
-function metaNovoMes(){ openModal(`<h3>Abrir outro mês</h3><div class="field"><label>Escolha o mês</label><div class="dt-wrap"><input id="mnMes" type="month" value="${toISO(hoje()).slice(0,7)}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('mnMes')">📅</button></div></div><div class="form-actions"><button class="btn gold" onclick="metaComp=val('mnMes')||toISO(hoje()).slice(0,7); closeModal(); renderRelatorios();">Abrir mês</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`); }
+function salvarMeta(comp){ const all=(state.config&&state.config.metas_json)||{}; all[comp]={mo_dia:moneyParse(val('mtMOd')),pec_dia:moneyParse(val('mtPECd')),dias:parseInt(val('mtDias'))||22}; state.config.metas_json=all; if(typeof logAcao==='function') logAcao('Salvou meta',nomeMesComp(comp),''); salvar(); renderRelatorios(); toast('Meta salva \u2713'); }
+function excluirMeta(comp){ confirmar('Excluir a meta de '+nomeMesComp(comp)+'?\nSó apaga a meta cadastrada — as OS e os valores continuam.', function(){ const all=(state.config&&state.config.metas_json)||{}; delete all[comp]; state.config.metas_json=all; if(typeof logAcao==='function') logAcao('Excluiu meta',nomeMesComp(comp),''); salvar(); renderRelatorios(); toast('Meta excluída'); }, 'Excluir','danger'); }
+function metaMesShift(delta){ if(!metaComp) metaComp=toISO(hoje()).slice(0,7); const [y,m]=metaComp.split('-').map(Number); const d=new Date(y,m-1+delta,1); metaComp=toISO(d).slice(0,7); renderRelatorios(); }
 function osExecMes(comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01', ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); return (state.ordens||[]).filter(o=>osStatus(o)==='executado'&&o.data&&o.data>=de&&o.data<=ate); }
-function osAndamentoAtivas(){ return (state.ordens||[]).filter(o=>osStatus(o)==='andamento'); }
-function metaDiaria(comp){ const [y,m]=comp.split('-').map(Number); const nd=new Date(y,m,0).getDate(); const dias=[]; for(let d=1;d<=nd;d++){ const iso=comp+'-'+String(d).padStart(2,'0'); const os=(state.ordens||[]).filter(o=>osStatus(o)==='executado'&&o.data===iso); const mo=os.reduce((s,o)=>s+osMdoTotal(o),0); const pec=os.reduce((s,o)=>s+pecasTotal(o),0); dias.push({d,total:mo+pec}); } return dias; }
-function metaCard(nome,meta,real,and,dias,trab){ meta=Number(meta)||0;
-  const pct=meta>0?Math.round((real/meta)*100):0; const metaDia=dias>0?meta/dias:0; const ritmo=trab>0?real/trab:0; const proj=ritmo*dias;
-  const falta=Math.max(0,meta-real); const diasRest=Math.max(0,dias-trab); const porDia=diasRest>0?falta/diasRest:0; const previsto=real+and;
-  const barR=Math.min(100,meta>0?(real/meta)*100:0); const barA=Math.min(100-barR,meta>0?(and/meta)*100:0);
-  return `<div class="meta-card"><div class="mc-top"><span class="mc-nome">${nome}</span><span class="mc-pct" style="color:${pct>=100?'var(--green)':'var(--gold)'}">${pct}%</span></div>
-    <div class="mc-vals"><b>${moneyFmt(real)}</b> <span style="color:var(--muted)">de ${moneyFmt(meta)}</span></div>
-    <div class="mc-track"><div class="mc-fill" style="width:${barR}%"></div><div class="mc-fill and" style="width:${barA}%"></div></div>
-    <div class="mc-grid">
-      <div><span>Em andamento</span><b style="color:var(--amber)">${moneyFmt(and)}</b></div>
-      <div><span>Previsto (real+and.)</span><b style="color:${previsto>=meta?'var(--green)':'var(--txt)'}">${moneyFmt(previsto)}</b></div>
-      <div><span>Meta por dia útil</span><b>${moneyFmt(metaDia)}</b></div>
-      <div><span>Projeção no ritmo</span><b style="color:${proj>=meta?'var(--green)':'var(--red)'}">${moneyFmt(proj)}</b></div>
-      <div><span>Falta p/ meta</span><b>${moneyFmt(falta)}</b></div>
-      <div><span>Precisa/dia restante</span><b>${moneyFmt(porDia)}</b></div>
-    </div></div>`; }
+function rankMecanicosMes(comp){ const exec=osExecMes(comp); const map={}; exec.forEach(o=>{ const mid=o.mecanico_id; if(!mid) return; const d=(map[mid]=map[mid]||{mo:0,pec:0}); d.mo+=osMdoTotal(o); d.pec+=pecasTotal(o); }); return Object.entries(map).map(([mid,d])=>{ const mec=(state.mecanicos||[]).find(x=>x.id===mid); return {nome:mec?mec.nome:'\u2014',mo:d.mo,pec:d.pec,total:d.mo+d.pec}; }).sort((a,b)=>b.total-a.total); }
+function metaSimplesCard(nome,meta,real,porDia){ const pct=meta>0?Math.round(real/meta*100):0; const falta=Math.max(0,meta-real); const cor=pct>=100?'var(--green)':pct>=70?'var(--gold)':'var(--red)';
+  return `<div class="meta-card"><div class="mc-top"><span class="mc-nome">${nome}</span><span class="mc-pct" style="color:${cor}">${pct}%</span></div>
+    <div class="mc-track"><div class="mc-fill" style="width:${Math.min(100,pct)}%;background:${cor}"></div></div>
+    <div class="ms-grid"><div><span>Meta do m\u00eas</span><b>${moneyFmt(meta)}</b></div><div><span>J\u00e1 feito</span><b style="color:var(--green)">${moneyFmt(real)}</b></div><div><span>Falta</span><b style="color:${falta>0?'var(--red)':'var(--green)'}">${moneyFmt(falta)}</b></div></div>
+    ${porDia?`<div class="hint" style="margin:6px 0 0">Meta por dia: <b>${moneyFmt(porDia)}</b></div>`:''}</div>`; }
 function relMetas(){ if(!metaComp) metaComp=toISO(hoje()).slice(0,7); const comp=metaComp; const meta=getMeta(comp);
-  const exec=osExecMes(comp), and=osAndamentoAtivas();
-  const rMO=exec.reduce((s,o)=>s+osMdoTotal(o),0), rPec=exec.reduce((s,o)=>s+pecasTotal(o),0);
-  const aMO=and.reduce((s,o)=>s+osMdoTotal(o),0), aPec=and.reduce((s,o)=>s+pecasTotal(o),0);
-  const meses=mesesComMeta();
-  const subtabs=`<div class="cfg-tabs rel-tabs" style="flex-wrap:wrap;gap:6px">${meses.map(m=>`<button class="${m===comp?'on':''}" onclick="metaComp='${m}'; renderRelatorios()">${nomeMesCurto(m+'-01')}${temMetaSalva(m)?'':' •'}</button>`).join('')}<button onclick="metaNovoMes()">＋ mês</button></div>`;
-  const form=`<div class="panel"><div class="lbl-perfil" style="margin-bottom:6px">Meta de ${nomeMesComp(comp)}</div>
-    <div class="grid2"><div class="field"><label>Meta de mão de obra (R$)</label><input id="mtMO" inputmode="decimal" value="${meta.mo?String(meta.mo).replace('.',','):''}" placeholder="0,00"></div>
-      <div class="field"><label>Meta de peças (R$)</label><input id="mtPec" inputmode="decimal" value="${meta.pecas?String(meta.pecas).replace('.',','):''}" placeholder="0,00"></div></div>
-    <div class="grid2"><div class="field"><label>Dias úteis no mês</label><input id="mtDias" inputmode="numeric" value="${meta.dias||22}"></div>
-      <div class="field"><label>Dias já trabalhados</label><input id="mtTrab" inputmode="numeric" value="${meta.trab||0}"></div></div>
-    <div class="form-actions"><button class="btn gold" onclick="salvarMeta('${comp}')">Salvar meta</button>${temMetaSalva(comp)?`<button class="btn ghost" onclick="excluirMeta('${comp}')">🗑️ Excluir meta</button>`:''}</div></div>
-    <div class="hint" style="margin:8px 0"><b>Realizado</b> = OS executadas no mês. <b>Em andamento</b> = OS em execução (previsão). Uma OS conta em um lugar só — quando finaliza, sai do "em andamento" e entra no realizado, sem dobrar. As metas ficam salvas por mês e só somem se você excluir.</div>`;
-  const cards=metaCard('🔧 Mão de obra',meta.mo,rMO,aMO,meta.dias,meta.trab)+metaCard('⚙️ Peças',meta.pecas,rPec,aPec,meta.dias,meta.trab)+metaCard('💰 Total (faturamento)',(Number(meta.mo)||0)+(Number(meta.pecas)||0),rMO+rPec,aMO+aPec,meta.dias,meta.trab);
-  const metaTot=(Number(meta.mo)||0)+(Number(meta.pecas)||0); const metaDia=meta.dias>0?metaTot/meta.dias:0;
-  const dd=metaDiaria(comp); const comServ=dd.filter(x=>x.total>0).length; const bateram=dd.filter(x=>metaDia>0&&x.total>=metaDia).length;
-  const maxD=Math.max(...dd.map(x=>x.total),metaDia,1);
-  const chart=`<div class="section-label">Visão diária — bateu a meta do dia? (meta/dia ${moneyFmt(metaDia)})</div>
-    <div class="bar-cols" style="height:150px;gap:2px;padding:14px 8px 6px;align-items:flex-end">${dd.map(x=>{ const bateu=metaDia>0&&x.total>=metaDia; const cor=x.total===0?'#333842':(bateu?'var(--green)':'var(--gold)'); return `<div class="bc" style="justify-content:flex-end"><div class="bc-bar" style="height:${Math.max(2,Math.round((x.total/maxD)*100))}%;background:${cor};max-width:13px;min-height:2px"></div><div class="bc-l" style="font-size:8px">${x.d}</div></div>`; }).join('')}</div>
-    <div class="rel-kpi" style="margin-top:6px"><div class="rk"><div class="rl">Dias que bateram a meta</div><div class="rv" style="color:var(--green)">${bateram}<span style="font-size:13px;color:var(--muted)"> de ${comServ} c/ serviço</span></div></div><div class="rk"><div class="rl">Realizado no mês</div><div class="rv">${moneyFmt(rMO+rPec)}</div></div></div>
-    <div class="hint">Verde = bateu a meta do dia · Dourado = abaixo · Cinza = sem serviço executado. O total do mês vai somando automaticamente a cada OS finalizada.</div>`;
-  return subtabs+form+cards+chart;
+  const metaMO=meta.mo_dia*meta.dias, metaPEC=meta.pec_dia*meta.dias;
+  const exec=osExecMes(comp); const rMO=exec.reduce((s,o)=>s+osMdoTotal(o),0), rPEC=exec.reduce((s,o)=>s+pecasTotal(o),0);
+  const nav=`<div class="rel-atalhos" style="align-items:center;justify-content:center;gap:12px;margin-bottom:10px"><button class="btn sm ghost" onclick="metaMesShift(-1)">\u2039 anterior</button><b style="font-size:16px;min-width:130px;text-align:center">${nomeMesComp(comp)}</b><button class="btn sm ghost" onclick="metaMesShift(1)">pr\u00f3ximo \u203a</button></div>`;
+  const form=`<div class="panel"><div class="lbl-perfil" style="margin-bottom:6px">Defina a meta por dia</div>
+    <div class="grid2"><div class="field"><label>M\u00e3o de obra por dia (R$)</label><input id="mtMOd" inputmode="decimal" value="${meta.mo_dia?String(meta.mo_dia).replace('.',','):''}" placeholder="0,00"></div>
+      <div class="field"><label>Pe\u00e7as por dia (R$)</label><input id="mtPECd" inputmode="decimal" value="${meta.pec_dia?String(meta.pec_dia).replace('.',','):''}" placeholder="0,00"></div></div>
+    <div class="field"><label>Total de dias \u00fateis no m\u00eas</label><input id="mtDias" inputmode="numeric" value="${meta.dias||22}"></div>
+    <div class="hint" style="margin:2px 0 8px">O sistema multiplica pelos dias e monta a meta do m\u00eas automaticamente.</div>
+    <div class="form-actions"><button class="btn gold" onclick="salvarMeta('${comp}')">Salvar meta</button>${temMetaSalva(comp)?`<button class="btn ghost" onclick="excluirMeta('${comp}')">\ud83d\uddd1\ufe0f Excluir</button>`:''}</div></div>`;
+  const cards=metaSimplesCard('\ud83d\udd27 M\u00e3o de obra',metaMO,rMO,meta.mo_dia)+metaSimplesCard('\u2699\ufe0f Pe\u00e7as',metaPEC,rPEC,meta.pec_dia)+metaSimplesCard('\ud83d\udcb0 Total do m\u00eas',metaMO+metaPEC,rMO+rPEC,0);
+  const rank=rankMecanicosMes(comp); const med=['\ud83e\udd47','\ud83e\udd48','\ud83e\udd49'];
+  const rankHtml=`<div class="section-label">\ud83c\udfc6 Ranking dos mec\u00e2nicos</div>`+(rank.length?`<div class="rows">${rank.slice(0,5).map((r,i)=>`<div class="row"><div class="main"><div class="t">${i<3?med[i]:((i+1)+'\u00ba')} ${esc(r.nome)}</div><div class="s">\ud83d\udd27 M.O. ${moneyFmt(r.mo)} \u00b7 \u2699\ufe0f Pe\u00e7as ${moneyFmt(r.pec)}</div></div><span class="valor-tag" style="color:var(--gold)">${moneyFmt(r.total)}</span></div>`).join('')}</div>`:emptyState('Sem ranking ainda','Aparece quando houver OS executadas no m\u00eas.'));
+  return nav+form+cards+rankHtml;
 }
 function relDRE(){ const de=relPer.de,ate=relPer.ate;
   const entradas=entradasPeriodo(de,ate);
