@@ -719,7 +719,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-08-28.2';
+const APP_VERSAO='2026-08-28.3';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -3188,9 +3188,14 @@ function relContas(){ const de=relPer.de,ate=relPer.ate;
 }
 let metaComp='';
 function getMeta(comp){ const all=(state.config&&state.config.metas_json)||{}; return all[comp]||{mo:0,pecas:0,dias:22,trab:0}; }
-function salvarMeta(comp){ const all=(state.config&&state.config.metas_json)||{}; all[comp]={mo:moneyParse(val('mtMO')),pecas:moneyParse(val('mtPec')),dias:parseInt(val('mtDias'))||22,trab:parseInt(val('mtTrab'))||0}; state.config.metas_json=all; salvar(); renderRelatorios(); toast('Meta salva ✓'); }
+function temMetaSalva(comp){ return !!(state.config&&state.config.metas_json&&state.config.metas_json[comp]); }
+function mesesComMeta(){ const all=(state.config&&state.config.metas_json)||{}; const set=new Set(Object.keys(all)); set.add(toISO(hoje()).slice(0,7)); if(metaComp) set.add(metaComp); return [...set].sort().reverse(); }
+function salvarMeta(comp){ const all=(state.config&&state.config.metas_json)||{}; all[comp]={mo:moneyParse(val('mtMO')),pecas:moneyParse(val('mtPec')),dias:parseInt(val('mtDias'))||22,trab:parseInt(val('mtTrab'))||0}; state.config.metas_json=all; logAcao&&logAcao('Salvou meta', nomeMesComp(comp), 'MO '+moneyFmt(all[comp].mo)+' · Peças '+moneyFmt(all[comp].pecas)); salvar(); renderRelatorios(); toast('Meta salva ✓'); }
+function excluirMeta(comp){ confirmar('Excluir a meta de '+nomeMesComp(comp)+'?\nIsso apaga só a meta cadastrada — as OS e os valores continuam.', function(){ const all=(state.config&&state.config.metas_json)||{}; delete all[comp]; state.config.metas_json=all; logAcao&&logAcao('Excluiu meta', nomeMesComp(comp), ''); salvar(); metaComp=toISO(hoje()).slice(0,7); renderRelatorios(); toast('Meta excluída'); }, 'Excluir','danger'); }
+function metaNovoMes(){ openModal(`<h3>Abrir outro mês</h3><div class="field"><label>Escolha o mês</label><div class="dt-wrap"><input id="mnMes" type="month" value="${toISO(hoje()).slice(0,7)}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('mnMes')">📅</button></div></div><div class="form-actions"><button class="btn gold" onclick="metaComp=val('mnMes')||toISO(hoje()).slice(0,7); closeModal(); renderRelatorios();">Abrir mês</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`); }
 function osExecMes(comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01', ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); return (state.ordens||[]).filter(o=>osStatus(o)==='executado'&&o.data&&o.data>=de&&o.data<=ate); }
 function osAndamentoAtivas(){ return (state.ordens||[]).filter(o=>osStatus(o)==='andamento'); }
+function metaDiaria(comp){ const [y,m]=comp.split('-').map(Number); const nd=new Date(y,m,0).getDate(); const dias=[]; for(let d=1;d<=nd;d++){ const iso=comp+'-'+String(d).padStart(2,'0'); const os=(state.ordens||[]).filter(o=>osStatus(o)==='executado'&&o.data===iso); const mo=os.reduce((s,o)=>s+osMdoTotal(o),0); const pec=os.reduce((s,o)=>s+pecasTotal(o),0); dias.push({d,total:mo+pec}); } return dias; }
 function metaCard(nome,meta,real,and,dias,trab){ meta=Number(meta)||0;
   const pct=meta>0?Math.round((real/meta)*100):0; const metaDia=dias>0?meta/dias:0; const ritmo=trab>0?real/trab:0; const proj=ritmo*dias;
   const falta=Math.max(0,meta-real); const diasRest=Math.max(0,dias-trab); const porDia=diasRest>0?falta/diasRest:0; const previsto=real+and;
@@ -3210,14 +3215,24 @@ function relMetas(){ if(!metaComp) metaComp=toISO(hoje()).slice(0,7); const comp
   const exec=osExecMes(comp), and=osAndamentoAtivas();
   const rMO=exec.reduce((s,o)=>s+osMdoTotal(o),0), rPec=exec.reduce((s,o)=>s+pecasTotal(o),0);
   const aMO=and.reduce((s,o)=>s+osMdoTotal(o),0), aPec=and.reduce((s,o)=>s+pecasTotal(o),0);
-  const form=`<div class="panel"><div class="field"><label>Mês da meta</label><div class="dt-wrap"><input id="mtMes" type="month" value="${comp}" onchange="metaComp=this.value; renderRelatorios()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('mtMes')">📅</button></div></div>
+  const meses=mesesComMeta();
+  const subtabs=`<div class="cfg-tabs rel-tabs" style="flex-wrap:wrap;gap:6px">${meses.map(m=>`<button class="${m===comp?'on':''}" onclick="metaComp='${m}'; renderRelatorios()">${nomeMesCurto(m+'-01')}${temMetaSalva(m)?'':' •'}</button>`).join('')}<button onclick="metaNovoMes()">＋ mês</button></div>`;
+  const form=`<div class="panel"><div class="lbl-perfil" style="margin-bottom:6px">Meta de ${nomeMesComp(comp)}</div>
     <div class="grid2"><div class="field"><label>Meta de mão de obra (R$)</label><input id="mtMO" inputmode="decimal" value="${meta.mo?String(meta.mo).replace('.',','):''}" placeholder="0,00"></div>
       <div class="field"><label>Meta de peças (R$)</label><input id="mtPec" inputmode="decimal" value="${meta.pecas?String(meta.pecas).replace('.',','):''}" placeholder="0,00"></div></div>
     <div class="grid2"><div class="field"><label>Dias úteis no mês</label><input id="mtDias" inputmode="numeric" value="${meta.dias||22}"></div>
       <div class="field"><label>Dias já trabalhados</label><input id="mtTrab" inputmode="numeric" value="${meta.trab||0}"></div></div>
-    <div class="form-actions"><button class="btn gold" onclick="salvarMeta('${comp}')">Salvar meta</button></div></div>
-    <div class="hint" style="margin:8px 0"><b>Realizado</b> = OS executadas no mês. <b>Em andamento</b> = OS em execução agora (previsão). Uma OS conta em um lugar só: quando finaliza, sai do "em andamento" e entra no realizado — sem dobrar valor.</div>`;
-  return form+metaCard('🔧 Mão de obra',meta.mo,rMO,aMO,meta.dias,meta.trab)+metaCard('⚙️ Peças',meta.pecas,rPec,aPec,meta.dias,meta.trab)+metaCard('💰 Total (faturamento)',(Number(meta.mo)||0)+(Number(meta.pecas)||0),rMO+rPec,aMO+aPec,meta.dias,meta.trab);
+    <div class="form-actions"><button class="btn gold" onclick="salvarMeta('${comp}')">Salvar meta</button>${temMetaSalva(comp)?`<button class="btn ghost" onclick="excluirMeta('${comp}')">🗑️ Excluir meta</button>`:''}</div></div>
+    <div class="hint" style="margin:8px 0"><b>Realizado</b> = OS executadas no mês. <b>Em andamento</b> = OS em execução (previsão). Uma OS conta em um lugar só — quando finaliza, sai do "em andamento" e entra no realizado, sem dobrar. As metas ficam salvas por mês e só somem se você excluir.</div>`;
+  const cards=metaCard('🔧 Mão de obra',meta.mo,rMO,aMO,meta.dias,meta.trab)+metaCard('⚙️ Peças',meta.pecas,rPec,aPec,meta.dias,meta.trab)+metaCard('💰 Total (faturamento)',(Number(meta.mo)||0)+(Number(meta.pecas)||0),rMO+rPec,aMO+aPec,meta.dias,meta.trab);
+  const metaTot=(Number(meta.mo)||0)+(Number(meta.pecas)||0); const metaDia=meta.dias>0?metaTot/meta.dias:0;
+  const dd=metaDiaria(comp); const comServ=dd.filter(x=>x.total>0).length; const bateram=dd.filter(x=>metaDia>0&&x.total>=metaDia).length;
+  const maxD=Math.max(...dd.map(x=>x.total),metaDia,1);
+  const chart=`<div class="section-label">Visão diária — bateu a meta do dia? (meta/dia ${moneyFmt(metaDia)})</div>
+    <div class="bar-cols" style="height:150px;gap:2px;padding:14px 8px 6px;align-items:flex-end">${dd.map(x=>{ const bateu=metaDia>0&&x.total>=metaDia; const cor=x.total===0?'#333842':(bateu?'var(--green)':'var(--gold)'); return `<div class="bc" style="justify-content:flex-end"><div class="bc-bar" style="height:${Math.max(2,Math.round((x.total/maxD)*100))}%;background:${cor};max-width:13px;min-height:2px"></div><div class="bc-l" style="font-size:8px">${x.d}</div></div>`; }).join('')}</div>
+    <div class="rel-kpi" style="margin-top:6px"><div class="rk"><div class="rl">Dias que bateram a meta</div><div class="rv" style="color:var(--green)">${bateram}<span style="font-size:13px;color:var(--muted)"> de ${comServ} c/ serviço</span></div></div><div class="rk"><div class="rl">Realizado no mês</div><div class="rv">${moneyFmt(rMO+rPec)}</div></div></div>
+    <div class="hint">Verde = bateu a meta do dia · Dourado = abaixo · Cinza = sem serviço executado. O total do mês vai somando automaticamente a cada OS finalizada.</div>`;
+  return subtabs+form+cards+chart;
 }
 function relDRE(){ const de=relPer.de,ate=relPer.ate;
   const entradas=entradasPeriodo(de,ate);
