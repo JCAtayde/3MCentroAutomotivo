@@ -707,7 +707,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-08-27.4';
+const APP_VERSAO='2026-08-27.5';
 function mostrarUpdate(){ if(document.getElementById('updBanner')) return; const b=document.createElement('div'); b.id='updBanner'; b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:var(--gold);color:#1a1200;padding:14px;text-align:center;font-weight:800;cursor:pointer;box-shadow:0 -4px 16px rgba(0,0,0,.4)'; b.innerHTML='🔄 Nova versão disponível — toque aqui para atualizar'; b.onclick=function(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){} location.reload(true); }; document.body.appendChild(b); }
 const CACHE_KEY='oficina_cache_d1';
 function apiGet(){ return fetch(API+'/state',{headers:{'accept':'application/json'}}).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
@@ -3135,7 +3135,7 @@ function relPorMecanico(){ const os=osExecPeriodo(relPer.de,relPer.ate); const m
   return `<div class="rel-kpi"><div class="rk"><div class="rl">Mão de obra total</div><div class="rv">${moneyFmt(totMO)}</div></div><div class="rk"><div class="rl">Comissões</div><div class="rv">${moneyFmt(totCom)}</div></div></div>
     <div class="section-label">Por mecânico</div>${arr.map(x=>relBar(x.nome,x.mo,max,`${x.n} OS · comissão ${moneyFmt(x.com)} (${x.perc}%)`)).join('')}`;
 }
-let rcTipo='pagar', rcSit='aberto', rcForn=false;
+let rcTipo='pagar', rcSit='aberto', rcForn=false, rcAberto=false;
 function rcSet(k,v){ if(k==='tipo'){ rcTipo=v; } else if(k==='sit'){ rcSit=v; } else if(k==='forn'){ rcForn=!rcForn; } renderRelatorios(); }
 function rcLinha(m,campo){ const d=m[campo]||m.data; const ent=m.tipo==='entrada'; const forn=m.fornecedor_id?(' · 🏭 '+esc(fornecedorNome(m.fornecedor_id))):'';
   return `<div class="row"><div class="main"><div class="t">${esc(m.descricao||(ent?'Entrada':catSaidaLabel(m.categoria)))}</div><div class="s">${d?fmtBR(parseISO(d)):'—'}${m.nota?(' · NF '+esc(m.nota)):''}${forn}</div></div><span class="valor-tag" style="color:${ent?'var(--green)':'var(--red)'}">${ent?'+':'−'}${moneyFmt(m.valor)}</span></div>`; }
@@ -3153,13 +3153,14 @@ function relContas(){ const de=relPer.de,ate=relPer.ate;
     else { itens=(state.caixa||[]).filter(m=>m.tipo==='entrada'&&m.data>=de&&m.data<=ate).sort((a,b)=>String(b.data).localeCompare(String(a.data))); campo='data'; titulo='Recebidos no período'; }
   }
   const total=itens.reduce((s,m)=>s+(Number(m.valor)||0),0)+lojExtra;
+  const qtde=itens.length+(lojCards?lojistasAReceber().itens.length:0);
   let lista;
   if(rcTipo==='pagar'&&rcForn){ const g={}; itens.forEach(m=>{ const k=m.fornecedor_id||'__s'; (g[k]=g[k]||[]).push(m); });
     lista=Object.entries(g).sort((a,b)=>b[1].reduce((s,m)=>s+(+m.valor||0),0)-a[1].reduce((s,m)=>s+(+m.valor||0),0)).map(([k,arr])=>{ const nome=k==='__s'?'Sem fornecedor':fornecedorNome(k); const t=arr.reduce((s,m)=>s+(+m.valor||0),0); return `<div class="section-label" style="display:flex;justify-content:space-between"><span>🏭 ${esc(nome)}</span><span style="color:var(--red)">${moneyFmt(t)}</span></div><div class="rows">${arr.map(m=>rcLinha(m,campo)).join('')}</div>`; }).join('');
   } else { lista=(itens.length||lojCards)?`<div class="rows">${lojCards}${itens.map(m=>rcLinha(m,campo)).join('')}</div>`:emptyState('Nada aqui','Ajuste os filtros ou o período.'); }
-  return barra+`<div class="rel-kpi" style="margin-top:10px"><div class="rk"><div class="rl">${titulo}</div><div class="rv" style="color:${cor}">${moneyFmt(total)}</div></div><div class="rk"><div class="rl">Qtde</div><div class="rv">${itens.length+(lojCards?lojistasAReceber().itens.length:0)}</div></div></div>
-    ${(rcSit==='ok')?'<div class="hint" style="margin:0 0 8px">Filtrando pelo período escolhido acima.</div>':'<div class="hint" style="margin:0 0 8px">Mostrando tudo que está em aberto (independente da data).</div>'}
-    <div class="section-label">${titulo}</div>${lista}`;
+  return barra+`<div class="rel-kpi" style="margin-top:10px"><div class="rk"><div class="rl">${titulo}</div><div class="rv" style="color:${cor}">${moneyFmt(total)}</div></div><div class="rk"><div class="rl">Qtde</div><div class="rv">${qtde}</div></div></div>
+    <div class="collapse-head" onclick="rcAberto=!rcAberto; renderRelatorios()"><div><div class="t">${titulo}</div><div class="s">${qtde} conta(s) · toque para ${rcAberto?'recolher':'ver a lista'}</div></div><div class="ch-right"><b style="color:${cor}">${moneyFmt(total)}</b><span class="chev-tog">${rcAberto?'▾':'▸'}</span></div></div>
+    ${rcAberto?`<div style="margin-top:8px">${(rcSit==='ok')?'<div class="hint" style="margin:0 0 8px">Filtrando pelo período escolhido acima.</div>':'<div class="hint" style="margin:0 0 8px">Tudo em aberto (independente da data).</div>'}${lista}</div>`:''}`;
 }
 function relDRE(){ const de=relPer.de,ate=relPer.ate;
   const entradas=entradasPeriodo(de,ate);
