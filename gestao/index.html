@@ -723,7 +723,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-08-28.7';
+const APP_VERSAO='2026-08-28.9';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -3205,18 +3205,45 @@ function excluirMeta(comp){ confirmar('Excluir a meta de '+nomeMesComp(comp)+'?\
 function metaMesShift(delta){ if(!metaComp) metaComp=toISO(hoje()).slice(0,7); const [y,m]=metaComp.split('-').map(Number); const d=new Date(y,m-1+delta,1); metaComp=toISO(d).slice(0,7); renderRelatorios(); }
 function osExecMes(comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01', ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); return (state.ordens||[]).filter(o=>osStatus(o)==='executado'&&o.data&&o.data>=de&&o.data<=ate); }
 function rankMecanicosMes(comp){ const exec=osExecMes(comp); const map={}; exec.forEach(o=>{ const mid=o.mecanico_id; if(!mid) return; const d=(map[mid]=map[mid]||{mo:0,pec:0}); d.mo+=osMdoTotal(o); d.pec+=pecasTotal(o); }); return Object.entries(map).map(([mid,d])=>{ const mec=(state.mecanicos||[]).find(x=>x.id===mid); return {nome:mec?mec.nome:'\u2014',mo:d.mo,pec:d.pec,total:d.mo+d.pec}; }).sort((a,b)=>b.total-a.total); }
-function metaSimplesCard(nome,meta,real,porDia){ const pct=meta>0?Math.round(real/meta*100):0; const falta=Math.max(0,meta-real); const cor=pct>=100?'var(--green)':pct>=70?'var(--gold)':'var(--red)';
+let metaVista='mes';
+function metaSimplesCard(nome,meta,real,porDia,lblMeta){ lblMeta=lblMeta||'Meta do m\u00eas'; const pct=meta>0?Math.round(real/meta*100):0; const falta=Math.max(0,meta-real); const cor=pct>=100?'var(--green)':pct>=70?'var(--gold)':'var(--red)';
   return `<div class="meta-card"><div class="mc-top"><span class="mc-nome">${nome}</span><span class="mc-pct" style="color:${cor}">${pct}%</span></div>
     <div class="mc-track"><div class="mc-fill" style="width:${Math.min(100,pct)}%;background:${cor}"></div></div>
-    <div class="ms-grid"><div><span>Meta do m\u00eas</span><b>${moneyFmt(meta)}</b></div><div><span>J\u00e1 feito</span><b style="color:var(--green)">${moneyFmt(real)}</b></div><div><span>Falta</span><b style="color:${falta>0?'var(--red)':'var(--green)'}">${moneyFmt(falta)}</b></div></div>
+    <div class="ms-grid"><div><span>${lblMeta}</span><b>${moneyFmt(meta)}</b></div><div><span>J\u00e1 feito</span><b style="color:var(--green)">${moneyFmt(real)}</b></div><div><span>Falta</span><b style="color:${falta>0?'var(--red)':'var(--green)'}">${moneyFmt(falta)}</b></div></div>
     ${porDia?`<div class="hint" style="margin:6px 0 0">Meta por dia: <b>${moneyFmt(porDia)}</b></div>`:''}</div>`; }
 function niv(n){ return n?String(n).replace('.',','):''; }
-function relMetas(){ if(!metaComp) metaComp=toISO(hoje()).slice(0,7); const comp=metaComp; const pf=metaPrefill(comp); const c=calcMeta(pf);
-  const exec=osExecMes(comp); const rMO=exec.reduce((s,o)=>s+osMdoTotal(o),0), rPEC=exec.reduce((s,o)=>s+pecasTotal(o),0);
+function proporcaoReal(){ const lim=addDiasISO(toISO(hoje()),-90); let mo=0,pec=0;
+  (state.ordens||[]).forEach(o=>{ if(osStatus(o)!=='executado') return; if(o.data&&o.data>=lim){ mo+=osMdoTotal(o); pec+=pecasTotal(o); } });
+  let t=mo+pec, janela='\u00faltimos 90 dias';
+  if(t<=0){ mo=0;pec=0; (state.ordens||[]).forEach(o=>{ if(osStatus(o)!=='executado') return; mo+=osMdoTotal(o); pec+=pecasTotal(o); }); t=mo+pec; janela='todo o hist\u00f3rico'; }
+  if(t<=0) return null;
+  return { mo, pec, pctMO:Math.round(mo/t*100), pctPec:Math.round(pec/t*100), janela }; }
+function aplicarProporcao(pmo,ppec){ const a=document.getElementById('mtPMO'), b=document.getElementById('mtPPEC'); if(a) a.value=pmo; if(b) b.value=ppec; toast('Propor\u00e7\u00e3o aplicada \u2014 confira e salve'); }
+function osExecDia(d){ return (state.ordens||[]).filter(o=>osStatus(o)==='executado'&&o.data===d); }
+function semanaRange(){ const h=hoje(); const dow=(h.getDay()+6)%7; const ini=new Date(h.getFullYear(),h.getMonth(),h.getDate()-dow); const fim=new Date(ini.getFullYear(),ini.getMonth(),ini.getDate()+6); return [toISO(ini),toISO(fim)]; }
+function osExecSemana(){ const [di,df]=semanaRange(); return (state.ordens||[]).filter(o=>osStatus(o)==='executado'&&o.data>=di&&o.data<=df); }
+function rankMecanicos(execList){ const map={}; execList.forEach(o=>{ const mid=o.mecanico_id; if(!mid) return; const d=(map[mid]=map[mid]||{mo:0,pec:0}); d.mo+=osMdoTotal(o); d.pec+=pecasTotal(o); }); return Object.entries(map).map(([mid,d])=>{ const mec=(state.mecanicos||[]).find(x=>x.id===mid); return {nome:mec?mec.nome:'\u2014',mo:d.mo,pec:d.pec,total:d.mo+d.pec}; }).sort((a,b)=>b.total-a.total); }
+function nMecanicos(){ return Math.max(1,(state.mecanicos||[]).filter(f=>ehMecanicoFunc(f)&&f.ativo!==0&&f.ativo!=='0').length); }
+function mesesComCaixa(){ const set=new Set(); (state.caixa||[]).forEach(m=>{ if(m.data) set.add(m.data.slice(0,7)); }); return [...set].sort(); }
+function autoDespesas(){ const meses=mesesComCaixa(); const ult=meses.slice(-3); if(ult.length<3) return null; let fixos=0,variaveis=0,prol=0; const n=ult.length;
+  (state.caixa||[]).forEach(m=>{ if(m.tipo!=='saida'||!m.data) return; if(!ult.includes(m.data.slice(0,7))) return; const v=Number(m.valor)||0;
+    if(m.categoria==='conta_fixa') fixos+=v; else if(m.categoria==='variavel') variaveis+=v; else if(m.categoria==='prolabore') prol+=v; });
+  return { fixos:fixos/n, variaveis:variaveis/n, prolabore:prol/n }; }
+function aplicarAutoDespesas(){ const a=autoDespesas(); if(!a){ toast('Precisa de 3 meses de dados'); return; } const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=niv(Math.round(v*100)/100); }; set('mtFix',a.fixos); set('mtVar',a.variaveis); if(a.prolabore>0) set('mtPro',a.prolabore); toast('Despesas puxadas (m\u00e9dia 3 meses) \u2014 confira e salve'); }
+function relMetas(){ if(!metaComp) metaComp=toISO(hoje()).slice(0,7); const comp=metaComp; const pf=metaPrefill(comp); const c=calcMeta(pf); const pr=proporcaoReal();
+  const mc=mesesComCaixa(); const podeAuto=mc.length>=3;
+  let alvoMO,alvoPEC,exec,lblMeta,lblPer;
+  if(metaVista==='dia'){ alvoMO=c.moDia; alvoPEC=c.pecDia; exec=osExecDia(toISO(hoje())); lblMeta='Meta do dia'; lblPer='hoje'; }
+  else if(metaVista==='semana'){ alvoMO=c.moDia*6; alvoPEC=c.pecDia*6; exec=osExecSemana(); lblMeta='Meta da semana'; lblPer='na semana'; }
+  else { alvoMO=c.metaMO; alvoPEC=c.metaPEC; exec=osExecMes(comp); lblMeta='Meta do m\u00eas'; lblPer='no m\u00eas'; }
+  const rMO=exec.reduce((s,o)=>s+osMdoTotal(o),0), rPEC=exec.reduce((s,o)=>s+pecasTotal(o),0);
   const nav=`<div class="rel-atalhos" style="align-items:center;justify-content:center;gap:12px;margin-bottom:8px"><button class="btn sm ghost" onclick="metaMesShift(-1)">\u2039 anterior</button><b style="font-size:16px;min-width:130px;text-align:center">${nomeMesComp(comp)}</b><button class="btn sm ghost" onclick="metaMesShift(1)">pr\u00f3ximo \u203a</button></div>`;
-  const herd=pf._herdado?`<div class="hint" style="background:rgba(232,178,58,.1);border:1px solid var(--line2);border-radius:10px;padding:9px 11px;margin-bottom:8px">\ud83d\udccb Campos carregados de <b>${nomeMesComp(pf._herdado)}</b>. Ajuste o que mudou e toque em <b>Salvar</b> para gravar este m\u00eas.</div>`:(pf._saved?'':`<div class="hint" style="margin-bottom:8px">Preencha os custos do m\u00eas e salve \u2014 o sistema calcula a meta.</div>`);
+  const vistaBar=`<div class="rel-atalhos" style="margin-bottom:10px">${[['dia','\ud83d\udcc5 Dia'],['semana','\ud83d\uddd3\ufe0f Semana'],['mes','\ud83d\udcc6 M\u00eas']].map(kv=>`<button class="btn sm ${metaVista===kv[0]?'gold':'ghost'}" onclick="metaVista='${kv[0]}'; renderRelatorios()">${kv[1]}</button>`).join('')}</div>`;
+  const herd=pf._herdado?`<div class="hint" style="background:rgba(232,178,58,.1);border:1px solid var(--line2);border-radius:10px;padding:9px 11px;margin-bottom:8px">\ud83d\udccb Campos carregados de <b>${nomeMesComp(pf._herdado)}</b>. Ajuste o que mudou e toque em <b>Salvar</b> para gravar este m\u00eas.</div>`:'';
+  const autoLinha=podeAuto?`<button type="button" class="btn sm ghost" style="margin-bottom:8px" onclick="aplicarAutoDespesas()">\u26a1 Puxar despesas (m\u00e9dia dos \u00faltimos 3 meses)</button>`:`<div class="hint" style="margin-bottom:8px">\ud83d\udccc Preenchimento manual. O autom\u00e1tico liga com 3 meses de hist\u00f3rico no caixa (voc\u00ea tem ${mc.length}).</div>`;
   const form=`<div class="panel">
     <div class="lbl-perfil" style="margin-bottom:6px">\ud83d\udcb8 Custos do m\u00eas</div>
+    ${autoLinha}
     <div class="grid2"><div class="field"><label>Gastos fixos (R$)</label><input id="mtFix" inputmode="decimal" value="${niv(pf.fixos)}" placeholder="0,00"></div>
       <div class="field"><label>Gastos vari\u00e1veis (R$)</label><input id="mtVar" inputmode="decimal" value="${niv(pf.variaveis)}" placeholder="0,00"></div></div>
     <div class="field"><label>Gastos extras (R$)</label><input id="mtExt" inputmode="decimal" value="${niv(pf.extras)}" placeholder="0,00"></div>
@@ -3226,16 +3253,16 @@ function relMetas(){ if(!metaComp) metaComp=toISO(hoje()).slice(0,7); const comp
     <div class="lbl-perfil" style="margin:8px 0 6px">\u2699\ufe0f Par\u00e2metros</div>
     <div class="grid2"><div class="field"><label>Dias \u00fateis no m\u00eas</label><input id="mtDias" inputmode="numeric" value="${pf.dias||22}"></div>
       <div class="field"><label>% M\u00e3o de obra / % Pe\u00e7as</label><div style="display:flex;gap:6px"><input id="mtPMO" inputmode="decimal" value="${niv(pf.pct_mo)}" placeholder="50" style="flex:1"><input id="mtPPEC" inputmode="decimal" value="${niv(pf.pct_pec)}" placeholder="50" style="flex:1"></div></div></div>
+    ${pr?`<div class="hint" style="margin:2px 0 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">\ud83d\udcca Sua m\u00e9dia real (${pr.janela}): <b>${pr.pctMO}% MO / ${pr.pctPec}% pe\u00e7as</b><button class="btn sm ghost" style="padding:3px 10px" onclick="aplicarProporcao(${pr.pctMO},${pr.pctPec})">Usar esta</button></div>`:''}
     <div class="grid2"><div class="field"><label>Comiss\u00e3o mec\u00e2nico (%)</label><input id="mtCom" inputmode="decimal" value="${niv(pf.comissao)}" placeholder="45"></div>
       <div class="field"><label>Margem das pe\u00e7as (%)</label><input id="mtMarg" inputmode="decimal" value="${niv(pf.margem)}" placeholder="30"></div></div>
     <div class="form-actions"><button class="btn gold" onclick="salvarMeta('${comp}')">Salvar meta do m\u00eas</button>${temMetaSalva(comp)?`<button class="btn ghost" onclick="excluirMeta('${comp}')">\ud83d\uddd1\ufe0f Excluir</button>`:''}</div></div>`;
   const resumo=`<div class="meta-card"><div class="mc-nome" style="margin-bottom:8px">\ud83e\uddee C\u00e1lculo autom\u00e1tico</div>
     <div class="ms-grid"><div><span>Precisa reter</span><b>${moneyFmt(c.R)}</b></div><div><span>Faturar no m\u00eas</span><b style="color:var(--gold)">${moneyFmt(c.F)}</b></div><div><span>Faturar por dia</span><b style="color:var(--gold)">${moneyFmt(c.F/(pf.dias||22))}</b></div></div>
-    <div class="ms-grid" style="margin-top:8px"><div><span>Meta MO / dia</span><b>${moneyFmt(c.moDia)}</b></div><div><span>Meta Pe\u00e7as / dia</span><b>${moneyFmt(c.pecDia)}</b></div><div><span>Retido p/ R$1</span><b>${(c.taxa).toFixed(2).replace('.',',')}</b></div></div>
-    <div class="hint" style="margin-top:8px">Fórmula: faturamento = (custos + retiradas + reserva) \u00f7 [ (1\u2212comiss\u00e3o)\u00d7%MO + margem\u00d7%pe\u00e7as ]. Mec\u00e2nico ${pf.comissao||45}% \u00b7 margem pe\u00e7as ${pf.margem||30}%.</div></div>`;
-  const cards=metaSimplesCard('\ud83d\udd27 M\u00e3o de obra',c.metaMO,rMO,c.moDia)+metaSimplesCard('\u2699\ufe0f Pe\u00e7as',c.metaPEC,rPEC,c.pecDia)+metaSimplesCard('\ud83d\udcb0 Total do m\u00eas',c.metaMO+c.metaPEC,rMO+rPEC,0);
-  const rank=rankMecanicosMes(comp); const med=['\ud83e\udd47','\ud83e\udd48','\ud83e\udd49'];
-  const rankHtml=`<div class="section-label">\ud83c\udfc6 Ranking dos mec\u00e2nicos</div>`+(rank.length?`<div class="rows">${rank.slice(0,5).map((r,i)=>`<div class="row"><div class="main"><div class="t">${i<3?med[i]:((i+1)+'\u00ba')} ${esc(r.nome)}</div><div class="s">\ud83d\udd27 M.O. ${moneyFmt(r.mo)} \u00b7 \u2699\ufe0f Pe\u00e7as ${moneyFmt(r.pec)}</div></div><span class="valor-tag" style="color:var(--gold)">${moneyFmt(r.total)}</span></div>`).join('')}</div>`:emptyState('Sem ranking ainda','Aparece quando houver OS executadas no m\u00eas.'));
+    <div class="ms-grid" style="margin-top:8px"><div><span>Meta MO / dia</span><b>${moneyFmt(c.moDia)}</b></div><div><span>Meta Pe\u00e7as / dia</span><b>${moneyFmt(c.pecDia)}</b></div><div><span>Retido p/ R$1</span><b>${(c.taxa).toFixed(2).replace('.',',')}</b></div></div></div>`;
+  const cards=vistaBar+metaSimplesCard('\ud83d\udd27 M\u00e3o de obra',alvoMO,rMO,c.moDia,lblMeta)+metaSimplesCard('\u2699\ufe0f Pe\u00e7as',alvoPEC,rPEC,c.pecDia,lblMeta)+metaSimplesCard('\ud83d\udcb0 Total',alvoMO+alvoPEC,rMO+rPEC,0,lblMeta);
+  const rank=rankMecanicos(exec); const nMec=nMecanicos(); const metaMec=(alvoMO+alvoPEC)/nMec; const med=['\ud83e\udd47','\ud83e\udd48','\ud83e\udd49'];
+  const rankHtml=`<div class="section-label">\ud83c\udfc6 Ranking ${lblPer} \u00b7 meta por mec\u00e2nico ${moneyFmt(metaMec)}</div>`+(rank.length?`<div class="rows">${rank.slice(0,5).map((r,i)=>{ const pM=metaMec>0?Math.round(r.total/metaMec*100):0; const fM=Math.max(0,metaMec-r.total); const badge=pM>=100?`<span style="color:var(--green)">\u2705 bateu`:`<span style="color:var(--amber)">faltam ${moneyFmt(fM)}`; return `<div class="row"><div class="main"><div class="t">${i<3?med[i]:((i+1)+'\u00ba')} ${esc(r.nome)}</div><div class="s">\ud83d\udd27 ${moneyFmt(r.mo)} \u00b7 \u2699\ufe0f ${moneyFmt(r.pec)} \u00b7 ${badge} (${pM}%)</span></div></div><span class="valor-tag" style="color:var(--gold)">${moneyFmt(r.total)}</span></div>`; }).join('')}</div>`:emptyState('Sem ranking ainda','Aparece quando houver OS executadas no per\u00edodo.'));
   return nav+herd+form+resumo+cards+rankHtml;
 }
 function relDRE(){ const de=relPer.de,ate=relPer.ate;
