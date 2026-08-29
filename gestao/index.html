@@ -723,7 +723,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-08-28.4';
+const APP_VERSAO='2026-08-28.5';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -1981,7 +1981,7 @@ function contaMov(m){ return ehEspecie(m)?'caixa':'banco'; }
 function valorBanco(m){ return (m.liquido!=null&&m.liquido!=='')?(Number(m.liquido)||0):(Number(m.valor)||0); }
 /* data em que a entrada fica disponível na conta; '' = ainda não caiu (boleto sem pagamento confirmado) */
 function dispMov(m){ if(m.tipo==='saida'){ if(m.pagamento) return m.pagamento; if(m.forma==='cartao'||m.forma==='boleto') return m.vencimento||m.data; return m.data; }
-  if(m.forma==='cartao') return proxDiaUtil(m.data,1);
+  if(m.forma==='cartao') return m.data;
   if(m.forma==='boleto') return m.pagamento?addDiasISO(m.pagamento,3):'';
   return m.data; }
 function saldoCaixa(ate){ let s=0; (state.caixa||[]).forEach(m=>{ if(contaMov(m)!=='caixa') return; const d=dispMov(m); if(!d||d>ate) return;
