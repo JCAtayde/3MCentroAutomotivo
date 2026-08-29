@@ -723,7 +723,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-08-28.9';
+const APP_VERSAO='2026-08-29.1';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -3409,6 +3409,45 @@ function confirmarPagarNota(key){ const ids=[...document.querySelectorAll('[data
   const forma=val('pgnForma')||'pix'; const data=val('pgnData')||toISO(hoje()); const conta=['dinheiro','especie'].includes(forma)?'caixa':'banco'; let tot=0,n=0;
   ids.forEach(id=>{ const m=(state.caixa||[]).find(x=>x.id===id); if(m&&!m.pagamento){ m.pagamento=data; m.forma=forma; m.conta=conta; m.atualizado=Date.now(); tot+=Number(m.valor)||0; n++; } });
   salvar(); closeModal(); renderContasPagar(); toast(n+' parcela(s) paga(s) · '+moneyFmt(tot)+' ✓'); }
+function imprimirCaixaHTML(de,ate,tipo,det){
+  const d1=de||'0000-00-00', d2=ate||'9999-99-99';
+  const ents = tipo!=='saida' ? caixaPeriodo(d1,d2,'entrada').slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))) : [];
+  const sais = tipo!=='entrada' ? caixaPeriodo(d1,d2,'saida').slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))) : [];
+  const totEnt=ents.reduce((s,m)=>s+(Number(m.valor)||0),0), totSai=sais.reduce((s,m)=>s+(Number(m.valor)||0),0);
+  const fLabel=f=>(FORMAS.find(x=>x[0]===f)||[,f||'—'])[1];
+  const grupo=(arr,key)=>{ const g={}; arr.forEach(m=>{ const k=key(m); g[k]=(g[k]||0)+(Number(m.valor)||0); }); return Object.entries(g).sort((a,b)=>b[1]-a[1]); };
+  const periodoTxt=(de?fmtBR(parseISO(de)):'início')+' até '+(ate?fmtBR(parseISO(ate)):'hoje');
+  const tipoTxt=tipo==='entrada'?'Somente entradas':tipo==='saida'?'Somente saídas':'Entradas e saídas';
+  let b=`<div class="top"><div><h1>Relatório de Caixa</h1><div class="muted">Período: ${periodoTxt} · ${tipoTxt} · ${det?'Detalhado':'Simplificado'}</div></div><div class="logo">3M</div></div>`;
+  b+=`<div class="tot-box">`;
+  if(tipo!=='saida') b+=`<div class="r"><span>Total de entradas</span><span>${moneyFmt(totEnt)}</span></div>`;
+  if(tipo!=='entrada') b+=`<div class="r"><span>Total de saídas</span><span>− ${moneyFmt(totSai)}</span></div>`;
+  if(tipo==='tudo') b+=`<div class="r final"><span>SALDO DO PERÍODO</span><span class="v">${moneyFmt(totEnt-totSai)}</span></div>`;
+  b+=`</div>`;
+  if(tipo!=='saida' && ents.length) b+=`<h2>Entradas por forma</h2><table>${grupo(ents,m=>fLabel(m.forma)).map(([k,v])=>`<tr><td>${esc(k)}</td><td class="num">${moneyFmt(v)}</td></tr>`).join('')}</table>`;
+  if(tipo!=='entrada' && sais.length) b+=`<h2>Saídas por categoria</h2><table>${grupo(sais,m=>catSaidaLabel(m.categoria)).map(([k,v])=>`<tr><td>${esc(k)}</td><td class="num">${moneyFmt(v)}</td></tr>`).join('')}</table>`;
+  if(det){
+    if(tipo!=='saida' && ents.length){ b+=`<h2>Entradas — detalhado (${ents.length})</h2><table><tr><td><b>Data</b></td><td><b>Descrição</b></td><td><b>Forma</b></td><td class="num"><b>Valor</b></td></tr>`;
+      ents.forEach(m=>{ b+=`<tr><td>${fmtBR(parseISO(m.data))}</td><td>${esc(m.descricao||'Entrada')}</td><td>${esc(fLabel(m.forma))}</td><td class="num">${moneyFmt(m.valor)}</td></tr>`; }); b+=`</table>`; }
+    if(tipo!=='entrada' && sais.length){ b+=`<h2>Saídas — detalhado (${sais.length})</h2><table><tr><td><b>Data</b></td><td><b>Descrição</b></td><td><b>Categoria</b></td><td class="num"><b>Valor</b></td></tr>`;
+      sais.forEach(m=>{ b+=`<tr><td>${fmtBR(parseISO(m.data))}</td><td>${esc(m.descricao||catSaidaLabel(m.categoria))}${m.fornecedor_id?(' · '+esc(fornecedorNome(m.fornecedor_id))):''}</td><td>${esc(catSaidaLabel(m.categoria))}</td><td class="num">${moneyFmt(m.valor)}</td></tr>`; }); b+=`</table>`; }
+  }
+  b+=`<div class="foot">3M Centro Automotivo · Gerado em ${fmtBR(hoje())}</div>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Caixa 3M</title><style>${FICHA_CSS} .num{text-align:right;white-space:nowrap}</style></head><body>${b}</body></html>`;
+}
+function abrirImprimirCaixa(){ const de=cxDe||'', ate=cxAte||toISO(hoje());
+  openModal(`<h3>🖨️ Imprimir caixa</h3>
+    <div class="grid2"><div class="field"><label>De</label><div class="dt-wrap"><input id="impDe" type="date" value="${de}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('impDe')">📅</button></div></div>
+      <div class="field"><label>Até</label><div class="dt-wrap"><input id="impAte" type="date" value="${ate}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('impAte')">📅</button></div></div></div>
+    <div class="field"><label>O que incluir</label><select id="impTipo"><option value="tudo">Entradas e saídas</option><option value="entrada">Somente entradas</option><option value="saida">Somente saídas</option></select></div>
+    <div class="field"><label>Formato</label><select id="impDet"><option value="simples">Simplificado (só o resumo)</option><option value="det">Detalhado (com a lista completa)</option></select></div>
+    <div class="form-actions"><button class="btn gold" onclick="gerarImprimirCaixa()">Gerar impressão</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
+}
+function gerarImprimirCaixa(){ const de=val('impDe'), ate=val('impAte'), tipo=val('impTipo')||'tudo', det=(val('impDet')==='det'); closeModal();
+  const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para imprimir'); return; }
+  w.document.write(imprimirCaixaHTML(de,ate,tipo,det)); w.document.close();
+  w.onload=()=>{ w.focus(); w.print(); }; setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 500);
+}
 function renderCaixa(){
   const box=document.getElementById('caixaBox'); if(!box) return;
   if(!(ehAdmin()||pode('valores'))){ box.innerHTML='<div class="note empty-note">Sem permissão.</div>'; return; }
@@ -3418,6 +3457,7 @@ function renderCaixa(){
         <button class="btn sm danger" onclick="movimentoModal('saida',null)">+ Saída</button></span></div>
     <div class="grid2"><div class="field"><label>De</label><div class="dt-wrap"><input id="cxDe" type="date" value="${cxDe||''}" onchange="cxFiltrar()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('cxDe')">📅</button></div></div>
       <div class="field"><label>Até</label><div class="dt-wrap"><input id="cxAte" type="date" value="${cxAte||''}" onchange="cxFiltrar()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('cxAte')">📅</button></div></div></div>
+    <div style="margin:0 0 10px"><button class="btn sm ghost" onclick="abrirImprimirCaixa()">🖨️ Imprimir relatório</button></div>
     <div id="caixaResumo"></div><div id="caixaLista"></div>`;
   cxFiltrar();
 }
