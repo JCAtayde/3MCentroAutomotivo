@@ -723,7 +723,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-08-28.5';
+const APP_VERSAO='2026-08-28.6';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -3191,10 +3191,12 @@ function relContas(){ const de=relPer.de,ate=relPer.ate;
     ${rcAberto?`<div style="margin-top:8px">${(rcSit==='ok')?'<div class="hint" style="margin:0 0 8px">Filtrando pelo período escolhido acima.</div>':'<div class="hint" style="margin:0 0 8px">Tudo em aberto (independente da data).</div>'}${lista}</div>`:''}`;
 }
 let metaComp='';
-function getMeta(comp){ const all=(state.config&&state.config.metas_json)||{}; const m=all[comp]||{}; return {mo_dia:Number(m.mo_dia)||0, pec_dia:Number(m.pec_dia)||0, dias:Number(m.dias)||22}; }
-function temMetaSalva(comp){ return !!(state.config&&state.config.metas_json&&state.config.metas_json[comp]); }
-function salvarMeta(comp){ const all=(state.config&&state.config.metas_json)||{}; all[comp]={mo_dia:moneyParse(val('mtMOd')),pec_dia:moneyParse(val('mtPECd')),dias:parseInt(val('mtDias'))||22}; state.config.metas_json=all; if(typeof logAcao==='function') logAcao('Salvou meta',nomeMesComp(comp),''); salvar(); renderRelatorios(); toast('Meta salva \u2713'); }
-function excluirMeta(comp){ confirmar('Excluir a meta de '+nomeMesComp(comp)+'?\nSó apaga a meta cadastrada — as OS e os valores continuam.', function(){ const all=(state.config&&state.config.metas_json)||{}; delete all[comp]; state.config.metas_json=all; if(typeof logAcao==='function') logAcao('Excluiu meta',nomeMesComp(comp),''); salvar(); renderRelatorios(); toast('Meta excluída'); }, 'Excluir','danger'); }
+function metasAll(){ let raw=(state.config&&state.config.metas_json); if(!raw) return {}; if(typeof raw==='object') return raw; try{ return JSON.parse(raw)||{}; }catch(e){ return {}; } }
+function setMetasAll(obj){ if(state.config) state.config.metas_json=JSON.stringify(obj); }
+function getMeta(comp){ const all=metasAll(); const m=all[comp]||{}; return {mo_dia:Number(m.mo_dia)||0, pec_dia:Number(m.pec_dia)||0, dias:Number(m.dias)||22}; }
+function temMetaSalva(comp){ return !!metasAll()[comp]; }
+function salvarMeta(comp){ const all=metasAll(); all[comp]={mo_dia:moneyParse(val('mtMOd')),pec_dia:moneyParse(val('mtPECd')),dias:parseInt(val('mtDias'))||22}; setMetasAll(all); if(typeof logAcao==='function') logAcao('Salvou meta',nomeMesComp(comp),''); salvar(); renderRelatorios(); toast('Meta salva \u2713'); }
+function excluirMeta(comp){ confirmar('Excluir a meta de '+nomeMesComp(comp)+'?\nSó apaga a meta cadastrada — as OS e os valores continuam.', function(){ const all=metasAll(); delete all[comp]; setMetasAll(all); if(typeof logAcao==='function') logAcao('Excluiu meta',nomeMesComp(comp),''); salvar(); renderRelatorios(); toast('Meta excluída'); }, 'Excluir','danger'); }
 function metaMesShift(delta){ if(!metaComp) metaComp=toISO(hoje()).slice(0,7); const [y,m]=metaComp.split('-').map(Number); const d=new Date(y,m-1+delta,1); metaComp=toISO(d).slice(0,7); renderRelatorios(); }
 function osExecMes(comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01', ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); return (state.ordens||[]).filter(o=>osStatus(o)==='executado'&&o.data&&o.data>=de&&o.data<=ate); }
 function rankMecanicosMes(comp){ const exec=osExecMes(comp); const map={}; exec.forEach(o=>{ const mid=o.mecanico_id; if(!mid) return; const d=(map[mid]=map[mid]||{mo:0,pec:0}); d.mo+=osMdoTotal(o); d.pec+=pecasTotal(o); }); return Object.entries(map).map(([mid,d])=>{ const mec=(state.mecanicos||[]).find(x=>x.id===mid); return {nome:mec?mec.nome:'\u2014',mo:d.mo,pec:d.pec,total:d.mo+d.pec}; }).sort((a,b)=>b.total-a.total); }
