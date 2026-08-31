@@ -1110,12 +1110,12 @@ function concluirLead(cid){ const c=getCliente(cid); if(!c) return; confirmar('C
 function reabrirLead(cid){ const c=getCliente(cid); if(!c) return; c.lead='novo'; c.atualizado=Date.now(); salvar(); refreshAtual(); atualizarLeadBadge(); toast('Voltou para a fila'); }
 function renderPainelTopo(){
   const box=document.getElementById('painelTopo'); if(!box) return;
-  const liberados=(state.ordens||[]).filter(o=>osStatus(o)==='liberado').sort((a,b)=>String(b.atualizado||0)-String(a.atualizado||0));
+  const liberados=soDoMec((state.ordens||[]).filter(o=>osStatus(o)==='liberado')).sort((a,b)=>String(b.atualizado||0)-String(a.atualizado||0));
   const alertaLib = liberados.length ? `<div class="alert-lib"><div class="al-head">🚗 ${liberados.length===1?'Carro liberado para entrega!':liberados.length+' carros liberados para entrega!'}</div>`+
     liberados.slice(0,6).map(o=>{ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const mec=mecanicoOSNome(o);
       return `<div class="al-row" onclick='go("os","${o.id}")'><div><div class="t">${esc(v?nomeVeiculo(v):'Veículo')}${v&&v.placa?` · ${esc(v.placa)}`:''}</div><div class="s">${esc((c&&c.nome)||'—')}${mec?(' · finalizou: '+esc(mec)):''} · avise o cliente</div></div><span class="al-go">Ver ›</span></div>`; }).join('')+
     `</div>` : '';
-  const feitos=(state.ordens||[]).filter(o=>osStatus(o)==='executado').sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))).slice(0,3);
+  const feitos=soDoMec((state.ordens||[]).filter(o=>osStatus(o)==='executado')).sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))).slice(0,3);
   const podeFin=ehAdmin()||pode('valores');
   const recent=feitos.map(o=>{ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
     return `<div class="card srv" onclick='go("os","${o.id}")'><div class="row"><div><div class="t">${esc(v?nomeVeiculo(v):'Veículo')}${v&&v.placa?` · ${esc(v.placa)}`:''}</div><div class="s">${esc((c&&c.nome)||'—')} · ${o.data?fmtBR(parseISO(o.data)):'—'}</div></div>${podeFin?`<span class="valor-tag" style="color:var(--green)">${moneyFmt(osTotal(o))}</span>`:''}</div></div>`; }).join('');
@@ -1600,21 +1600,28 @@ function escolherFicha(vid,acao){
 let osFiltroStatus='aguardando';
 function setOsFiltro(s){ osFiltroStatus=s; renderOrdens(); }
 function osDoMecanico(o,mid){ return o.mecanico_id===mid || (o.maodeobra||[]).some(m=>m.mecanico_id===mid); }
+/* Restrição do mecânico: vale para quem está em "Modo mecânico" OU está vinculado a um cadastro de mecânico
+   (mesmo que o perfil não tenha sido configurado). Nunca restringe admin nem gestor. Na dúvida, fecha. */
+function ehMecRestrito(){ if(ehAdmin()||ehGestor()) return false; return ehMecanico() || !!souMecanico(); }
+/* Filtra uma lista de OS para mostrar só as do mecânico logado. Se for restrito mas sem vínculo, devolve vazio. */
+function soDoMec(lista){ if(!ehMecRestrito()) return lista; const mm=souMecanico(); return mm ? lista.filter(o=>osDoMecanico(o,mm)) : []; }
 function renderOrdens(){
   const box=document.getElementById('listaOrdens');
   const q=((document.getElementById('buscaOS')||{}).value||'').trim().toLowerCase();
   const segBox=document.getElementById('osFiltro');
-  const mid=ehMecanico()?souMecanico():'';
-  const base = mid ? state.ordens.filter(o=>osDoMecanico(o,mid)) : state.ordens;
+  const mecR=ehMecRestrito();
+  const mid=mecR?souMecanico():'';
+  const base = mecR ? soDoMec(state.ordens) : state.ordens;
+  const MEC_ABAS=['agendamento','aguardando','andamento','liberado','executado'];
   const cont={agendamento:0,aguardando:0,andamento:0,liberado:0,executado:0,rejeitado:0}; base.forEach(o=>{ const s=osStatus(o); if(cont[s]!=null) cont[s]++; });
   if(segBox){ let abas=[['agendamento','Agenda',cont.agendamento],['aguardando','Aguardando',cont.aguardando],['andamento','Em andamento',cont.andamento],['liberado','Carro liberado',cont.liberado],['executado','Executados',cont.executado],['rejeitado','Rejeitados',cont.rejeitado]];
-    if(mid) abas=abas.filter(a=>['agendamento','aguardando','andamento'].includes(a[0]));
-    if(mid && !['agendamento','aguardando','andamento'].includes(osFiltroStatus)) osFiltroStatus='aguardando';
+    if(mecR) abas=abas.filter(a=>MEC_ABAS.includes(a[0]));
+    if(mecR && !MEC_ABAS.includes(osFiltroStatus)) osFiltroStatus='aguardando';
     segBox.innerHTML=abas.map(([k,r,n])=>`<button class="${k===osFiltroStatus?'on':''}" onclick="setOsFiltro('${k}')">${r}${n?` <span class="seg-n">${n}</span>`:''}</button>`).join(''); }
   let lista=base.filter(o=>osStatus(o)===osFiltroStatus).sort((a,b)=>{ const da=(a.agenda_data||a.data||''), db=(b.agenda_data||b.data||''); return osFiltroStatus==='agendamento'? da.localeCompare(db) : db.localeCompare(da); });
   if(q){ lista=lista.filter(o=>{ const v=getVeiculo(o.veiculo_id); if(!v) return false; const c=getCliente(v.cliente_id);
     return ((c&&c.nome||'').toLowerCase().includes(q)) || ((v.placa||'').toLowerCase().includes(q)) || ((v.modelo||'').toLowerCase().includes(q)); }); }
-  if(!lista.length){ box.innerHTML=emptyState(q?'Nada encontrado':'Nada nesta fase', q?'Tente outro nome ou placa.':(osFiltroStatus==='aguardando'?(mid?'':'Toque em “Nova OS”.'):'')); return; }
+  if(!lista.length){ box.innerHTML=emptyState(q?'Nada encontrado':'Nada nesta fase', q?'Tente outro nome ou placa.':(osFiltroStatus==='aguardando'?(mecR?'':'Toque em “Nova OS”.'):'')); return; }
   box.innerHTML=lista.map(o=>{ const v=getVeiculo(o.veiculo_id); if(!v) return ''; const c=getCliente(v.cliente_id);
     const quando = osFiltroStatus==='agendamento' && o.agenda_data ? (fmtBR(parseISO(o.agenda_data))+(o.agenda_hora?(' '+o.agenda_hora):'')) : fmtBR(parseISO(o.data));
     const dir = osFiltroStatus==='agendamento' ? (o.reclamacao?esc(o.reclamacao.slice(0,40)):'agendado') : `${(o.itens||[]).length} item(ns)`;
@@ -1622,7 +1629,7 @@ function renderOrdens(){
     return `<div class="row click" onclick='go("os","${o.id}")'>
       <div class="main"><div class="t">${esc(c?.nome||'—')} <span class="plate">${esc(v.placa||'—')}</span>${nomeMec?` <span class="mec-chip">🔧 ${esc(nomeMec)}</span>`:''}</div>
         <div class="s">${quando} · ${esc(nomeVeiculo(v))} · ${dir}</div></div>
-      <div class="acts">${(osFiltroStatus==='agendamento'||mid)?'':`<span class="valor-tag">${moneyFmt(osTotal(o))}</span>`}${chev()}</div></div>`; }).join('');
+      <div class="acts">${(osFiltroStatus==='agendamento'||mecR)?'':`<span class="valor-tag">${moneyFmt(osTotal(o))}</span>`}${chev()}</div></div>`; }).join('');
 }
 function mecanicoOSNome(o){ const g=id=>{ const m=(state.mecanicos||[]).find(x=>x.id===id); return m?(m.nome||'').split(' ')[0]:''; };
   if(o.mecanico_id){ return g(o.mecanico_id); }
@@ -1633,7 +1640,9 @@ function mecanicoOSNome(o){ const g=id=>{ const m=(state.mecanicos||[]).find(x=>
 function renderOsDet(id){
   const o=getOS(id); const box=document.getElementById('osDet');
   if(!o){ box.innerHTML=emptyState('Ordem não encontrada',''); return; }
-  const mid=ehMecanico()?souMecanico():''; if(mid) return renderOsDetMecanico(o,mid);
+  if(ehMecRestrito()){ const mm=souMecanico();
+    if(!mm || !osDoMecanico(o,mm)){ box.innerHTML=emptyState('Serviço de outro mecânico','Você só vê as ordens em que você é o executor.'); return; }
+    return renderOsDetMecanico(o,mm); }
   const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const st=osStatus(o);
   const mecResp=(state.mecanicos||[]).find(x=>x.id===o.mecanico_id);
   const stBadge=`<span class="badge" style="border-color:${faseCor(st)};color:${faseCor(st)}">${faseLabel(st)}</span>`;
@@ -2855,7 +2864,8 @@ function renderServicos(pre){
   const chips=[['todos','Todos'],['mes','Este mês'],['retornos','Retornos']];
   const q=(servBusca||'').trim().toLowerCase();
   const ini=competenciaAtualIni();
-  let lista=(state.ordens||[]).filter(o=>osStatus(o)==='executado');
+  let lista=soDoMec((state.ordens||[]).filter(o=>osStatus(o)==='executado'));
+  const _restrServ=ehMecRestrito();
   if(servFiltro==='retornos') lista=lista.filter(o=>o.retorno_de);
   if(servFiltro==='mes') lista=lista.filter(o=>o.data && o.data>=ini);
   if(q) lista=lista.filter(o=>{ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
@@ -2868,7 +2878,7 @@ function renderServicos(pre){
       <div class="row"><div class="t">${esc(v?nomeVeiculo(v):'Veículo')}${v&&v.placa?` · ${esc(v.placa)}`:''}</div>${o.retorno_de?'<span class="badge cyan">Retorno</span>':'<span class="badge green">Concluído</span>'}</div>
       <div class="s">${esc((c&&c.nome)||'—')} · ${o.data?fmtBR(parseISO(o.data)):'—'}${o.km?(' · '+nfmt(o.km)+' km'):''}</div>
       ${serv?`<div class="s" style="margin-top:3px">${esc(serv)}</div>`:''}
-      <div class="row" style="margin-top:6px"><span class="s">Total</span><span class="valor-tag" style="color:var(--green)">${moneyFmt(osTotal(o))}</span></div>
+      ${_restrServ?`<div class="row" style="margin-top:6px"><span class="s">Sua mão de obra</span><span class="valor-tag" style="color:var(--green)">${moneyFmt((o.maodeobra||[]).filter(m=>m.mecanico_id===souMecanico()).reduce((s,m)=>s+(Number(m.valor)||0),0))}</span></div>`:`<div class="row" style="margin-top:6px"><span class="s">Total</span><span class="valor-tag" style="color:var(--green)">${moneyFmt(osTotal(o))}</span></div>`}
     </div>`; }).join('');
   box.innerHTML=`
     <div class="srv-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
