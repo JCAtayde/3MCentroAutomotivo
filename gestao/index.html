@@ -704,7 +704,7 @@ async function buscarCEP(){
 }
 function mascararCEP_legacy(){}
 function normVeiculo(v){ if(v.entrevista===undefined) v.entrevista=null; v.cor||=''; v.inspecao||={}; v.cambio||=''; return v; }
-function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; o.midias||=[]; o.pecas_prev||=[]; o.descontos||=[]; o.retorno_de=o.retorno_de||''; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
+function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; o.midias||=[]; o.pecas_prev||=[]; o.descontos||=[]; o.retorno_de=o.retorno_de||''; o.faltou=o.faltou||null; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
 
 function upgradeV2toV3(v2){
   const db=novoBanco();
@@ -727,7 +727,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-08-31.1';
+const APP_VERSAO='2026-08-31.2';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -846,7 +846,7 @@ function descontoMdoLinha(o,mid){ return (o.descontos||[]).filter(d=>d.tipo==='m
 function osTotalBruto(o){ return pecasTotal(o)+osMdoTotal(o); }
 function osTotal(o){ return Math.max(0, osTotalBruto(o)-descontoTotal(o)); }
 function osStatus(o){ return o.status||'aguardando'; }
-const OS_FASES={agendamento:{lbl:'Agendamento',cor:'#7db4e6'},aguardando:{lbl:'Aguardando orçamento',cor:'#E8B23A'},andamento:{lbl:'Em andamento',cor:'#48B98A'},liberado:{lbl:'Carro liberado',cor:'#3FB6C4'},executado:{lbl:'Executado',cor:'#48B98A'},rejeitado:{lbl:'Rejeitado',cor:'#E5675C'}};
+const OS_FASES={agendamento:{lbl:'Agendamento',cor:'#7db4e6'},aguardando:{lbl:'Aguardando orçamento',cor:'#E8B23A'},andamento:{lbl:'Em andamento',cor:'#48B98A'},liberado:{lbl:'Carro liberado',cor:'#3FB6C4'},executado:{lbl:'Executado',cor:'#48B98A'},rejeitado:{lbl:'Rejeitado',cor:'#E5675C'},faltou:{lbl:'Não compareceu',cor:'#E5675C'}};
 function faseLabel(s){ return (OS_FASES[s]||{}).lbl||s; }
 function faseCor(s){ return (OS_FASES[s]||{}).cor||'#9AA3AF'; }
 function osExecutada(o){ return ['andamento','liberado','executado'].includes(osStatus(o)); }
@@ -1613,16 +1613,18 @@ function renderOrdens(){
   const mid=mecR?souMecanico():'';
   const base = mecR ? soDoMec(state.ordens) : state.ordens;
   const MEC_ABAS=['agendamento','aguardando','andamento','liberado','executado'];
-  const cont={agendamento:0,aguardando:0,andamento:0,liberado:0,executado:0,rejeitado:0}; base.forEach(o=>{ const s=osStatus(o); if(cont[s]!=null) cont[s]++; });
+  const cont={agendamento:0,aguardando:0,andamento:0,liberado:0,executado:0,rejeitado:0,faltou:0}; base.forEach(o=>{ const s=osStatus(o); if(cont[s]!=null) cont[s]++; });
   if(segBox){ let abas=[['agendamento','Agenda',cont.agendamento],['aguardando','Aguardando',cont.aguardando],['andamento','Em andamento',cont.andamento],['liberado','Carro liberado',cont.liberado],['executado','Executados',cont.executado],['rejeitado','Rejeitados',cont.rejeitado]];
     if(mecR) abas=abas.filter(a=>MEC_ABAS.includes(a[0]));
     if(mecR && !MEC_ABAS.includes(osFiltroStatus)) osFiltroStatus='aguardando';
     segBox.innerHTML=abas.map(([k,r,n])=>`<button class="${k===osFiltroStatus?'on':''}" onclick="setOsFiltro('${k}')">${r}${n?` <span class="seg-n">${n}</span>`:''}</button>`).join(''); }
+  if(osFiltroStatus==='faltou'){ return renderReativacao(base, q); }
+  const topo = (osFiltroStatus==='agendamento' && !mecR) ? faltasTopoBtn(base) : '';
   let lista=base.filter(o=>osStatus(o)===osFiltroStatus).sort((a,b)=>{ const da=(a.agenda_data||a.data||''), db=(b.agenda_data||b.data||''); return osFiltroStatus==='agendamento'? da.localeCompare(db) : db.localeCompare(da); });
   if(q){ lista=lista.filter(o=>{ const v=getVeiculo(o.veiculo_id); if(!v) return false; const c=getCliente(v.cliente_id);
     return ((c&&c.nome||'').toLowerCase().includes(q)) || ((v.placa||'').toLowerCase().includes(q)) || ((v.modelo||'').toLowerCase().includes(q)); }); }
-  if(!lista.length){ box.innerHTML=emptyState(q?'Nada encontrado':'Nada nesta fase', q?'Tente outro nome ou placa.':(osFiltroStatus==='aguardando'?(mecR?'':'Toque em “Nova OS”.'):'')); return; }
-  box.innerHTML=lista.map(o=>{ const v=getVeiculo(o.veiculo_id); if(!v) return ''; const c=getCliente(v.cliente_id);
+  if(!lista.length){ box.innerHTML=topo+emptyState(q?'Nada encontrado':'Nada nesta fase', q?'Tente outro nome ou placa.':(osFiltroStatus==='aguardando'?(mecR?'':'Toque em “Nova OS”.'):'')); return; }
+  box.innerHTML=topo+lista.map(o=>{ const v=getVeiculo(o.veiculo_id); if(!v) return ''; const c=getCliente(v.cliente_id);
     const quando = osFiltroStatus==='agendamento' && o.agenda_data ? (fmtBR(parseISO(o.agenda_data))+(o.agenda_hora?(' '+o.agenda_hora):'')) : fmtBR(parseISO(o.data));
     const dir = osFiltroStatus==='agendamento' ? (o.reclamacao?esc(o.reclamacao.slice(0,40)):'agendado') : `${(o.itens||[]).length} item(ns)`;
     const nomeMec = mecanicoOSNome(o);
@@ -1631,8 +1633,71 @@ function renderOrdens(){
         <div class="s">${quando} · ${esc(nomeVeiculo(v))} · ${dir}</div></div>
       <div class="acts">${(osFiltroStatus==='agendamento'||mecR)?'':`<span class="valor-tag">${moneyFmt(osTotal(o))}</span>`}${chev()}</div></div>`; }).join('');
 }
-function mecanicoOSNome(o){ const g=id=>{ const m=(state.mecanicos||[]).find(x=>x.id===id); return m?(m.nome||'').split(' ')[0]:''; };
-  if(o.mecanico_id){ return g(o.mecanico_id); }
+/* ---- Reativação: agendados que não compareceram ---- */
+function ehFaltouPendente(o){ return osStatus(o)==='faltou' && !(o.faltou && o.faltou.resultado==='perdido'); }
+function faltasTopoBtn(base){ const n=base.filter(ehFaltouPendente).length; if(!n) return '';
+  return `<button class="btn ghost" style="width:100%;margin-bottom:10px;justify-content:center;color:#E5675C;border-color:#E5675C" onclick="setOsFiltro('faltou')">⚠️ Faltas a recuperar (${n}) ›</button>`; }
+function renderReativacao(base,q){ const box=document.getElementById('listaOrdens');
+  const back=`<button class="btn ghost" style="width:100%;margin-bottom:10px;justify-content:center" onclick="setOsFiltro('agendamento')">‹ Voltar para a Agenda</button>`;
+  let lista=base.filter(ehFaltouPendente).sort((a,b)=>((b.faltou&&b.faltou.em)||0)-((a.faltou&&a.faltou.em)||0));
+  if(q){ lista=lista.filter(o=>{ const v=getVeiculo(o.veiculo_id); if(!v) return false; const c=getCliente(v.cliente_id);
+    return ((c&&c.nome||'').toLowerCase().includes(q)) || ((v.placa||'').toLowerCase().includes(q)) || ((v.modelo||'').toLowerCase().includes(q)); }); }
+  if(!lista.length){ box.innerHTML=back+emptyState('Nenhuma falta a recuperar','Quando um agendado não vier, marque na OS e ele aparece aqui pra você recuperar a venda.'); return; }
+  const intro=`<div class="hint" style="margin:0 0 10px">Clientes que agendaram e não vieram. Recupere a venda: chame no WhatsApp lembrando do problema, remarque ou encerre.</div>`;
+  box.innerHTML=back+intro+lista.map(linhaReativacao).join('');
+}
+function linhaReativacao(o){ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const f=o.faltou||{};
+  const quando=f.em?fmtBR(new Date(f.em)):''; const prob=(o.reclamacao||'').trim();
+  return `<div class="row" style="flex-direction:column;align-items:stretch;gap:8px">
+    <div class="click" onclick='go("os","${o.id}")' style="display:flex;align-items:center;gap:8px">
+      <div class="main"><div class="t">${esc(c?.nome||'—')} <span class="plate">${esc(v?.placa||'—')}</span></div>
+        <div class="s">${v?esc(nomeVeiculo(v)):''}${quando?(' · faltou em '+quando):''}</div>
+        <div class="s" style="color:#E5675C">Motivo: ${esc(f.motivo||'—')}</div>
+        ${prob?`<div class="s">Queixa: ${esc(prob)}</div>`:''}</div>${chev()}</div>
+    <div class="form-actions" style="margin:0">
+      <button class="btn sm green" onclick='zapReativacao("${o.id}")'>📲 WhatsApp</button>
+      <button class="btn sm gold" onclick='remarcarFaltou("${o.id}")'>🔁 Remarcar</button>
+      <button class="btn sm ghost" onclick='perderFaltou("${o.id}")'>Encerrar</button></div>
+  </div>`;
+}
+function marcarFaltou(oid){ const o=getOS(oid); if(!o) return;
+  const opc=['Não atendeu / sumiu','Remarcou','Achou mais barato','Sem dinheiro no momento','Desistiu','Tive um imprevisto'];
+  openModal(`<h3>Cliente não compareceu</h3>
+    <p class="sub">Registre o motivo — isso vira a sua lista de recuperação de vendas.</p>
+    <div class="field"><label>Motivo</label>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">${opc.map(m=>`<button type="button" class="btn sm ghost" style="margin:0" onclick="document.getElementById('faltMotivo').value=this.textContent">${m}</button>`).join('')}</div>
+      <textarea id="faltMotivo" rows="2" placeholder="Toque numa opção acima ou escreva o motivo…"></textarea></div>
+    ${dtField('faltRetorno','date','','Cliente disse que volta em (opcional)')}
+    <div class="hint">Se ele marcou um dia pra voltar, coloque a data. O cliente vai para a lista <b>Faltas a recuperar</b>, dentro da Agenda.</div>
+    <div class="form-actions"><button class="btn gold" onclick='salvarFaltou("${oid}")'>Registrar falta</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
+}
+function salvarFaltou(oid){ const o=getOS(oid); if(!o) return;
+  const motivo=(val('faltMotivo')||'').trim(); const retorno=val('faltRetorno')||'';
+  o.faltou={ em:Date.now(), motivo:motivo, resultado:'pendente' };
+  if(retorno) o.agenda_data=retorno;
+  o.status='faltou'; o.atualizado=Date.now(); salvar(); closeModal();
+  osFiltroStatus='faltou'; go('ordens'); toast('Registrado na Reativação ✓'); }
+function zapReativacao(oid){ const o=getOS(oid); if(!o) return; const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
+  const n=zapDoCliente(c); if(!n){ toast('Cliente sem WhatsApp cadastrado. Adicione o telefone dele primeiro.'); return; }
+  const nome=((c&&c.nome)||'').split(' ')[0]||''; const veic=v?nomeVeiculo(v):'seu veículo'; const queixa=(o.reclamacao||'').trim();
+  const linha = queixa ? `Vi aqui que você comentou sobre *${queixa}* — quanto antes a gente dá uma olhada, melhor (e costuma sair mais em conta). ` : `Ficou pendente aquela passada do *${veic}* aqui na oficina. `;
+  const msg=`Olá ${nome}! 😊 Aqui é da *3M Centro Automotivo*.\n\n${linha}Quer que eu já reserve um horário pra você trazer o ${veic}? Consigo te encaixar ainda essa semana. 🔧\n\nÉ só me dizer o melhor dia. Estamos à disposição!`;
+  window.open('https://wa.me/'+n+'?text='+encodeURIComponent(msg),'_blank'); }
+function remarcarFaltou(oid){ const o=getOS(oid); if(!o) return;
+  openModal(`<h3>Remarcar retorno</h3><p class="sub">O cliente vai voltar. Marque a nova data e ele volta para a Agenda.</p>
+    <div class="grid2">${dtField('remData','date',(o.agenda_data||toISO(hoje())),'Nova data')}
+      <div class="field"><label>Hora (opcional)</label><input id="remHora" type="time" value="${o.agenda_hora||''}"></div></div>
+    <div class="hint">A OS volta para <b>Agendamento</b> com essa data. Tudo que já estava salvo continua salvo.</div>
+    <div class="form-actions"><button class="btn gold" onclick='salvarRemarcarFaltou("${oid}")'>Mandar para a agenda</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`); }
+function salvarRemarcarFaltou(oid){ const o=getOS(oid); if(!o) return; const d=val('remData'); if(!d){ toast('Escolha a nova data'); return; }
+  if(o.faltou) o.faltou.resultado='remarcado';
+  o.status='agendamento'; o.agenda_data=d; o.agenda_hora=val('remHora')||''; o.atualizado=Date.now(); salvar(); closeModal();
+  osFiltroStatus='agendamento'; go('os',oid); toast('Remarcado — de volta na Agenda ✓'); }
+function perderFaltou(oid){ const o=getOS(oid); if(!o) return;
+  confirmar('Encerrar como perdido?\nO cliente sai da lista de recuperação. Fica o registro do motivo.', function(){
+    o.faltou = Object.assign({em:Date.now(),motivo:''}, o.faltou||{}, {resultado:'perdido'});
+    o.status='faltou'; o.atualizado=Date.now(); salvar(); osFiltroStatus='faltou'; go('ordens'); toast('Encerrado como perdido'); }); }
+function mecanicoOSNome(o){ const g=id=>{ const m=(state.mecanicos||[]).find(x=>x.id===id); return m?(m.nome||'').split(' ')[0]:''; };  if(o.mecanico_id){ return g(o.mecanico_id); }
   const ids=[...new Set((o.maodeobra||[]).map(m=>m.mecanico_id).filter(Boolean))];
   if(!ids.length) return ''; if(ids.length===1) return g(ids[0]); return g(ids[0])+' +'+(ids.length-1); }
 
@@ -1651,15 +1716,15 @@ function renderOsDet(id){
       <div class="s">${q} × ${i.valor?moneyFmt(i.valor):'—'}</div></div><span class="valor-tag">${moneyFmt(sub)}</span></div>`; };
 
   // Cabeçalho comum
-  let head=`<div class="det-head"><h2>OS · ${st==='agendamento'?(o.agenda_data?fmtBR(parseISO(o.agenda_data)):'Agendamento'):fmtBR(parseISO(o.data))}</h2>
-      <div class="acts">${st!=='executado'?`<button class="btn sm ghost" onclick='${st==='agendamento'?`openAgendamento("${o.id}")`:`openOS("${o.id}")`}'>Editar</button>`:''}${pode('excluir')?`<button class="btn sm danger" onclick='delOS("${o.id}")'>Excluir</button>`:''}</div></div>
+  let head=`<div class="det-head"><h2>OS · ${(st==='agendamento'||st==='faltou')?(o.agenda_data?fmtBR(parseISO(o.agenda_data)):'Agendamento'):fmtBR(parseISO(o.data))}</h2>
+      <div class="acts">${st!=='executado'?`<button class="btn sm ghost" onclick='${(st==='agendamento'||st==='faltou')?`openAgendamento("${o.id}")`:`openOS("${o.id}")`}'>Editar</button>`:''}${pode('excluir')?`<button class="btn sm danger" onclick='delOS("${o.id}")'>Excluir</button>`:''}</div></div>
     <div class="os-status-bar">${stBadge}<div class="acts">${acoesFase(o,st)}</div></div>
     <div class="panel" style="margin-top:8px"><div class="kv">
       <span class="k">Cliente</span><span class="v link" onclick='go("cliente","${c?.id}")'>${esc(c?.nome||'—')}</span>
       <span class="k">Veículo</span><span class="v link" onclick='go("veiculo","${v?.id}")'>${esc(v?nomeVeiculo(v):'—')} · ${esc(v?.placa||'')}</span>
-      ${st==='agendamento'?`<span class="k">Agendado para</span><span class="v">${o.agenda_data?fmtBR(parseISO(o.agenda_data)):'—'}${o.agenda_hora?(' às '+o.agenda_hora):''}</span>`:`<span class="k">KM na entrada</span><span class="v">${o.km?nfmt(o.km)+' km':'—'}</span>`}
+      ${(st==='agendamento'||st==='faltou')?`<span class="k">Agendado para</span><span class="v">${o.agenda_data?fmtBR(parseISO(o.agenda_data)):'—'}${o.agenda_hora?(' às '+o.agenda_hora):''}</span>`:`<span class="k">KM na entrada</span><span class="v">${o.km?nfmt(o.km)+' km':'—'}</span>`}
       ${mecResp?`<span class="k">Mecânico</span><span class="v">👨‍🔧 ${esc(mecResp.nome)}</span>`:''}</div></div>
-    <div class="note-label">${st==='agendamento'?'Prévia do serviço / problema':'Reclamação do cliente'}</div><div class="note ${o.reclamacao?'':'empty-note'}">${o.reclamacao?esc(o.reclamacao):'—'}</div>
+    <div class="note-label">${(st==='agendamento'||st==='faltou')?'Prévia do serviço / problema':'Reclamação do cliente'}</div><div class="note ${o.reclamacao?'':'empty-note'}">${o.reclamacao?esc(o.reclamacao):'—'}</div>
     ${bannerRetorno(o)}
     ${alertaCadastro(o,st)}`;
 
@@ -1669,8 +1734,21 @@ function renderOsDet(id){
       <button class="btn green" onclick='avisarClienteAgenda("${o.id}")'>📲 Avisar cliente</button>
       <button class="btn" onclick='avisarMecanicoAgenda("${o.id}")'>🔧 Avisar mecânico</button></div>
     <div class="form-actions"><button class="btn gold" onclick='carroChegou("${o.id}")'>🚗 Carro chegou → Aguardando</button></div>
+    ${(!ehMecanico()&&pode('editar'))?`<div class="form-actions"><button class="btn sm ghost" style="color:#E5675C;border-color:#E5675C" onclick='marcarFaltou("${o.id}")'>🚫 Cliente não compareceu</button></div>`:''}
     ${podeMidiaEntrada()?blocoMidias(o,'entrada',podeAddEntrada(o)):''}
     ${podeMidiaProblemas()?blocoMidias(o,'defeito',podeAddDefeito(o)):''}`; return; }
+
+  // Não compareceu: recuperação da venda (reativação)
+  if(st==='faltou'){ const f=o.faltou||{}; const quando=f.em?fmtBR(new Date(f.em)):'';
+    box.innerHTML=head+`
+    <div class="panel" style="margin-top:8px;border-color:#E5675C"><div class="kv">
+      <span class="k">Motivo</span><span class="v">${esc(f.motivo||'—')}</span>
+      ${quando?`<span class="k">Registrado em</span><span class="v">${quando}</span>`:''}</div></div>
+    <div class="hint" style="margin-top:8px">Recupere a venda: chame no WhatsApp lembrando do problema do carro, remarque, ou encerre se não houver mais interesse.</div>
+    <div class="form-actions" style="margin-top:10px">
+      <button class="btn green" onclick='zapReativacao("${o.id}")'>📲 Chamar no WhatsApp</button>
+      <button class="btn gold" onclick='remarcarFaltou("${o.id}")'>🔁 Remarcar</button></div>
+    <div class="form-actions"><button class="btn sm ghost" onclick='perderFaltou("${o.id}")'>Encerrar como perdido</button></div>`; return; }
 
   // Demais fases: peças/mão de obra/totais
   const editavel = (st==='aguardando'||st==='andamento');
