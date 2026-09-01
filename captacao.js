@@ -31,9 +31,10 @@
    + '.pc3m-sub{color:#9AA3AF;font-size:14px;margin-bottom:16px}'
    + '.pc3m-f{margin-bottom:11px}'
    + '.pc3m-f label{display:block;font-size:12.5px;color:#c4cbd4;margin-bottom:4px;font-weight:600}'
-   + '.pc3m-f input,.pc3m-f select{width:100%;background:#0f1216;border:1px solid #2a2f38;border-radius:10px;'
+   + '.pc3m-f input,.pc3m-f select,.pc3m-f textarea{width:100%;background:#0f1216;border:1px solid #2a2f38;border-radius:10px;'
    + 'padding:11px 12px;color:#EEF1F5;font-size:15px;outline:none}'
-   + '.pc3m-f input:focus,.pc3m-f select:focus{border-color:#E8B23A}'
+   + '.pc3m-f textarea{resize:vertical;min-height:66px;font-family:inherit;line-height:1.4}'
+   + '.pc3m-f input:focus,.pc3m-f select:focus,.pc3m-f textarea:focus{border-color:#E8B23A}'
    + '.pc3m-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}'
    + '.pc3m-car{border:1px solid #2a2f38;border-radius:12px;padding:12px;margin-bottom:10px;background:#0f1216}'
    + '.pc3m-car .cap{font-size:12px;font-weight:700;color:#E8B23A;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}'
@@ -74,7 +75,9 @@
             '<div class="pc3m-f"><label>Ano</label><input name="ano" inputmode="numeric" placeholder="2018"></div>'+
             '<div class="pc3m-f"><label>Câmbio</label><select name="cambio"><option value="">Selecione</option><option value="Manual">Manual</option><option value="Automático">Automático</option></select></div>'+
           '</div>'+
+          '<div class="pc3m-f"><label>KM atual (aproximado)</label><input name="km" inputmode="numeric" placeholder="Ex: 85.000"></div>'+
         '</div>'+
+        '<div class="pc3m-f"><label>O que o carro está sentindo? <span style="color:#9AA3AF;font-weight:400">(opcional)</span></label><textarea name="problema" rows="2" placeholder="Ex: barulho na suspensão, luz do motor acesa, puxando pra um lado, revisão…"></textarea></div>'+
         '<input class="pc3m-hp" name="website" tabindex="-1" autocomplete="off">'+
         '<div class="pc3m-msg" id="pc3m-msg"></div>'+
         '<button type="submit" class="pc3m-btn">Quero cuidar do meu carro</button>';
@@ -87,10 +90,11 @@
         var telefone = form.telefone.value.trim();
         if(!nome){ msg.textContent='Por favor, informe seu nome.'; return; }
         if(telefone.replace(/\D/g,'').length < 10){ msg.textContent='Informe um WhatsApp válido com DDD.'; return; }
-        var carro = { modelo:form.modelo.value.trim(), ano:form.ano.value.trim(), cambio:form.cambio.value };
+        var carro = { modelo:form.modelo.value.trim(), ano:form.ano.value.trim(), cambio:form.cambio.value, km:form.km.value.trim() };
+        var problema = form.problema.value.trim();
 
         var btn = form.querySelector('.pc3m-btn'); btn.disabled=true; btn.textContent='Enviando…';
-        fetch('/api/lead', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ nome:nome, telefone:telefone, website:form.website.value, carros:[carro] }) })
+        fetch('/api/lead', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ nome:nome, telefone:telefone, website:form.website.value, problema:problema, carros:[carro] }) })
           .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
           .then(function(res){
             if(!res.ok || res.d.error){ throw new Error(res.d.error||'Falha ao enviar'); }

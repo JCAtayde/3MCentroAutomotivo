@@ -23,6 +23,7 @@ export async function onRequestPost(context){
   const nome = tc((body.nome||'').trim().slice(0,120));
   const telefone = (body.telefone||'').replace(/[^\d]/g,'').slice(0,13);
   const email = (body.email||'').trim().slice(0,120);
+  const problema = (body.problema||'').trim().slice(0,500);
   if(!nome) return json({ error:'Informe seu nome.' }, 400);
   if(telefone.length < 10) return json({ error:'Informe um WhatsApp válido com DDD.' }, 400);
 
@@ -38,7 +39,7 @@ export async function onRequestPost(context){
 
   const now = Date.now();
   const cid = crypto.randomUUID();
-  const obs = 'Pré-cadastro pelo site' + (email ? (' · e-mail: '+email) : '');
+  const obs = 'Pré-cadastro pelo site' + (problema ? (' · Problema relatado: '+problema) : '') + (email ? (' · e-mail: '+email) : '');
   const stmts = [];
   stmts.push(DB.prepare(
     'INSERT INTO clientes (id,nome,tipo,telefone1,telefone2,endereco,obs,contatos,nascimento,zap_num,lead,criado,atualizado) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
