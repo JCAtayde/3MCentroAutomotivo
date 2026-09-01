@@ -727,7 +727,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-08-31.2';
+const APP_VERSAO='2026-08-31.3';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -1628,9 +1628,18 @@ function renderOrdens(){
     const quando = osFiltroStatus==='agendamento' && o.agenda_data ? (fmtBR(parseISO(o.agenda_data))+(o.agenda_hora?(' '+o.agenda_hora):'')) : fmtBR(parseISO(o.data));
     const dir = osFiltroStatus==='agendamento' ? (o.reclamacao?esc(o.reclamacao.slice(0,40)):'agendado') : `${(o.itens||[]).length} item(ns)`;
     const nomeMec = mecanicoOSNome(o);
-    return `<div class="row click" onclick='go("os","${o.id}")'>
-      <div class="main"><div class="t">${esc(c?.nome||'—')} <span class="plate">${esc(v.placa||'—')}</span>${nomeMec?` <span class="mec-chip">🔧 ${esc(nomeMec)}</span>`:''}</div>
-        <div class="s">${quando} · ${esc(nomeVeiculo(v))} · ${dir}</div></div>
+    const cab = `<div class="main"><div class="t">${esc(c?.nome||'—')} <span class="plate">${esc(v.placa||'—')}</span>${nomeMec?` <span class="mec-chip">🔧 ${esc(nomeMec)}</span>`:''}</div><div class="s">${quando} · ${esc(nomeVeiculo(v))} · ${dir}</div></div>`;
+    if(osFiltroStatus==='agendamento' && !mecR){
+      return `<div class="row" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div class="click" onclick='go("os","${o.id}")' style="display:flex;align-items:center;gap:8px">${cab}${chev()}</div>
+        <div class="form-actions" style="margin:0;flex-wrap:wrap">
+          <button class="btn sm green" onclick='avisarClienteAgenda("${o.id}")'>📲 Avisar cliente</button>
+          <button class="btn sm ghost" onclick='avisarMecanicoAgenda("${o.id}")'>🔧 Avisar mecânico</button>
+          <button class="btn sm gold" onclick='carroChegou("${o.id}")'>🚗 Chegou</button>
+          ${pode('editar')?`<button class="btn sm ghost" style="color:#E5675C;border-color:#E5675C" onclick='marcarFaltou("${o.id}")'>🚫 Não veio</button>`:''}</div>
+      </div>`;
+    }
+    return `<div class="row click" onclick='go("os","${o.id}")'>${cab}
       <div class="acts">${(osFiltroStatus==='agendamento'||mecR)?'':`<span class="valor-tag">${moneyFmt(osTotal(o))}</span>`}${chev()}</div></div>`; }).join('');
 }
 /* ---- Reativação: agendados que não compareceram ---- */
@@ -1969,7 +1978,7 @@ function removerDesconto(oid,did){ const o=getOS(oid); if(!o) return; o.desconto
 
 /* ---- transições de fase ---- */
 function carroChegou(oid){ const o=getOS(oid); if(!o) return;
-  confirmar('Confirmar que o carro chegou? A OS vai para "Aguardando orçamento".', function(){ o.status='aguardando'; o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; renderOsDet(oid); toast('Em Aguardando orçamento'); }, 'Confirmar', 'green'); }
+  confirmar('Confirmar que o carro chegou? A OS vai para "Aguardando orçamento".', function(){ o.status='aguardando'; o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; refreshAtual(); toast('Em Aguardando orçamento'); }, 'Confirmar', 'green'); }
 function alertaCadastro(o,st){
   if(ehMecanico()) return '';
   if(st!=='agendamento' && st!=='aguardando') return '';
