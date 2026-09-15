@@ -727,7 +727,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-09-15.2';
+const APP_VERSAO='2026-09-15.3';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -3723,7 +3723,7 @@ function folhaMudarMes(){ const v=val('folhaMes'); if(v) folhaComp=v; renderFolh
 function ehSocioFunc(f){ return f && (f.socio==='1'||f.socio===1||f.socio===true); }
 function comissaoFunc(fid,comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01'; const ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0');
   const mec=(state.mecanicos||[]).find(x=>x.id===fid); const perc=Number((mec&&mec.percentual)||0); if(perc<=0) return 0;
-  let mo=0; (state.ordens||[]).forEach(o=>{ const st=osStatus(o); const loja=osEhLojista(o); const finalizado = loja ? (st==='liberado'||st==='executado') : (st==='executado'); if(!finalizado||!o.data||o.data<de||o.data>ate) return; (o.maodeobra||[]).forEach(l=>{ if(l.mecanico_id===fid) mo+=(Number(l.valor)||0); }); });
+  let mo=0; (state.ordens||[]).forEach(o=>{ const st=osStatus(o); const loja=osEhLojista(o); const finalizado = loja ? (st==='liberado'||st==='executado') : (st==='executado'); if(!finalizado) return; let dref=o.data; if(!dref && o.atualizado){ try{ dref=toISO(new Date(o.atualizado)); }catch(e){} } if(!dref||dref<de||dref>ate) return; (o.maodeobra||[]).forEach(l=>{ const mid=l.mecanico_id||o.mecanico_id||''; if(mid===fid) mo+=(Number(l.valor)||0); }); });
   return Math.round(mo*perc/100*100)/100; }
 function ehMecanicoFunc(f){ return Number(f&&f.percentual||0)>0; }
 function adiantCalend(fid,comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01'; const ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); return (state.caixa||[]).filter(x=>x.tipo==='saida'&&x.categoria==='adiantamento'&&x.funcionario_id===fid&&x.data&&x.data>=de&&x.data<=ate); }

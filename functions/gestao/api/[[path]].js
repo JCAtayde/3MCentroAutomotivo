@@ -62,7 +62,7 @@ export async function onRequest(context) {
         pecas:    (pec.results || []),
         fornecedores: (forn.results || []),
         logs: (lgs.results || []),
-        app_versao: '2026-09-15.2',
+        app_versao: '2026-09-15.3',
         config,
       });
     }
