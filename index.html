@@ -704,7 +704,7 @@ async function buscarCEP(){
 }
 function mascararCEP_legacy(){}
 function normVeiculo(v){ if(v.entrevista===undefined) v.entrevista=null; v.cor||=''; v.inspecao||={}; v.cambio||=''; return v; }
-function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; o.midias||=[]; o.pecas_prev||=[]; o.descontos||=[]; o.retorno_de=o.retorno_de||''; o.faltou=o.faltou||null; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
+function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; o.midias||=[]; o.pecas_prev||=[]; o.descontos||=[]; o.retorno_de=o.retorno_de||''; o.faltou=o.faltou||null; o.motivo_rejeicao=o.motivo_rejeicao||''; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
 
 function upgradeV2toV3(v2){
   const db=novoBanco();
@@ -1742,7 +1742,7 @@ function renderOsDet(id){
       ${mecResp?`<span class="k">Mecânico</span><span class="v">👨‍🔧 ${esc(mecResp.nome)}</span>`:''}</div></div>
     <div class="note-label">${(st==='agendamento'||st==='faltou')?'Prévia do serviço / problema':'Reclamação do cliente'}</div><div class="note ${o.reclamacao?'':'empty-note'}">${o.reclamacao?esc(o.reclamacao):'—'}</div>
     ${bannerRetorno(o)}
-    ${alertaCadastro(o,st)}`;
+    ${alertaCadastro(o,st)}${bannerRejeicao(o,st)}`;
 
   // Agendamento: mensagens + chegou + fotos de entrada
   if(st==='agendamento'){ box.innerHTML=head+`
@@ -2047,7 +2047,25 @@ function aprovarOrcamento(oid){ const o=getOS(oid); if(!o) return;
     return;
   }
   confirmar('Cliente aprovou o orçamento?\nA OS vai para "Em andamento".', function(){ o.status='andamento'; o.atualizado=Date.now(); salvar(); osFiltroStatus='andamento'; renderOsDet(oid); toast('Em andamento ✓'); }, 'Aprovar', 'green'); }
-function rejeitarOS(oid){ const o=getOS(oid); if(!o) return; confirmar('Rejeitar o orçamento? O carro é entregue sem o serviço, mas fica o registro da passagem.', function(){ o.status='rejeitado'; o.atualizado=Date.now(); salvar(); osFiltroStatus='rejeitado'; renderOsDet(oid); toast('Orçamento rejeitado'); }); }
+function rejeitarOS(oid){ const o=getOS(oid); if(!o) return;
+  openModal(`<h3>Rejeitar orçamento</h3>
+    <p class="sub">O carro é entregue sem o serviço, mas fica o registro da passagem. Informe o motivo da rejeição.</p>
+    <div class="field"><label>Motivo da rejeição</label><textarea id="rejMotivo" rows="3" placeholder="Ex.: cliente achou o valor alto; vai fazer em outro lugar; adiou o serviço..."></textarea></div>
+    <div class="form-actions">
+      <button class="btn danger" onclick='confirmarRejeicao("${oid}")'>Confirmar rejeição</button>
+      <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
+  setTimeout(()=>{ const t=document.getElementById('rejMotivo'); if(t) t.focus(); },50);
+}
+function confirmarRejeicao(oid){ const o=getOS(oid); if(!o) return;
+  const motivo=(val('rejMotivo')||'').trim();
+  if(!motivo){ toast('Informe o motivo da rejeição'); return; }
+  o.status='rejeitado'; o.motivo_rejeicao=motivo; o.atualizado=Date.now();
+  logAcao('Rejeitou orçamento', o.codigo?('OS '+o.codigo):'OS', motivo);
+  salvar(); closeModal(); osFiltroStatus='rejeitado'; renderOsDet(oid); toast('Orçamento rejeitado');
+}
+function bannerRejeicao(o,st){ if(st!=='rejeitado'||!(o.motivo_rejeicao||'').trim()) return '';
+  return `<div class="panel" style="margin-top:8px;border-color:#E5675C"><div class="kv"><span class="k">Motivo da rejeição</span><span class="v">${esc(o.motivo_rejeicao)}</span></div></div>`;
+}
 function reabrirOrcamento(oid){ if(!ehAdmin()){ toast('Apenas o gestor geral pode reabrir'); return; } const o=getOS(oid); if(!o) return; confirmar('Reabrir esta ordem? Ela volta para "Aguardando orçamento".', function(){ o.status='aguardando'; o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; renderOsDet(oid); toast('Reaberta em Aguardando'); }, 'Reabrir'); }
 function finalizarOS(oid){ const o=getOS(oid); if(!o) return;
   if(restanteOS(o)<=0.005){ confirmar('Não há valor em aberto.\nFinalizar e enviar para Executado?', function(){ o.status='executado'; o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='executado'; renderOsDet(oid); toast('OS finalizada ✓'); }, 'Finalizar', 'green'); return; }
