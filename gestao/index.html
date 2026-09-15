@@ -727,7 +727,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-09-15.1';
+const APP_VERSAO='2026-09-15.2';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -2070,7 +2070,7 @@ function reabrirOrcamento(oid){ if(!ehAdmin()){ toast('Apenas o gestor geral pod
 function finalizarOS(oid){ const o=getOS(oid); if(!o) return;
   if(restanteOS(o)<=0.005){ confirmar('Não há valor em aberto.\nFinalizar e enviar para Executado?', function(){ o.status='executado'; o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='executado'; renderOsDet(oid); toast('OS finalizada ✓'); }, 'Finalizar', 'green'); return; }
   pagamentoModal(oid,'final'); }
-function liberarCarro(oid){ const o=getOS(oid); if(!o) return; if(!podeLiberarOS(o)){ toast('Só o mecânico responsável pode liberar este carro'); return; } confirmar('Liberar o carro?\nA OS vai para "Carro liberado" — onde o cliente busca o carro e é feito o recebimento.', function(){ logAcao('Liberou carro', o.codigo?('OS '+o.codigo):'OS', ''); o.status='liberado'; o.atualizado=Date.now(); salvar(); osFiltroStatus='liberado'; renderOsDet(oid); toast('Carro liberado ✓'); }, 'Liberar', 'green'); }
+function liberarCarro(oid){ const o=getOS(oid); if(!o) return; if(!podeLiberarOS(o)){ toast('Só o mecânico responsável pode liberar este carro'); return; } confirmar('Liberar o carro?\nA OS vai para "Carro liberado" — onde o cliente busca o carro e é feito o recebimento.', function(){ logAcao('Liberou carro', o.codigo?('OS '+o.codigo):'OS', ''); o.status='liberado'; if(osEhLojista(o)&&!o.data) o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='liberado'; renderOsDet(oid); toast('Carro liberado ✓'); }, 'Liberar', 'green'); }
 function reagendarOS(oid){ const o=getOS(oid); if(!o) return;
   openModal(`<h3>Reagendar — mandar para a Agenda</h3><p class="sub">O carro não ficou hoje. Marque o retorno e a OS volta para a Agenda.</p>
     <div class="grid2"><div class="field"><label>Data do retorno</label><div class="dt-wrap"><input id="ragData" type="date" value="${o.agenda_data||toISO(hoje())}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('ragData')">📅</button></div></div>
@@ -3723,7 +3723,7 @@ function folhaMudarMes(){ const v=val('folhaMes'); if(v) folhaComp=v; renderFolh
 function ehSocioFunc(f){ return f && (f.socio==='1'||f.socio===1||f.socio===true); }
 function comissaoFunc(fid,comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01'; const ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0');
   const mec=(state.mecanicos||[]).find(x=>x.id===fid); const perc=Number((mec&&mec.percentual)||0); if(perc<=0) return 0;
-  let mo=0; (state.ordens||[]).forEach(o=>{ if(osStatus(o)!=='executado'||!o.data||o.data<de||o.data>ate) return; (o.maodeobra||[]).forEach(l=>{ if(l.mecanico_id===fid) mo+=(Number(l.valor)||0); }); });
+  let mo=0; (state.ordens||[]).forEach(o=>{ const st=osStatus(o); const loja=osEhLojista(o); const finalizado = loja ? (st==='liberado'||st==='executado') : (st==='executado'); if(!finalizado||!o.data||o.data<de||o.data>ate) return; (o.maodeobra||[]).forEach(l=>{ if(l.mecanico_id===fid) mo+=(Number(l.valor)||0); }); });
   return Math.round(mo*perc/100*100)/100; }
 function ehMecanicoFunc(f){ return Number(f&&f.percentual||0)>0; }
 function adiantCalend(fid,comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01'; const ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); return (state.caixa||[]).filter(x=>x.tipo==='saida'&&x.categoria==='adiantamento'&&x.funcionario_id===fid&&x.data&&x.data>=de&&x.data<=ate); }
@@ -3750,7 +3750,7 @@ function renderFolha(){
   const vazio = (!mecs.length&&!assal.length&&!socios.length);
   box.innerHTML=`<div class="section-label"><span>Folha de ${nomeMesComp(comp)}</span></div>
     <div class="field"><label>Mês do fechamento</label><div class="dt-wrap"><input id="folhaMes" type="month" value="${comp}" onchange="folhaMudarMes()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('folhaMes')">📅</button></div></div>
-    <div class="hint"><b>Mecânicos</b> fecham dia 30 (comissão = serviço finalizado/recebido no mês; boleto = mês em que finalizou). <b>Funcionários com salário</b> fecham dia 8 — aqui aparecem os adiantamentos <b>feitos no mês selecionado</b>. Adiantamentos abatem do saldo.</div>
+    <div class="hint"><b>Mecânicos</b> fecham dia 30. A comissão conta o serviço <b>finalizado</b> no mês. Para <b>lojista/parceiro</b>, conta assim que o carro é <b>entregue ou liberado</b>, mesmo que a empresa ainda não tenha recebido. <b>Funcionários com salário</b> fecham dia 8 — aqui aparecem os adiantamentos <b>feitos no mês selecionado</b>. Adiantamentos abatem do saldo.</div>
     ${vazio?'<div class="note empty-note" style="margin-top:10px">Ninguém com movimento neste mês.</div>':secMec+secAss+secSoc}`;
 }
 function adiantamentoFuncModal(fid){ const f=(state.mecanicos||[]).find(x=>x.id===fid); if(!f) return;
