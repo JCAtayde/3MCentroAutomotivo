@@ -704,7 +704,7 @@ async function buscarCEP(){
 }
 function mascararCEP_legacy(){}
 function normVeiculo(v){ if(v.entrevista===undefined) v.entrevista=null; v.cor||=''; v.inspecao||={}; v.cambio||=''; return v; }
-function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; o.midias||=[]; o.pecas_prev||=[]; o.descontos||=[]; o.retorno_de=o.retorno_de||''; o.faltou=o.faltou||null; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
+function normOrdem(o){ if(o.status==='aprovado') o.status='executado'; if(!o.status) o.status='aguardando'; o.itens||=[]; o.maodeobra||=[]; o.midias||=[]; o.pecas_prev||=[]; o.descontos||=[]; o.retorno_de=o.retorno_de||''; o.faltou=o.faltou||null; o.motivo_rejeicao=o.motivo_rejeicao||''; (o.itens||[]).forEach(i=>{ if(i.qtde==null) i.qtde=1; }); return o; }
 
 function upgradeV2toV3(v2){
   const db=novoBanco();
@@ -727,7 +727,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-08-31.3';
+const APP_VERSAO='2026-09-15.1';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -808,6 +808,12 @@ function setSync(estado){ const el=document.getElementById('syncDot'); if(!el) r
    UTIL
 ================================================================== */
 function uid(){ return (crypto.randomUUID?crypto.randomUUID():'id'+Date.now()+Math.random().toString(16).slice(2)); }
+/* === Anti-duplicidade: normalização e busca por placa/CPF/telefone === */
+function normPlaca(p){ return (p||'').toString().toUpperCase().replace(/[^A-Z0-9]/g,''); }
+function normDoc(c){ return (c||'').toString().replace(/\D/g,''); }
+function acharVeiculoPorPlaca(placa,ignId){ const k=normPlaca(placa); if(!k) return null; return (state.veiculos||[]).find(v=>v.id!==ignId && normPlaca(v.placa)===k)||null; }
+function acharClientePorCPF(cpf,ignId){ const k=normDoc(cpf); if(!k) return null; return (state.clientes||[]).find(c=>c.id!==ignId && normDoc(c.cpf)===k)||null; }
+function acharClientePorTelefone(tel,ignId){ const k=normDoc(tel); if(!k) return null; return (state.clientes||[]).find(c=>c.id!==ignId && (normDoc(c.telefone1)===k || normDoc(c.telefone2)===k))||null; }
 function hoje(){ const d=new Date(); d.setHours(0,0,0,0); return d; }
 function parseISO(s){ if(!s) return null; const[y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
 function toISO(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -1313,6 +1319,7 @@ function novoVeiculoRapido(cid){ if(!pode('editar')){ toast('Sem permissão para
 function saveVeiculoRapido(cid,outro){ if(!pode('editar')){ toast('Sem permissão'); return; }
   const placa=val('qvPlaca').trim().toUpperCase(); const modelo=tc(val('qvModelo').trim());
   if(!placa&&!modelo){ toast('Informe placa ou modelo'); return; }
+  if(placa){ const jaV=acharVeiculoPorPlaca(placa); if(jaV){ const dono=getCliente(jaV.cliente_id); toast('Placa já cadastrada'+(dono?(' em '+dono.nome):'')+' — abrindo a ficha existente.'); closeModal(); go('veiculo',jaV.id); return; } }
   const nv={id:uid(),cliente_id:cid,placa,modelo,ano:'',cor:'',cambio:'',km_atual:'',media_km_mes:'',entrevista:null,criado:Date.now()};
   state.veiculos.push(nv); autoResolveLead(cid,placa); salvar();
   if(outro){ toast('Carro cadastrado ✓ — adicione o próximo'); const p=document.getElementById('qvPlaca'), m=document.getElementById('qvModelo'); if(p)p.value=''; if(m)m.value=''; if(p)p.focus(); }
@@ -1735,7 +1742,7 @@ function renderOsDet(id){
       ${mecResp?`<span class="k">Mecânico</span><span class="v">👨‍🔧 ${esc(mecResp.nome)}</span>`:''}</div></div>
     <div class="note-label">${(st==='agendamento'||st==='faltou')?'Prévia do serviço / problema':'Reclamação do cliente'}</div><div class="note ${o.reclamacao?'':'empty-note'}">${o.reclamacao?esc(o.reclamacao):'—'}</div>
     ${bannerRetorno(o)}
-    ${alertaCadastro(o,st)}`;
+    ${alertaCadastro(o,st)}${bannerRejeicao(o,st)}`;
 
   // Agendamento: mensagens + chegou + fotos de entrada
   if(st==='agendamento'){ box.innerHTML=head+`
@@ -1984,7 +1991,7 @@ function alertaCadastro(o,st){
   if(st!=='agendamento' && st!=='aguardando') return '';
   const chk=cadastroCompleto(o); if(chk.ok) return '';
   return `<div class="alerta-cad">⚠️ <b>Cadastro incompleto.</b> Faltam: ${esc(chk.faltas.join(', '))}.
-    <div class="hint" style="margin:6px 0 0">O sistema só avança (aprovar/executar) com esses dados completos.</div>
+    <div class="hint" style="margin:6px 0 0">Recomendado para manter o histórico completo do carro. Não trava a aprovação — para aprovar bastam responsável (nome e telefone), placa e modelo.</div>
     <div class="form-actions" style="margin-top:8px">
       <button class="btn sm gold" onclick='pedirDadosCliente("${o.id}")'>📲 Pedir dados que faltam ao cliente</button>
       ${chk.c?`<button class="btn sm ghost" onclick='openCliente("${chk.c.id}")'>Completar cliente</button>`:''}
@@ -2017,9 +2024,12 @@ function cadastroCompleto(o){
   return {ok:faltas.length===0, faltas, c, v};
 }
 function faltasAprovacao(o){
-  const chk=cadastroCompleto(o); const faltas=[...chk.faltas];
-  if(!(o.obs_mecanico||'').trim()) faltas.push('relato do problema por escrito (diagnóstico)');
-  return {ok:faltas.length===0, faltas, c:chk.c, v:chk.v};
+  const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const faltas=[];
+  if(!c){ faltas.push('responsável (cliente) vinculado'); }
+  else { if(!(c.nome||'').trim()) faltas.push('nome do responsável'); if(!(c.telefone1||'').trim()) faltas.push('telefone do responsável'); }
+  if(!v){ faltas.push('veículo'); }
+  else { if(!(v.placa||'').trim()) faltas.push('placa do carro'); if(!(v.modelo||'').trim()) faltas.push('modelo do carro'); }
+  return {ok:faltas.length===0, faltas, c, v};
 }
 function aprovarOrcamento(oid){ const o=getOS(oid); if(!o) return;
   const chk=faltasAprovacao(o);
@@ -2037,7 +2047,25 @@ function aprovarOrcamento(oid){ const o=getOS(oid); if(!o) return;
     return;
   }
   confirmar('Cliente aprovou o orçamento?\nA OS vai para "Em andamento".', function(){ o.status='andamento'; o.atualizado=Date.now(); salvar(); osFiltroStatus='andamento'; renderOsDet(oid); toast('Em andamento ✓'); }, 'Aprovar', 'green'); }
-function rejeitarOS(oid){ const o=getOS(oid); if(!o) return; confirmar('Rejeitar o orçamento? O carro é entregue sem o serviço, mas fica o registro da passagem.', function(){ o.status='rejeitado'; o.atualizado=Date.now(); salvar(); osFiltroStatus='rejeitado'; renderOsDet(oid); toast('Orçamento rejeitado'); }); }
+function rejeitarOS(oid){ const o=getOS(oid); if(!o) return;
+  openModal(`<h3>Rejeitar orçamento</h3>
+    <p class="sub">O carro é entregue sem o serviço, mas fica o registro da passagem. Informe o motivo da rejeição.</p>
+    <div class="field"><label>Motivo da rejeição</label><textarea id="rejMotivo" rows="3" placeholder="Ex.: cliente achou o valor alto; vai fazer em outro lugar; adiou o serviço..."></textarea></div>
+    <div class="form-actions">
+      <button class="btn danger" onclick='confirmarRejeicao("${oid}")'>Confirmar rejeição</button>
+      <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
+  setTimeout(()=>{ const t=document.getElementById('rejMotivo'); if(t) t.focus(); },50);
+}
+function confirmarRejeicao(oid){ const o=getOS(oid); if(!o) return;
+  const motivo=(val('rejMotivo')||'').trim();
+  if(!motivo){ toast('Informe o motivo da rejeição'); return; }
+  o.status='rejeitado'; o.motivo_rejeicao=motivo; o.atualizado=Date.now();
+  logAcao('Rejeitou orçamento', o.codigo?('OS '+o.codigo):'OS', motivo);
+  salvar(); closeModal(); osFiltroStatus='rejeitado'; renderOsDet(oid); toast('Orçamento rejeitado');
+}
+function bannerRejeicao(o,st){ if(st!=='rejeitado'||!(o.motivo_rejeicao||'').trim()) return '';
+  return `<div class="panel" style="margin-top:8px;border-color:#E5675C"><div class="kv"><span class="k">Motivo da rejeição</span><span class="v">${esc(o.motivo_rejeicao)}</span></div></div>`;
+}
 function reabrirOrcamento(oid){ if(!ehAdmin()){ toast('Apenas o gestor geral pode reabrir'); return; } const o=getOS(oid); if(!o) return; confirmar('Reabrir esta ordem? Ela volta para "Aguardando orçamento".', function(){ o.status='aguardando'; o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; renderOsDet(oid); toast('Reaberta em Aguardando'); }, 'Reabrir'); }
 function finalizarOS(oid){ const o=getOS(oid); if(!o) return;
   if(restanteOS(o)<=0.005){ confirmar('Não há valor em aberto.\nFinalizar e enviar para Executado?', function(){ o.status='executado'; o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='executado'; renderOsDet(oid); toast('OS finalizada ✓'); }, 'Finalizar', 'green'); return; }
@@ -2279,8 +2307,11 @@ function saveCliente(id){
     cpf:(rev?fmtCNPJ(val('fCPF')):fmtCPF(val('fCPF'))),rua,quadra,lote,numero,complemento,setor,cidade,estado:val('fEstado').trim().toUpperCase().slice(0,2),cep:fmtCEP(val('fCep')),
     endereco:partes.filter(Boolean).join(', '),obs:val('fObs').trim(),
     contatos:contatoRows.filter(r=>r.nome.trim()||r.telefone.trim()).map(r=>({nome:tc(r.nome.trim()),relacao:r.relacao,telefone:r.telefone.trim(),nascimento:(r.nascimento||'').trim()}))};
-  if(id) Object.assign(getCliente(id),dados); else state.clientes.push({id:uid(),...dados,criado:Date.now()});
-  salvar(); closeModal(); refreshAtual(); toast('Cliente salvo');
+  const _cpf=normDoc(dados.cpf);
+  if(_cpf){ const jaC=acharClientePorCPF(_cpf,id||null); if(jaC){ toast('Já existe cliente com esse CPF: '+jaC.nome+' — abrindo a ficha dele.'); closeModal(); openCliente(jaC.id); return; } }
+  function _finalizarCliente(){ if(id) Object.assign(getCliente(id),dados); else state.clientes.push({id:uid(),...dados,criado:Date.now()}); salvar(); closeModal(); refreshAtual(); toast('Cliente salvo'); }
+  if(!id){ const _tel=normDoc(dados.telefone1); const jaT=_tel?acharClientePorTelefone(_tel):null; if(jaT){ confirmar('Já existe um cliente com esse telefone: '+jaT.nome+'.\n\nSe for a MESMA pessoa, cancele e edite a ficha dela.\nSe for OUTRA pessoa (ex.: familiar no mesmo número), toque em "Criar assim mesmo".', function(){ _finalizarCliente(); }, 'Criar assim mesmo', 'gold'); return; } }
+  _finalizarCliente();
 }
 function delCliente(id){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } const _c=getCliente(id);
   confirmar('Excluir o cliente e todos os veículos/OS dele?', function(){ logAcao('Excluiu cliente', _c?(_c.nome||''):'', _c?(_c.telefone1||''):'');
@@ -2312,6 +2343,7 @@ function saveVeiculo(id){
   const dados={cliente_id:val('fCli'),placa:val('fPlaca').trim().toUpperCase(),modelo:tc(val('fModelo').trim()),ano:val('fAno').trim(),cor:tc(val('fCor').trim()),cambio:val('fCambio'),km_atual:num('fKm'),media_km_mes:num('fMedia')};
   if(!dados.cliente_id){ toast('Escolha o cliente'); return; }
   if(!dados.modelo&&!dados.placa){ toast('Informe placa ou modelo'); return; }
+  if(dados.placa){ const jaV=acharVeiculoPorPlaca(dados.placa,id||null); if(jaV){ const dono=getCliente(jaV.cliente_id); toast('Já existe um carro com a placa '+dados.placa+(dono?(' ('+dono.nome+')'):'')+' — abrindo a ficha existente.'); closeModal(); go('veiculo',jaV.id); return; } }
   if(id){ Object.assign(getVeiculo(id),dados); autoResolveLead(dados.cliente_id,dados.placa); salvar(); closeModal(); refreshAtual(); toast('Veículo salvo'); }
   else{ const nv={id:uid(),...dados,entrevista:null,criado:Date.now()}; state.veiculos.push(nv); autoResolveLead(dados.cliente_id,dados.placa); salvar(); closeModal();
     go('veiculo',nv.id); openEntrevista(nv.id,true); toast('Veículo cadastrado'); }
