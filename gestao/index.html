@@ -297,6 +297,11 @@
   .os-serv .os-sel{width:100%}
   .os-val{align-self:center}
   .os-status-bar{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:10px; padding:10px 12px; background:var(--panel); border:1px solid var(--line2); border-radius:11px}
+.qz-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
+.qz-chip{display:inline-flex;align-items:center;gap:9px;padding:11px 15px;border:1px solid var(--line2);border-radius:12px;background:var(--panel);cursor:pointer;font-size:14px;user-select:none;transition:border-color .15s,background .15s}
+.qz-chip input{accent-color:#e8b23a;margin:0;width:16px;height:16px;flex:none}
+.qz-chip:has(input:checked){border-color:#e8b23a;background:rgba(232,178,58,.12)}
+.qz-sub{color:var(--muted);font-size:12px}
   .seg{display:flex; gap:6px; margin-bottom:12px; overflow:auto}
   .seg button{flex:1; white-space:nowrap; padding:8px 10px; border-radius:9px; border:1px solid var(--line2); background:var(--panel); color:var(--txt); font-size:13px; font-weight:600; cursor:pointer}
   .seg button.on{background:var(--gold); color:#14161A; border-color:var(--gold)}
@@ -727,7 +732,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-09-15.7';
+const APP_VERSAO='2026-09-15.8';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -3845,30 +3850,23 @@ function renderFinanceiro(){
   const box=document.getElementById('financeiroBox'); if(!box) return;
   if(!ehAdmin()){ box.innerHTML='<div class="note empty-note">Apenas administradores.</div>'; return; }
   const mecs=(state.mecanicos||[]).slice().sort((a,b)=>a.nome.localeCompare(b.nome));
-  if(!finAte) finAte=toISO(hoje());
   const _h=hoje(); const _anoA=_h.getFullYear(); const _mesA=_h.getMonth()+1; const _anos=[_anoA-2,_anoA-1,_anoA,_anoA+1];
   box.innerHTML=`<div class="section-label">Relatório de mão de obra</div>
-    <div class="section-label" style="margin-top:2px;opacity:.9">Atalho por quinzena</div>
     <div class="grid2"><div class="field"><label>Mês</label><select id="finQzMes">${MESES_PT.map((nm,i)=>`<option value="${i+1}" ${(i+1)===_mesA?'selected':''}>${nm}</option>`).join('')}</select></div>
       <div class="field"><label>Ano</label><select id="finQzAno">${_anos.map(a=>`<option value="${a}" ${a===_anoA?'selected':''}>${a}</option>`).join('')}</select></div></div>
-    <div class="field"><label>Quinzena</label><div style="display:flex;gap:16px;flex-wrap:wrap;padding:4px 0 2px">
-      <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="finQz" value="1" checked> 1ª quinzena (1 ao 15)</label>
-      <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="finQz" value="2"> 2ª quinzena (16 ao fim)</label>
-      <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="finQz" value="0"> Mês inteiro</label></div></div>
-    <div class="form-actions" style="margin-bottom:6px"><button class="btn gold" onclick="gerarPorQuinzena()">Gerar por quinzena</button></div>
-    <div class="hint" style="margin:0 0 12px">Usa o <b>mecânico</b> e a <b>situação</b> escolhidos abaixo. Ou informe um período nas datas.</div>
-    <div class="section-label" style="margin-top:2px;opacity:.9">Por período (datas)</div>
-    <div class="grid2">${dtField('finDe','date',(finDe||''),'De')}
-      ${dtField('finAte','date',(finAte||''),'Até')}</div>
+    <div class="field"><label>Quinzena</label><div class="qz-row">
+      <label class="qz-chip"><input type="radio" name="finQz" value="1" checked> <span>1ª quinzena <span class="qz-sub">1 ao 15</span></span></label>
+      <label class="qz-chip"><input type="radio" name="finQz" value="2"> <span>2ª quinzena <span class="qz-sub">16 ao fim</span></span></label>
+      <label class="qz-chip"><input type="radio" name="finQz" value="0"> <span>Mês inteiro</span></label></div></div>
     <div class="grid2"><div class="field"><label>Mecânico</label><select id="finMec"><option value="">Todos os mecânicos</option>${mecs.map(m=>`<option value="${m.id}" ${finMec===m.id?'selected':''}>${esc(m.nome)}</option>`).join('')}</select></div>
       <div class="field"><label>Situação</label><select id="finStatus">
         <option value="executado" ${finStatus==='executado'?'selected':''}>Executados (finalizados)</option>
         <option value="andamento" ${finStatus==='andamento'?'selected':''}>Aprovados (em andamento)</option>
         <option value="rejeitado" ${finStatus==='rejeitado'?'selected':''}>Rejeitados (orçamento)</option>
         <option value="todos" ${finStatus==='todos'?'selected':''}>Todos</option></select></div></div>
-    <div class="form-actions" style="margin-bottom:12px"><button class="btn ghost" onclick="gerarFinanceiro()">Gerar por período</button></div>
+    <input type="hidden" id="finDe"><input type="hidden" id="finAte">
+    <div class="form-actions" style="margin:8px 0 14px"><button class="btn gold" style="min-width:190px" onclick="gerarPorQuinzena()">Gerar relatório</button></div>
     <div id="finResultado"></div>`;
-  if(finDe||finMec) gerarFinanceiro();
 }
 function gerarPorQuinzena(){
   const mes=parseInt(val('finQzMes'))||((hoje()).getMonth()+1);
