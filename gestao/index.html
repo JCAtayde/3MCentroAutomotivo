@@ -727,7 +727,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-09-15.6';
+const APP_VERSAO='2026-09-15.7';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -3846,7 +3846,18 @@ function renderFinanceiro(){
   if(!ehAdmin()){ box.innerHTML='<div class="note empty-note">Apenas administradores.</div>'; return; }
   const mecs=(state.mecanicos||[]).slice().sort((a,b)=>a.nome.localeCompare(b.nome));
   if(!finAte) finAte=toISO(hoje());
+  const _h=hoje(); const _anoA=_h.getFullYear(); const _mesA=_h.getMonth()+1; const _anos=[_anoA-2,_anoA-1,_anoA,_anoA+1];
   box.innerHTML=`<div class="section-label">Relatório de mão de obra</div>
+    <div class="section-label" style="margin-top:2px;opacity:.9">Atalho por quinzena</div>
+    <div class="grid2"><div class="field"><label>Mês</label><select id="finQzMes">${MESES_PT.map((nm,i)=>`<option value="${i+1}" ${(i+1)===_mesA?'selected':''}>${nm}</option>`).join('')}</select></div>
+      <div class="field"><label>Ano</label><select id="finQzAno">${_anos.map(a=>`<option value="${a}" ${a===_anoA?'selected':''}>${a}</option>`).join('')}</select></div></div>
+    <div class="field"><label>Quinzena</label><div style="display:flex;gap:16px;flex-wrap:wrap;padding:4px 0 2px">
+      <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="finQz" value="1" checked> 1ª quinzena (1 ao 15)</label>
+      <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="finQz" value="2"> 2ª quinzena (16 ao fim)</label>
+      <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="finQz" value="0"> Mês inteiro</label></div></div>
+    <div class="form-actions" style="margin-bottom:6px"><button class="btn gold" onclick="gerarPorQuinzena()">Gerar por quinzena</button></div>
+    <div class="hint" style="margin:0 0 12px">Usa o <b>mecânico</b> e a <b>situação</b> escolhidos abaixo. Ou informe um período nas datas.</div>
+    <div class="section-label" style="margin-top:2px;opacity:.9">Por período (datas)</div>
     <div class="grid2">${dtField('finDe','date',(finDe||''),'De')}
       ${dtField('finAte','date',(finAte||''),'Até')}</div>
     <div class="grid2"><div class="field"><label>Mecânico</label><select id="finMec"><option value="">Todos os mecânicos</option>${mecs.map(m=>`<option value="${m.id}" ${finMec===m.id?'selected':''}>${esc(m.nome)}</option>`).join('')}</select></div>
@@ -3855,9 +3866,22 @@ function renderFinanceiro(){
         <option value="andamento" ${finStatus==='andamento'?'selected':''}>Aprovados (em andamento)</option>
         <option value="rejeitado" ${finStatus==='rejeitado'?'selected':''}>Rejeitados (orçamento)</option>
         <option value="todos" ${finStatus==='todos'?'selected':''}>Todos</option></select></div></div>
-    <div class="form-actions" style="margin-bottom:12px"><button class="btn gold" onclick="gerarFinanceiro()">Gerar relatório</button></div>
+    <div class="form-actions" style="margin-bottom:12px"><button class="btn ghost" onclick="gerarFinanceiro()">Gerar por período</button></div>
     <div id="finResultado"></div>`;
   if(finDe||finMec) gerarFinanceiro();
+}
+function gerarPorQuinzena(){
+  const mes=parseInt(val('finQzMes'))||((hoje()).getMonth()+1);
+  const ano=parseInt(val('finQzAno'))||((hoje()).getFullYear());
+  const qzEl=document.querySelector('input[name=finQz]:checked'); const qz=qzEl?qzEl.value:'0';
+  const mm=String(mes).padStart(2,'0'); const ult=new Date(ano,mes,0).getDate();
+  let de,ate;
+  if(qz==='1'){ de=`${ano}-${mm}-01`; ate=`${ano}-${mm}-15`; }
+  else if(qz==='2'){ de=`${ano}-${mm}-16`; ate=`${ano}-${mm}-${String(ult).padStart(2,'0')}`; }
+  else { de=`${ano}-${mm}-01`; ate=`${ano}-${mm}-${String(ult).padStart(2,'0')}`; }
+  const elDe=document.getElementById('finDe'); const elAte=document.getElementById('finAte');
+  if(elDe) elDe.value=de; if(elAte) elAte.value=ate;
+  gerarFinanceiro();
 }
 function gerarFinanceiro(){
   finDe=val('finDe')||''; finAte=val('finAte')||''; finMec=val('finMec')||''; finStatus=val('finStatus')||'executado';
