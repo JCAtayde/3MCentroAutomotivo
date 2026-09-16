@@ -7,7 +7,7 @@
 const SCHEMA = {
   clientes: { cols:['id','nome','tipo','telefone1','telefone2','endereco','obs','contatos','nascimento','zap_num','lead','cpf','rua','setor','cidade','estado','cep','quadra','lote','numero','complemento','categoria','razao','criado','atualizado'], json:['contatos'] },
   veiculos: { cols:['id','cliente_id','placa','modelo','ano','cor','km_atual','media_km_mes','entrevista','inspecao','cambio','criado','atualizado'], json:['entrevista','inspecao'] },
-  ordens:   { cols:['id','veiculo_id','data','km','reclamacao','obs_mecanico','obs_admin','itens','maodeobra','status','agenda_data','agenda_hora','mecanico_id','midias','codigo','pecas_prev','descontos','retorno_de','faltou','motivo_rejeicao','criado','atualizado'], json:['itens','maodeobra','midias','pecas_prev','descontos','faltou'] },
+  ordens:   { cols:['id','veiculo_id','data','km','reclamacao','obs_mecanico','obs_admin','itens','maodeobra','status','agenda_data','agenda_hora','mecanico_id','midias','codigo','pecas_prev','descontos','retorno_de','faltou','motivo_rejeicao','fechado_em','criado','atualizado'], json:['itens','maodeobra','midias','pecas_prev','descontos','faltou'] },
   regras:   { cols:['id','nome','km','meses','ordem','preco'], json:[] },
   mecanicos:{ cols:['id','nome','percentual','ativo','telefone','salario','funcao','socio','criado','atualizado'], json:[] },
   caixa:    { cols:['id','tipo','data','valor','forma','taxa','liquido','descricao','ordem_id','parcelas','categoria','funcionario_id','cartao_tipo','socio','conta','vencimento','pagamento','fornecedor_id','parcela_grupo','nota','criado','atualizado'], json:[] },
@@ -29,6 +29,7 @@ export async function onRequest(context) {
   // Coluna de "não compareceu" (adicionada de forma segura; ignora se já existir)
   try { await DB.prepare('ALTER TABLE ordens ADD COLUMN faltou TEXT').run(); } catch (e) { /* coluna já existe */ }
   try { await DB.prepare('ALTER TABLE ordens ADD COLUMN motivo_rejeicao TEXT').run(); } catch (e) { /* coluna já existe */ }
+  try { await DB.prepare('ALTER TABLE ordens ADD COLUMN fechado_em TEXT').run(); } catch (e) { /* coluna já existe */ }
 
   const url = new URL(request.url);
   const parts = url.pathname.split('/').filter(Boolean); // ['gestao','api','<acao>']
@@ -62,7 +63,7 @@ export async function onRequest(context) {
         pecas:    (pec.results || []),
         fornecedores: (forn.results || []),
         logs: (lgs.results || []),
-        app_versao: '2026-09-15.3',
+        app_versao: '2026-09-15.4',
         config,
       });
     }
