@@ -727,7 +727,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-09-15.4';
+const APP_VERSAO='2026-09-15.5';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -1742,7 +1742,7 @@ function renderOsDet(id){
       ${mecResp?`<span class="k">Mecânico</span><span class="v">👨‍🔧 ${esc(mecResp.nome)}</span>`:''}</div></div>
     <div class="note-label">${(st==='agendamento'||st==='faltou')?'Prévia do serviço / problema':'Reclamação do cliente'}</div><div class="note ${o.reclamacao?'':'empty-note'}">${o.reclamacao?esc(o.reclamacao):'—'}</div>
     ${bannerRetorno(o)}
-    ${alertaCadastro(o,st)}${bannerRejeicao(o,st)}`;
+    ${alertaCadastro(o,st)}${bannerRejeicao(o,st)}${bannerFechamento(o,st)}`;
 
   // Agendamento: mensagens + chegou + fotos de entrada
   if(st==='agendamento'){ box.innerHTML=head+`
@@ -3288,8 +3288,8 @@ function relPorCliente(){ const os=osExecPeriodo(relPer.de,relPer.ate); const ma
   return `<div class="rel-kpi"><div class="rk"><div class="rl">Faturamento</div><div class="rv">${moneyFmt(tot)}</div></div><div class="rk"><div class="rl">Clientes</div><div class="rv">${arr.length}</div></div><div class="rk"><div class="rl">Serviços</div><div class="rv">${arr.reduce((s,x)=>s+x.n,0)}</div></div></div>
     <div class="section-label">Ranking de clientes</div>${arr.slice(0,30).map(x=>relBar(x.nome,x.total,max,`${x.n} OS · ${moneyFmt(x.total/x.n)}/OS`)).join('')}`;
 }
-function relPorMecanico(){ const os=osExecPeriodo(relPer.de,relPer.ate); const map={};
-  os.forEach(o=>{ (o.maodeobra||[]).forEach(m=>{ if(!m.mecanico_id) return; const d=(map[m.mecanico_id]=map[m.mecanico_id]||{mo:0,oss:new Set()}); d.mo+=(Number(m.valor)||0); d.oss.add(o.id); }); });
+function relPorMecanico(){ const os=(state.ordens||[]).filter(o=>{ if(!osFinalizadaComissao(o)) return false; const d=dataFechamentoOS(o); return d && d>=relPer.de && d<=relPer.ate; }); const map={};
+  os.forEach(o=>{ (o.maodeobra||[]).forEach(m=>{ const mid=m.mecanico_id||o.mecanico_id||''; if(!mid) return; const d=(map[mid]=map[mid]||{mo:0,oss:new Set()}); d.mo+=(Number(m.valor)||0); d.oss.add(o.id); }); });
   const arr=Object.entries(map).map(([mid,d])=>{ const mec=(state.mecanicos||[]).find(x=>x.id===mid)||{}; const perc=Number(mec.percentual||0); return {nome:mec.nome||'—',mo:d.mo,n:d.oss.size,com:d.mo*perc/100,perc}; }).sort((a,b)=>b.mo-a.mo);
   if(!arr.length) return emptyState('Sem mão de obra no período','Ajuste as datas acima.');
   const max=Math.max(...arr.map(x=>x.mo),1), totMO=arr.reduce((s,x)=>s+x.mo,0), totCom=arr.reduce((s,x)=>s+x.com,0);
@@ -3721,9 +3721,14 @@ function nomeMesComp(comp){ const p=comp.split('-'); return MESES_PT[parseInt(p[
 function adiantamentosFunc(fid,comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01'; const ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); return (state.caixa||[]).filter(x=>x.tipo==='saida'&&x.categoria==='adiantamento'&&x.funcionario_id===fid&&x.data&&x.data>=de&&x.data<=ate); }
 function folhaMudarMes(){ const v=val('folhaMes'); if(v) folhaComp=v; renderFolha(); }
 function ehSocioFunc(f){ return f && (f.socio==='1'||f.socio===1||f.socio===true); }
+function dataFechamentoOS(o){ if(o.fechado_em) return o.fechado_em; if(restanteOS(o)>0.005 && o.atualizado){ try{ return toISO(new Date(o.atualizado)); }catch(e){} } return o.data||''; }
+function osFinalizadaComissao(o){ const st=osStatus(o); return osEhLojista(o) ? (st==='liberado'||st==='executado') : (st==='executado'); }
+function bannerFechamento(o,st){ if(!['liberado','executado'].includes(st)) return ''; if(!ehAdmin()&&!pode('valores')) return ''; const d=dataFechamentoOS(o); return `<div class="panel" style="margin-top:8px"><div class="row" style="align-items:center"><div class="main"><div class="t">Data de fechamento <span style="color:var(--muted);font-weight:400">(conta a comissão)</span></div><div class="s">${d?fmtBR(parseISO(d)):'—'}</div></div><button class="btn sm ghost" onclick='editarFechamento("${o.id}")'>&#9998; Ajustar</button></div></div>`; }
+function editarFechamento(oid){ const o=getOS(oid); if(!o) return; const atual=dataFechamentoOS(o); openModal(`<h3>Data de fechamento</h3><p class="sub">Dia em que o servi&ccedil;o foi finalizado/entregue. &Eacute; por esta data que a comiss&atilde;o do mec&acirc;nico entra no m&ecirc;s.</p><div class="field"><label>Data</label><div class="dt-wrap"><input id="fchData" type="date" value="${atual||toISO(hoje())}"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('fchData')">&#128197;</button></div></div><div class="form-actions"><button class="btn green" onclick='salvarFechamento("${oid}")'>Salvar</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`); }
+function salvarFechamento(oid){ const o=getOS(oid); if(!o) return; const d=val('fchData'); if(!d){ toast('Escolha a data'); return; } o.fechado_em=d; o.atualizado=Date.now(); logAcao('Ajustou data de fechamento', o.codigo?('OS '+o.codigo):'OS', fmtBR(parseISO(d))); salvar(); closeModal(); renderOsDet(oid); toast('Data de fechamento salva \u2713'); }
 function comissaoFunc(fid,comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01'; const ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0');
   const mec=(state.mecanicos||[]).find(x=>x.id===fid); const perc=Number((mec&&mec.percentual)||0); if(perc<=0) return 0;
-  let mo=0; (state.ordens||[]).forEach(o=>{ const st=osStatus(o); const loja=osEhLojista(o); const finalizado = loja ? (st==='liberado'||st==='executado') : (st==='executado'); if(!finalizado) return; let dref=o.fechado_em; if(!dref){ if(restanteOS(o)>0.005 && o.atualizado){ try{ dref=toISO(new Date(o.atualizado)); }catch(e){} } else { dref=o.data; } } if(!dref && o.atualizado){ try{ dref=toISO(new Date(o.atualizado)); }catch(e){} } if(!dref||dref<de||dref>ate) return; (o.maodeobra||[]).forEach(l=>{ const mid=l.mecanico_id||o.mecanico_id||''; if(mid===fid) mo+=(Number(l.valor)||0); }); });
+  let mo=0; (state.ordens||[]).forEach(o=>{ if(!osFinalizadaComissao(o)) return; const dref=dataFechamentoOS(o); if(!dref||dref<de||dref>ate) return; (o.maodeobra||[]).forEach(l=>{ const mid=l.mecanico_id||o.mecanico_id||''; if(mid===fid) mo+=(Number(l.valor)||0); }); });
   return Math.round(mo*perc/100*100)/100; }
 function ehMecanicoFunc(f){ return Number(f&&f.percentual||0)>0; }
 function adiantCalend(fid,comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01'; const ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); return (state.caixa||[]).filter(x=>x.tipo==='saida'&&x.categoria==='adiantamento'&&x.funcionario_id===fid&&x.data&&x.data>=de&&x.data<=ate); }
