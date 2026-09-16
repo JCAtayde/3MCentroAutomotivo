@@ -732,7 +732,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-09-16.2';
+const APP_VERSAO='2026-09-16.3';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -3723,7 +3723,7 @@ function excluirMovimento(id){ if(!pode('excluir')){ toast('Sem permissão para 
 let folhaComp='';
 const MESES_PT=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 function compAtual(){ const d=hoje(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
-function competenciaDe(iso){ const d=parseISO(iso); let y=d.getFullYear(), m=d.getMonth(); if(d.getDate()>=8){ m++; if(m>11){ m=0; y++; } } return y+'-'+String(m+1).padStart(2,'0'); }
+function competenciaDe(iso){ const d=parseISO(iso); let y=d.getFullYear(), m=d.getMonth(); if(d.getDate()<=8){ m--; if(m<0){ m=11; y--; } } return y+'-'+String(m+1).padStart(2,'0'); }
 function nomeMesComp(comp){ const p=comp.split('-'); return MESES_PT[parseInt(p[1])-1]+'/'+p[0]; }
 function adiantamentosFunc(fid,comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01'; const ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); return (state.caixa||[]).filter(x=>x.tipo==='saida'&&x.categoria==='adiantamento'&&x.funcionario_id===fid&&x.data&&x.data>=de&&x.data<=ate); }
 function folhaMudarMes(){ const v=val('folhaMes'); if(v) folhaComp=v; renderFolha(); }
@@ -3740,7 +3740,7 @@ function comissaoFunc(fid,comp){ const [y,m]=comp.split('-').map(Number); const 
 function ehMecanicoFunc(f){ return Number(f&&f.percentual||0)>0; }
 function adiantCalend(fid,comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01'; const ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); return (state.caixa||[]).filter(x=>x.tipo==='saida'&&x.categoria==='adiantamento'&&x.funcionario_id===fid&&x.data&&x.data>=de&&x.data<=ate); }
 function adiantDia8(fid,comp){ return (state.caixa||[]).filter(x=>x.tipo==='saida'&&x.categoria==='adiantamento'&&x.funcionario_id===fid&&competenciaDe(x.data)===comp); }
-function folhaMontar(f,comp){ const adis=adiantCalend(f.id,comp); const adiado=adis.reduce((s,m)=>s+(Number(m.valor)||0),0); const men=(f.folha_mensal&&f.folha_mensal[comp])||{}; const meta=Number(men.meta||0); const assidVal=Number(f.assiduidade||0); const assid=(assidVal>0 && men.assid_ok!==false)?assidVal:0; return {f,sal:Number(f.salario||0),com:ehMecanicoFunc(f)?comissaoFunc(f.id,comp):0,meta,assid,assidVal,assid_ok:men.assid_ok!==false,adiado,adis,socio:false}; }
+function folhaMontar(f,comp){ const adis=ehMecanicoFunc(f)?adiantCalend(f.id,comp):adiantDia8(f.id,comp); const adiado=adis.reduce((s,m)=>s+(Number(m.valor)||0),0); const men=(f.folha_mensal&&f.folha_mensal[comp])||{}; const meta=Number(men.meta||0); const assidVal=Number(f.assiduidade||0); const assid=(assidVal>0 && men.assid_ok!==false)?assidVal:0; return {f,sal:Number(f.salario||0),com:ehMecanicoFunc(f)?comissaoFunc(f.id,comp):0,meta,assid,assidVal,assid_ok:men.assid_ok!==false,adiado,adis,socio:false}; }
 function ajustarFolhaMes(fid){ const f=(state.mecanicos||[]).find(x=>x.id===fid); if(!f) return; const comp=folhaComp; const men=(f.folha_mensal&&f.folha_mensal[comp])||{}; const meta=Number(men.meta||0); const assidVal=Number(f.assiduidade||0); const assidOk=men.assid_ok!==false;
   openModal(`<h3>Folha de ${esc(f.nome)} — ${nomeMesComp(comp)}</h3>
     <div class="field"><label>Comissão por meta (R$) — deste mês</label><input id="fmMeta" inputmode="decimal" value="${meta?String(meta).replace('.',','):''}" placeholder="0,00"></div>
@@ -3770,10 +3770,11 @@ function renderFolha(){
   const vazio = (!mecs.length&&!assal.length&&!socios.length);
   box.innerHTML=`<div class="section-label"><span>Folha de ${nomeMesComp(comp)}</span></div>
     <div class="field"><label>Mês do fechamento</label><div class="dt-wrap"><input id="folhaMes" type="month" value="${comp}" onchange="folhaMudarMes()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('folhaMes')">📅</button></div></div>
-    <div class="hint"><b>Mecânicos</b> fecham dia 30. A comissão conta o serviço <b>finalizado</b> no mês. Para <b>lojista/parceiro</b>, conta assim que o carro é <b>entregue ou liberado</b>, mesmo que a empresa ainda não tenha recebido. <b>Funcionários com salário</b> fecham dia 8 — aqui aparecem os adiantamentos <b>feitos no mês selecionado</b>. Adiantamentos abatem do saldo.</div>
+    <div class="hint"><b>Mecânicos</b> fecham dia 30. A comissão conta o serviço <b>finalizado</b> no mês. Para <b>lojista/parceiro</b>, conta assim que o carro é <b>entregue ou liberado</b>, mesmo que a empresa ainda não tenha recebido. <b>Funcionários com salário</b> fecham dia 8: os adiantamentos seguem a regra do dia 8 — <b>até o dia 8 contam no mês anterior</b>; do dia 9 em diante, no mês atual. Adiantamentos abatem do saldo.</div>
     ${vazio?'<div class="note empty-note" style="margin-top:10px">Ninguém com movimento neste mês.</div>':secMec+secAss+secSoc}`;
 }
-function adiantamentoFuncModal(fid){ const f=(state.mecanicos||[]).find(x=>x.id===fid); if(!f) return;
+let adEhMec=false;
+function adiantamentoFuncModal(fid){ const f=(state.mecanicos||[]).find(x=>x.id===fid); if(!f) return; adEhMec=ehMecanicoFunc(f);
   openModal(`<h3>Adiantamento — ${esc(f.nome)}</h3><p class="sub">Sai do caixa e abate do salário do dia 8 (pela regra da data).</p>
     <div class="grid2">${dtField('adData','date',toISO(hoje()),'Data')}
       <div class="field"><label>Valor</label><input id="adValor" inputmode="decimal" placeholder="0,00"></div></div>
@@ -3784,7 +3785,7 @@ function adiantamentoFuncModal(fid){ const f=(state.mecanicos||[]).find(x=>x.id=
       <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
   setTimeout(function(){ const el=document.getElementById('adData'); if(el){ el.addEventListener('change', mostrarCompAd); mostrarCompAd(); } },30);
 }
-function mostrarCompAd(){ const d=val('adData'); const el=document.getElementById('adComp'); if(d&&el) el.innerHTML='Entra no fechamento de <b>'+nomeMesComp(d.slice(0,7))+'</b>.'; }
+function mostrarCompAd(){ const d=val('adData'); const el=document.getElementById('adComp'); if(d&&el){ const comp=adEhMec?d.slice(0,7):competenciaDe(d); el.innerHTML='Entra no fechamento de <b>'+nomeMesComp(comp)+'</b>.'; } }
 function salvarAdiantamentoFunc(fid){ const f=(state.mecanicos||[]).find(x=>x.id===fid); if(!f) return;
   const data=val('adData')||toISO(hoje()); const valor=moneyParse(val('adValor')); const forma=val('adForma'); const desc=val('adDesc').trim();
   if(valor<=0){ toast('Informe o valor'); return; }
