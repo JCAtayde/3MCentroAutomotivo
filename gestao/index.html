@@ -732,7 +732,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-09-15.8';
+const APP_VERSAO='2026-09-15.9';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -2911,11 +2911,13 @@ function renderFinanceiroScreen(){
 }
 function finTab(k){
   const temSaldos=ehGestor();
-  const validas = temSaldos?['saldos','caixa','relatorio','folha']:['caixa','relatorio','folha'];
+  const temRel=ehAdmin()||pode('relatorios');
+  const temFolha=ehAdmin();
+  const validas = [...(temSaldos?['saldos']:[]),'caixa',...(temRel?['relatorio']:[]),...(temFolha?['folha']:[])];
   if(!validas.includes(k)) k=validas[0];
   finAtiva=k;
   const box=document.getElementById('finTabs');
-  const abas=[]; if(temSaldos) abas.push(['saldos','Saldos']); abas.push(['caixa','Caixa'],['relatorio','Relatório'],['folha','Folha']);
+  const abas=[]; if(temSaldos) abas.push(['saldos','Saldos']); abas.push(['caixa','Caixa']); if(temRel) abas.push(['relatorio','Relatório']); if(temFolha) abas.push(['folha','Folha']);
   box.innerHTML=abas.map(([kk,r])=>`<button class="${kk===finAtiva?'on':''}" onclick="finTab('${kk}')">${r}</button>`).join('');
   document.querySelectorAll('[data-screen="financeiro"] .cfg-panel').forEach(p=>p.style.display=p.dataset.fin===k?'':'none');
   if(k==='saldos') renderSaldos();
@@ -3019,7 +3021,7 @@ function competenciaAtualIni(){ const d=hoje(); return toISO(new Date(d.getFullY
 /* ---- Permissões ---- */
 /* ===== PERFIS DE ACESSO (flexível) ===== */
 const FLAGS_TELAS=[['painel','Painel'],['ordens','Ordens de serviço'],['clientes','Clientes'],['veiculos','Veículos'],['financeiro','Financeiro'],['saldos','Saldos (caixa e banco)'],['fornecedores','Fornecedores'],['boletos','Boletos a receber'],['regras','Tabela de Revisões'],['config','Configurações'],['acessos','Gerenciar acessos']];
-const FLAGS_ACOES=[['editar','Cadastrar / editar'],['excluir','Excluir registros'],['valores','Ver valores (R$)'],['liberar','Liberar carro'],['receber','Receber / finalizar OS']];
+const FLAGS_ACOES=[['editar','Cadastrar / editar'],['excluir','Excluir registros'],['valores','Ver valores (R$)'],['liberar','Liberar carro'],['receber','Receber / finalizar OS'],['relatorios','Ver relatório de comissões']];
 const FLAGS_MIDIA=[['midia_entrada','Fotos/vídeos da entrada'],['midia_problemas','Fotos/vídeos dos problemas']];
 const TODAS_FLAGS=[...FLAGS_TELAS,...FLAGS_ACOES,...FLAGS_MIDIA,['modo_mec','Modo mecânico (vê só as OS dele)']].map(x=>x[0]);
 function flagsAll(v){ const o={}; TODAS_FLAGS.forEach(k=>o[k]=v); return o; }
@@ -3848,7 +3850,7 @@ function excluirMecanico(id){ if(!pode('excluir')){ toast('Sem permissão para e
 let finDe='',finAte='',finMec='',finStatus='executado';
 function renderFinanceiro(){
   const box=document.getElementById('financeiroBox'); if(!box) return;
-  if(!ehAdmin()){ box.innerHTML='<div class="note empty-note">Apenas administradores.</div>'; return; }
+  if(!ehAdmin() && !pode('relatorios')){ box.innerHTML='<div class="note empty-note">Sem permissão para ver relatórios.</div>'; return; }
   const mecs=(state.mecanicos||[]).slice().sort((a,b)=>a.nome.localeCompare(b.nome));
   const _h=hoje(); const _anoA=_h.getFullYear(); const _mesA=_h.getMonth()+1; const _anos=[_anoA-2,_anoA-1,_anoA,_anoA+1];
   box.innerHTML=`<div class="section-label">Relatório de mão de obra</div>
