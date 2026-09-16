@@ -732,7 +732,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-09-15.9';
+const APP_VERSAO='2026-09-16.1';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -969,7 +969,7 @@ function back(){ histStack.pop(); const p=histStack[histStack.length-1]||{screen
 function refreshAtual(){ const p=histStack[histStack.length-1]||{screen:'painel'}; render(p.screen,p.param,true); }
 function montarNav(){
   const top=document.getElementById('topnav'),tab=document.getElementById('tabbar'); top.innerHTML=''; tab.innerHTML='';
-  const podeMais = ehAdmin() || ['veiculos','regras','fornecedores','boletos','config','acessos'].some(t=>telaLiberada(t));
+  const podeMais = ehAdmin() || ['veiculos','regras','fornecedores','boletos','config','acessos','auditoria','importar'].some(t=>telaLiberada(t));
   let views = VIEWS.filter(v=> v.id==='mais' ? podeMais : telaLiberada(v.id));
   if(!views.length) views = VIEWS.filter(v=>v.id==='ordens');
   tab.classList.toggle('solo', views.length===1);
@@ -1196,7 +1196,7 @@ function renderReativarPainel(){
 let clientesAba='ativos';
 function ehSumido(c){ return c && c.lead==='sumido'; }
 function ehImportado(c){ return c && (c.obs||'').startsWith('Importado do sistema antigo'); }
-function abrirImportarClientes(){ if(!ehAdmin()){ toast('Apenas o administrador'); return; }
+function abrirImportarClientes(){ if(!ehAdmin()&&!pode('importar')){ toast('Sem permissão'); return; }
   openModal(`<h3>Importar clientes</h3><p class="sub">Selecione o arquivo <b>.json</b> enviado pelo suporte. Os clientes entram marcados como <b>sumidos</b>.</p>
     <input type="file" id="impFile" accept=".json,application/json" style="width:100%;padding:11px;background:var(--bg2);border:1px solid var(--line2);border-radius:10px;color:var(--txt);font-size:13px">
     <div class="hint">Clientes com o mesmo CPF/CNPJ já cadastrado são ignorados (não duplica).</div>
@@ -1925,9 +1925,9 @@ function acoesFase(o,st){
   const loj=osEhLojista(o);
   if(st==='aguardando') return `<button class="btn sm green" onclick='aprovarOrcamento("${o.id}")'>✓ Aprovado</button><button class="btn sm ghost" onclick='reagendarOS("${o.id}")'>📅 Reagendar</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>✕ Rejeitar</button>`;
   if(st==='andamento') return `${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Entregar (conta do lojista)</button>`:''}${podeLiberarOS(o)?`<button class="btn sm ${loj?'ghost':'green'}" onclick='liberarCarro("${o.id}")'>🚗 Liberar carro</button>`:''}<button class="btn sm ghost" onclick='reagendarOS("${o.id}")'>📅 Reagendar</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>Rejeitar</button>`;
-  if(st==='liberado') return `${!ehMecanico()?`<button class="btn sm gold" onclick='avisarLiberado("${o.id}")'>📲 Avisar cliente</button>`:''}${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Lançar na conta do lojista</button>`:''}${podeReceber()?`<button class="btn sm ${loj?'ghost':'green'}" onclick='finalizarOS("${o.id}")'>💵 Receber / Finalizar</button>`:''}${ehAdmin()?`<button class="btn sm ghost" onclick='voltarAndamento("${o.id}")'>Voltar p/ andamento</button>`:''}`;
-  if(st==='executado') return `<span class="cx-mini">Finalizada</span>${pode('editar')?` <button class="btn sm ghost" onclick='abrirRetorno("${o.id}")'>🔁 Abrir retorno (garantia)</button>`:''}${ehAdmin()?` <button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir</button>`:''}`;
-  if(st==='rejeitado') return ehAdmin()?`<button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir orçamento</button>`:`<span class="cx-mini">Orçamento não aprovado</span>`;
+  if(st==='liberado') return `${!ehMecanico()?`<button class="btn sm gold" onclick='avisarLiberado("${o.id}")'>📲 Avisar cliente</button>`:''}${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Lançar na conta do lojista</button>`:''}${podeReceber()?`<button class="btn sm ${loj?'ghost':'green'}" onclick='finalizarOS("${o.id}")'>💵 Receber / Finalizar</button>`:''}${(ehAdmin()||pode('reabrir'))?`<button class="btn sm ghost" onclick='voltarAndamento("${o.id}")'>Voltar p/ andamento</button>`:''}`;
+  if(st==='executado') return `<span class="cx-mini">Finalizada</span>${pode('editar')?` <button class="btn sm ghost" onclick='abrirRetorno("${o.id}")'>🔁 Abrir retorno (garantia)</button>`:''}${(ehAdmin()||pode('reabrir'))?` <button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir</button>`:''}`;
+  if(st==='rejeitado') return (ehAdmin()||pode('reabrir'))?`<button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir orçamento</button>`:`<span class="cx-mini">Orçamento não aprovado</span>`;
   return '';
 }
 function renderPagamentosOS(o){
@@ -2071,7 +2071,7 @@ function confirmarRejeicao(oid){ const o=getOS(oid); if(!o) return;
 function bannerRejeicao(o,st){ if(st!=='rejeitado'||!(o.motivo_rejeicao||'').trim()) return '';
   return `<div class="panel" style="margin-top:8px;border-color:#E5675C"><div class="kv"><span class="k">Motivo da rejeição</span><span class="v">${esc(o.motivo_rejeicao)}</span></div></div>`;
 }
-function reabrirOrcamento(oid){ if(!ehAdmin()){ toast('Apenas o gestor geral pode reabrir'); return; } const o=getOS(oid); if(!o) return; confirmar('Reabrir esta ordem? Ela volta para "Aguardando orçamento".', function(){ o.status='aguardando'; o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; renderOsDet(oid); toast('Reaberta em Aguardando'); }, 'Reabrir'); }
+function reabrirOrcamento(oid){ if(!ehAdmin()&&!pode('reabrir')){ toast('Sem permissão'); return; } const o=getOS(oid); if(!o) return; confirmar('Reabrir esta ordem? Ela volta para "Aguardando orçamento".', function(){ o.status='aguardando'; o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; renderOsDet(oid); toast('Reaberta em Aguardando'); }, 'Reabrir'); }
 function finalizarOS(oid){ const o=getOS(oid); if(!o) return;
   if(restanteOS(o)<=0.005){ confirmar('Não há valor em aberto.\nFinalizar e enviar para Executado?', function(){ o.status='executado'; o.data=toISO(hoje()); if(!o.fechado_em) o.fechado_em=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='executado'; renderOsDet(oid); toast('OS finalizada ✓'); }, 'Finalizar', 'green'); return; }
   pagamentoModal(oid,'final'); }
@@ -2101,7 +2101,7 @@ function bannerRetorno(o){
   if(rets.length){ h+=`<div class="alerta-cad" style="border-color:#3FB6C4;background:rgba(63,182,196,.10)">🔁 Esta OS tem <b>${rets.length} retorno(s)</b> de garantia: ${rets.map(r=>`<button class="btn sm ghost" onclick='go("os","${r.id}")'>${osCodigoCurto(r)} (${faseLabel(osStatus(r))})</button>`).join(' ')}</div>`; }
   return h;
 }
-function voltarAndamento(oid){ if(!ehAdmin()){ toast('Apenas o gestor geral'); return; } const o=getOS(oid); if(!o) return; confirmar('Voltar esta OS para "Em andamento"?', function(){ o.status='andamento'; o.atualizado=Date.now(); salvar(); osFiltroStatus='andamento'; renderOsDet(oid); toast('Voltou para Em andamento'); }, 'Voltar'); }
+function voltarAndamento(oid){ if(!ehAdmin()&&!pode('reabrir')){ toast('Sem permissão'); return; } const o=getOS(oid); if(!o) return; confirmar('Voltar esta OS para "Em andamento"?', function(){ o.status='andamento'; o.atualizado=Date.now(); salvar(); osFiltroStatus='andamento'; renderOsDet(oid); toast('Voltou para Em andamento'); }, 'Voltar'); }
 
 /* ---- pagamentos (adiantamento / final) ---- */
 const FORMAS=[['pix','PIX'],['dinheiro','Espécie (dinheiro)'],['cartao','Cartão'],['boleto','Boleto']];
@@ -2912,7 +2912,7 @@ function renderFinanceiroScreen(){
 function finTab(k){
   const temSaldos=ehGestor();
   const temRel=ehAdmin()||pode('relatorios');
-  const temFolha=ehAdmin();
+  const temFolha=ehAdmin()||pode('folha');
   const validas = [...(temSaldos?['saldos']:[]),'caixa',...(temRel?['relatorio']:[]),...(temFolha?['folha']:[])];
   if(!validas.includes(k)) k=validas[0];
   finAtiva=k;
@@ -2967,11 +2967,11 @@ function renderMais(){
     h+=item('👥','Equipe','Funcionários e comissões'+((ehAdmin()||telaLiberada('acessos'))?' · acessos e perfis':''),`goTab("equipe")`);
     h+=item('📱','Área do Cliente','Convites e acessos dos clientes',`abrirAreaClienteInfo()`);
   }
-  if(ehAdmin()||telaLiberada('config')){
+  if(ehAdmin()||telaLiberada('config')||pode('auditoria')||pode('importar')){
     h+=`<div class="lbl-sec-mais">Sistema</div>`;
-    if(ehAdmin()) h+=item('🕵️','Registro de auditoria','Quem fez o quê e quando (exclusões etc.)',`goTab("auditoria")`);
-    if(ehAdmin()) h+=item('📥','Importar clientes','Trazer base antiga (planilha)',`abrirImportarClientes()`);
-    h+=item('⚙️','Configurações','Mensagens, textos e backup',`goTab("config")`);
+    if(ehAdmin()||pode('auditoria')) h+=item('🕵️','Registro de auditoria','Quem fez o quê e quando (exclusões etc.)',`goTab("auditoria")`);
+    if(ehAdmin()||pode('importar')) h+=item('📥','Importar clientes','Trazer base antiga (planilha)',`abrirImportarClientes()`);
+    if(ehAdmin()||telaLiberada('config')) h+=item('⚙️','Configurações','Mensagens, textos e backup',`goTab("config")`);
   }
   box.innerHTML=h||'<div class="note empty-note">Sem itens disponíveis para o seu acesso.</div>';
 }
@@ -3020,15 +3020,15 @@ function competenciaAtualIni(){ const d=hoje(); return toISO(new Date(d.getFullY
 
 /* ---- Permissões ---- */
 /* ===== PERFIS DE ACESSO (flexível) ===== */
-const FLAGS_TELAS=[['painel','Painel'],['ordens','Ordens de serviço'],['clientes','Clientes'],['veiculos','Veículos'],['financeiro','Financeiro'],['saldos','Saldos (caixa e banco)'],['fornecedores','Fornecedores'],['boletos','Boletos a receber'],['regras','Tabela de Revisões'],['config','Configurações'],['acessos','Gerenciar acessos']];
-const FLAGS_ACOES=[['editar','Cadastrar / editar'],['excluir','Excluir registros'],['valores','Ver valores (R$)'],['liberar','Liberar carro'],['receber','Receber / finalizar OS'],['relatorios','Ver relatório de comissões']];
+const FLAGS_TELAS=[['painel','Painel'],['ordens','Ordens de serviço'],['clientes','Clientes'],['veiculos','Veículos'],['financeiro','Financeiro'],['saldos','Saldos (caixa e banco)'],['fornecedores','Fornecedores'],['boletos','Boletos a receber'],['regras','Tabela de Revisões'],['config','Configurações'],['acessos','Gerenciar acessos'],['folha','Folha de pagamento'],['auditoria','Registro de auditoria']];
+const FLAGS_ACOES=[['editar','Cadastrar / editar'],['excluir','Excluir registros'],['valores','Ver valores (R$)'],['liberar','Liberar carro'],['receber','Receber / finalizar OS'],['relatorios','Ver relatório de comissões'],['reabrir','Reabrir / mudar status de OS'],['importar','Importar clientes']];
 const FLAGS_MIDIA=[['midia_entrada','Fotos/vídeos da entrada'],['midia_problemas','Fotos/vídeos dos problemas']];
 const TODAS_FLAGS=[...FLAGS_TELAS,...FLAGS_ACOES,...FLAGS_MIDIA,['modo_mec','Modo mecânico (vê só as OS dele)']].map(x=>x[0]);
 function flagsAll(v){ const o={}; TODAS_FLAGS.forEach(k=>o[k]=v); return o; }
 const PERFIS_PADRAO=[
   {id:'mecanico',nome:'Mecânico',icone:'🔧',sistema:true,flags:Object.assign(flagsAll(false),{ordens:true,editar:true,liberar:true,midia_entrada:true,midia_problemas:true,modo_mec:true})},
-  {id:'atendente',nome:'Atendente',icone:'🧾',sistema:true,flags:Object.assign(flagsAll(false),{painel:true,ordens:true,clientes:true,veiculos:true,financeiro:true,fornecedores:true,boletos:true,regras:true,editar:true,valores:true,liberar:true,receber:true,midia_entrada:true,midia_problemas:true})},
-  {id:'gestor',nome:'Gestor',icone:'👔',sistema:true,flags:Object.assign(flagsAll(false),{painel:true,ordens:true,clientes:true,veiculos:true,financeiro:true,saldos:true,fornecedores:true,boletos:true,regras:true,editar:true,excluir:false,valores:true,liberar:true,receber:true,midia_entrada:true,midia_problemas:true})},
+  {id:'atendente',nome:'Atendente',icone:'🧾',sistema:true,flags:Object.assign(flagsAll(false),{painel:true,ordens:true,clientes:true,veiculos:true,financeiro:true,fornecedores:true,boletos:true,regras:true,editar:true,valores:true,liberar:true,receber:true,midia_entrada:true,midia_problemas:true,folha:true,relatorios:true})},
+  {id:'gestor',nome:'Gestor',icone:'👔',sistema:true,flags:Object.assign(flagsAll(false),{painel:true,ordens:true,clientes:true,veiculos:true,financeiro:true,saldos:true,fornecedores:true,boletos:true,regras:true,editar:true,excluir:false,valores:true,liberar:true,receber:true,midia_entrada:true,midia_problemas:true,folha:true,relatorios:true,reabrir:true,auditoria:true,importar:true})},
   {id:'admin',nome:'Administrador',icone:'👑',sistema:true,flags:flagsAll(true)},
 ];
 function getPerfis(){ if(!state.perfis||!Array.isArray(state.perfis)||!state.perfis.length){ state.perfis=PERFIS_PADRAO.map(p=>({...p,flags:{...p.flags}})); } return state.perfis; }
@@ -3466,7 +3466,7 @@ function contasPagarGrupos(){ const map={}; contasPagarAbertas().forEach(m=>{ co
   return Object.entries(map).map(([k,list])=>{ list.sort((a,b)=>String(a.vencimento||'').localeCompare(String(b.vencimento||''))); const g=list[0]; return {key:k,list,total:list.reduce((s,m)=>s+(Number(m.valor)||0),0),prox:list[0].vencimento,nota:g.nota,fornecedor_id:g.fornecedor_id,desc:g.descricao}; }).sort((a,b)=>String(a.prox||'').localeCompare(String(b.prox||''))); }
 let audFiltroUser='', audBusca='';
 function renderAuditoria(){ const box=document.getElementById('auditoriaBox'); if(!box) return;
-  if(!ehAdmin()){ box.innerHTML='<div class="note empty-note">Somente o proprietário vê o registro de auditoria.</div>'; return; }
+  if(!ehAdmin()&&!pode('auditoria')){ box.innerHTML='<div class="note empty-note">Somente o proprietário vê o registro de auditoria.</div>'; return; }
   const logs=(state.logs||[]).slice().sort((a,b)=>(b.quando||0)-(a.quando||0));
   const users=[...new Set(logs.map(l=>l.quem_nome).filter(Boolean))].sort();
   let lista=logs;
@@ -3749,7 +3749,7 @@ function folhaPainelTot(arr){ let sal=0,com=0,adi=0; arr.forEach(x=>{ sal+=x.sal
   return `<div class="panel" style="margin-top:10px">${sal>0?`<div class="fin-kv"><span>Salários</span><b>${moneyFmt(sal)}</b></div>`:''}${com>0?`<div class="fin-kv"><span>Comissões</span><b>${moneyFmt(com)}</b></div>`:''}<div class="fin-kv" style="color:var(--amber)"><span>Adiantado</span><b>${moneyFmt(adi)}</b></div><div class="fin-kv" style="border-top:1px solid var(--line2);margin-top:6px;padding-top:6px"><span><b>Saldo a pagar</b></span><b style="color:var(--green)">${moneyFmt(rest)}</b></div></div>`; }
 function renderFolha(){
   const box=document.getElementById('folhaBox'); if(!box) return;
-  if(!ehAdmin()&&!pode('valores')){ box.innerHTML='<div class="note empty-note">Você não tem permissão para ver a folha.</div>'; return; }
+  if(!ehAdmin()&&!pode('folha')){ box.innerHTML='<div class="note empty-note">Você não tem permissão para ver a folha.</div>'; return; }
   if(!folhaComp) folhaComp=toISO(hoje()).slice(0,7);
   const comp=folhaComp; const soAdmin=ehGestor();
   const todos=(state.mecanicos||[]).filter(f=>!ehSocioFunc(f) && f.ativo!==0 && f.ativo!=='0');
