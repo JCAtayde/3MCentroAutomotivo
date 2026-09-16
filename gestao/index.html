@@ -727,7 +727,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-09-15.5';
+const APP_VERSAO='2026-09-15.6';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -3863,23 +3863,25 @@ function gerarFinanceiro(){
   finDe=val('finDe')||''; finAte=val('finAte')||''; finMec=val('finMec')||''; finStatus=val('finStatus')||'executado';
   const de=finDe||'0000-00-00', ate=finAte||'9999-99-99';
   const porMec={};
-  state.ordens.forEach(o=>{ if(!o.data||o.data<de||o.data>ate) return;
+  state.ordens.forEach(o=>{
     const st=osStatus(o);
     if(finStatus==='todos'){ if(!['executado','andamento','rejeitado'].includes(st)) return; }
     else if(st!==finStatus) return;
-    (o.maodeobra||[]).forEach(m=>{ if(finMec && m.mecanico_id!==finMec) return;
-      const mec=(state.mecanicos||[]).find(x=>x.id===m.mecanico_id); const key=m.mecanico_id||'__sem__';
+    const dref = (st==='executado') ? dataFechamentoOS(o) : o.data;
+    if(!dref||dref<de||dref>ate) return;
+    (o.maodeobra||[]).forEach(m=>{ const mid0=m.mecanico_id||o.mecanico_id||''; if(finMec && mid0!==finMec) return;
+      const mec=(state.mecanicos||[]).find(x=>x.id===mid0); const key=mid0||'__sem__';
       porMec[key]=porMec[key]||{nome:mec?mec.nome:'Sem mecânico definido',perc:mec?(mec.percentual!=null?mec.percentual:50):50,total:0,itens:[]};
       const vLiq=Math.max(0,(Number(m.valor)||0)-descontoMdoLinha(o,m.id));
-      porMec[key].total+=vLiq; porMec[key].itens.push({o,m,vLiq}); }); });
+      porMec[key].total+=vLiq; porMec[key].itens.push({o,m,vLiq,dref}); }); });
   const box=document.getElementById('finResultado'); const keys=Object.keys(porMec);
   const rotulo=finStatus==='executado'?'executada (finalizada)':finStatus==='andamento'?'aprovada (em andamento)':finStatus==='rejeitado'?'de orçamento (rejeitada)':'(todas)';
   if(!keys.length){ box.innerHTML=`<div class="note empty-note">Nenhuma mão de obra ${rotulo} nesse período.</div>`; return; }
   let totalGeral=0, totalReceber=0;
   const blocos=keys.sort((a,b)=>porMec[b].total-porMec[a].total).map(k=>{ const g=porMec[k]; const receber=g.total*g.perc/100; totalGeral+=g.total; totalReceber+=receber;
-    const det=g.itens.sort((a,b)=>a.o.data.localeCompare(b.o.data)).map(({o,m,vLiq})=>{ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
+    const det=g.itens.sort((a,b)=>(a.dref||'').localeCompare(b.dref||'')).map(({o,m,vLiq,dref})=>{ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
       return `<div class="row click" onclick='go("os","${o.id}")'><div class="main"><div class="t">${esc(m.desc||'Mão de obra')} <span class="valor-tag">${moneyFmt(vLiq)}${vLiq<(Number(m.valor)||0)?` <span class="cx-mini">(c/ desc.)</span>`:''}</span></div>
-        <div class="s">${fmtBR(parseISO(o.data))} · ${esc(c?.nome||'')} · ${esc(v?nomeVeiculo(v):'')} ${esc(v?.placa||'')}</div></div></div>`; }).join('');
+        <div class="s">${dref?fmtBR(parseISO(dref)):'—'} · ${esc(c?.nome||'')} · ${esc(v?nomeVeiculo(v):'')} ${esc(v?.placa||'')}</div></div></div>`; }).join('');
     return `<div class="panel" style="margin-bottom:10px"><div class="fin-h"><b>👨‍🔧 ${esc(g.nome)}</b><span class="badge prev">${g.perc}%</span></div>
       <div class="fin-kv"><span>Mão de obra total</span><b>${moneyFmt(g.total)}</b></div>
       <div class="fin-kv green"><span>A receber (${g.perc}%)</span><b>${moneyFmt(receber)}</b></div>
