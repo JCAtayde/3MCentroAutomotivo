@@ -5,7 +5,7 @@
  */
 
 const SCHEMA = {
-  clientes: { cols:['id','nome','tipo','telefone1','telefone2','endereco','obs','contatos','nascimento','zap_num','lead','cpf','rua','setor','cidade','estado','cep','quadra','lote','numero','complemento','categoria','razao','criado','atualizado'], json:['contatos'] },
+  clientes: { cols:['id','nome','tipo','telefone1','telefone2','endereco','obs','contatos','nascimento','zap_num','lead','cpf','rua','setor','cidade','estado','cep','quadra','lote','numero','complemento','categoria','razao','reativado_em','criado','atualizado'], json:['contatos'] },
   veiculos: { cols:['id','cliente_id','placa','modelo','ano','cor','km_atual','media_km_mes','entrevista','inspecao','cambio','criado','atualizado'], json:['entrevista','inspecao'] },
   ordens:   { cols:['id','veiculo_id','data','km','reclamacao','obs_mecanico','obs_admin','itens','maodeobra','status','agenda_data','agenda_hora','mecanico_id','midias','codigo','pecas_prev','descontos','retorno_de','faltou','motivo_rejeicao','fechado_em','criado','atualizado'], json:['itens','maodeobra','midias','pecas_prev','descontos','faltou'] },
   regras:   { cols:['id','nome','km','meses','ordem','preco'], json:[] },
@@ -32,6 +32,7 @@ export async function onRequest(context) {
   try { await DB.prepare('ALTER TABLE ordens ADD COLUMN fechado_em TEXT').run(); } catch (e) { /* coluna já existe */ }
   try { await DB.prepare('ALTER TABLE mecanicos ADD COLUMN assiduidade REAL').run(); } catch (e) { /* coluna já existe */ }
   try { await DB.prepare('ALTER TABLE mecanicos ADD COLUMN folha_mensal TEXT').run(); } catch (e) { /* coluna já existe */ }
+  try { await DB.prepare('ALTER TABLE clientes ADD COLUMN reativado_em INTEGER').run(); } catch (e) { /* coluna já existe */ }
 
   const url = new URL(request.url);
   const parts = url.pathname.split('/').filter(Boolean); // ['gestao','api','<acao>']
@@ -65,7 +66,7 @@ export async function onRequest(context) {
         pecas:    (pec.results || []),
         fornecedores: (forn.results || []),
         logs: (lgs.results || []),
-        app_versao: '2026-09-16.3',
+        app_versao: '2026-09-16.4',
         config,
       });
     }

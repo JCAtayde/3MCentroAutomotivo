@@ -732,7 +732,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-09-16.3';
+const APP_VERSAO='2026-09-16.4';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -870,7 +870,7 @@ function ultimaExecutadaCliente(cid){ let ultima=null; veiculosDe(cid).forEach(v
 function mesesDesde(iso){ if(!iso) return null; const d=parseISO(iso), n=hoje(); let m=(n.getFullYear()-d.getFullYear())*12+(n.getMonth()-d.getMonth()); if(n.getDate()<d.getDate()) m--; return m; }
 function reativacaoMeses(){ const v=state.config&&state.config.reativacao_meses; const n=parseInt(v); return (v!=null&&v!==''&&!isNaN(n))?n:3; }
 function clientesParaReativar(){ const lim=reativacaoMeses(); const out=[];
-  state.clientes.forEach(c=>{ const u=ultimaExecutadaCliente(c.id); if(!u) return; const m=mesesDesde(u); if(m!=null && m>=lim) out.push({c,ultima:u,meses:m}); });
+  state.clientes.forEach(c=>{ const u=ultimaExecutadaCliente(c.id); if(!u) return; if(c.reativado_em){ const ru=toISO(new Date(c.reativado_em)); if(ru>=u) return; } const m=mesesDesde(u); if(m!=null && m>=lim) out.push({c,ultima:u,meses:m}); });
   return out.sort((a,b)=>b.meses-a.meses); }
 function msgLiberado(o){ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const nome=((c&&c.nome)||'').split(' ')[0]; const veic=v?nomeVeiculo(v):'seu veículo'; const placa=(v&&v.placa)||''; const t=(state.config&&state.config.msg_liberado)||CONFIG_PADRAO.msg_liberado; return t.replace(/{nome}/g,nome).replace(/{veiculo}/g,veic).replace(/{placa}/g,placa); }
 function avisarLiberado(oid){ const o=getOS(oid); if(!o) return; const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const n=zapDoCliente(c); if(!n){ toast('Cliente sem WhatsApp cadastrado'); return; } if(typeof logAcao==='function') logAcao('Avisou cliente — carro pronto', o.codigo?('OS '+o.codigo):'OS', (c&&c.nome)||''); window.open('https://wa.me/'+n+'?text='+encodeURIComponent(msgLiberado(o)),'_blank'); }
@@ -888,7 +888,7 @@ function enviarReativar(cid){ const c=getCliente(cid); const n=zapDoCliente(c); 
   const brinde=val('reatBrinde')||'um mimo especial'; const nome=(c.nome||'').split(' ')[0];
   const tmpl=(state.config&&state.config.msg_reativacao)||CONFIG_PADRAO.msg_reativacao;
   const msg=tmpl.replace(/{nome}/g,nome).replace(/{brinde}/g,brinde);
-  window.open('https://wa.me/'+n+'?text='+encodeURIComponent(msg),'_blank'); closeModal(); }
+  window.open('https://wa.me/'+n+'?text='+encodeURIComponent(msg),'_blank'); if(c){ c.reativado_em=Date.now(); c.atualizado=Date.now(); if(typeof logAcao==='function') logAcao('Enviou brinde de reativação', c.nome||'', brinde); salvar(); } closeModal(); refreshAtual(); toast('Mensagem enviada — movido para "já contatados" ✓'); }
 function chev(){ return '<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'; }
 
 function servicosFlat(){ const out=[]; state.ordens.forEach(o=>{ if(!osExecutada(o)) return; (o.itens||[]).forEach(i=>{ let rid=i.regra_id; if(!rid){ const r=regraPorNome(i.nome); rid=r?r.id:null; } if(rid) out.push({veiculo_id:o.veiculo_id,regra_id:rid,km:o.km,data:o.data}); }); }); return out; }
@@ -1194,6 +1194,7 @@ function renderReativarPainel(){
    CLIENTES (lista)
 ================================================================== */
 let clientesAba='ativos';
+let sumidoSub='acontatar';
 function ehSumido(c){ return c && c.lead==='sumido'; }
 function ehImportado(c){ return c && (c.obs||'').startsWith('Importado do sistema antigo'); }
 function abrirImportarClientes(){ if(!ehAdmin()&&!pode('importar')){ toast('Sem permissão'); return; }
@@ -1222,6 +1223,8 @@ function salvarMsgBrinde(){ state.config.msg_reativacao=val('mbTxt').trim()||CON
 function marcarSumido(cid){ const c=getCliente(cid); if(!c) return; c.lead='sumido'; c.atualizado=Date.now(); salvar(); refreshAtual(); toast('Marcado como sumido'); }
 function reativarCliente(cid){ const c=getCliente(cid); if(!c) return; c.lead=''; c.atualizado=Date.now(); salvar(); refreshAtual(); toast('Cliente reativado ✓'); }
 function clientesTab(k){ clientesAba=k; renderClientes(); }
+function sumidoSubTab(v){ sumidoSub=v; renderClientes(); }
+function voltarContatarSumido(cid){ const c=getCliente(cid); if(!c) return; c.reativado_em=null; c.atualizado=Date.now(); salvar(); renderClientes(); toast('Voltou para "a contatar"'); }
 function renderClientes(){
   const q=(document.getElementById('buscaCliente').value||'').toLowerCase().trim();
   const box=document.getElementById('listaClientes');
@@ -1233,13 +1236,22 @@ function renderClientes(){
     return (c.nome||'').toLowerCase().includes(q)||(c.telefone1||'').includes(q)||(c.telefone2||'').includes(q)||(c.cpf||'').includes(q)||placas.includes(q); });
   if(!todos.length){ box.innerHTML=tabs+emptyState('Nenhum cliente','Toque em “Novo”.'); return; }
   if(clientesAba==='sumidos'){
-    const comZap=lista.filter(c=>zapDoCliente(c)).length;
-    const topo=`<div class="panel" style="margin-bottom:10px"><div class="row"><div><div class="t">💤 Campanha do brinde</div><div class="s">${lista.length} sumidos${q?' (filtro)':''} · ${comZap} com WhatsApp</div></div><button class="btn sm ghost" onclick="editarMsgBrinde()">✏️ Mensagem</button></div></div>`;
-    const cards=lista.map(c=>{ const zap=zapDoCliente(c); const antigo=ehImportado(c)?' <span class="badge" style="border-color:#8a7a3a;color:#d8c078">📼 SISTEMA ANTIGO</span>':'';
+    const jaCont=c=>!!c.reativado_em;
+    const aContatar=lista.filter(c=>!jaCont(c));
+    const contatados=lista.filter(jaCont);
+    const listaSub=(sumidoSub==='contatados')?contatados:aContatar;
+    const comZap=aContatar.filter(c=>zapDoCliente(c)).length;
+    const topo=`<div class="panel" style="margin-bottom:10px"><div class="row"><div><div class="t">💤 Campanha do brinde</div><div class="s">${aContatar.length} a contatar${q?' (filtro)':''} · ${comZap} com WhatsApp · ${contatados.length} já contatados</div></div><button class="btn sm ghost" onclick="editarMsgBrinde()">✏️ Mensagem</button></div></div>`;
+    const subTabs=`<div class="cfg-tabs" style="margin-bottom:10px"><button class="${sumidoSub!=='contatados'?'on':''}" onclick="sumidoSubTab('acontatar')">📲 A contatar (${aContatar.length})</button><button class="${sumidoSub==='contatados'?'on':''}" onclick="sumidoSubTab('contatados')">✓ Já contatados (${contatados.length})</button></div>`;
+    const cards=listaSub.map(c=>{ const zap=zapDoCliente(c); const cont=jaCont(c); const antigo=ehImportado(c)?' <span class="badge" style="border-color:#8a7a3a;color:#d8c078">📼 SISTEMA ANTIGO</span>':'';
+      const acts=cont
+        ? `<button class="btn sm ghost" onclick='event.stopPropagation(); voltarContatarSumido("${c.id}")'>↩ Contatar de novo</button><button class="btn sm ghost" onclick='event.stopPropagation(); reativarCliente("${c.id}")'>✔ Retira sumido</button>`
+        : `${zap?`<button class="btn sm green" onclick='event.stopPropagation(); contatarReativar("${c.id}")'>📲 Brinde</button>`:'<span class="badge" style="border-color:var(--line2);color:var(--muted)">sem zap</span>'}<button class="btn sm ghost" onclick='event.stopPropagation(); reativarCliente("${c.id}")'>✔ Retira sumido</button>`;
+      const sub=cont?('✓ contatado em '+fmtBR(new Date(c.reativado_em))):(esc(c.telefone1||'sem WhatsApp')+(c.cidade?(' · '+esc(c.cidade)):''));
       return `<div class="row"><div class="main click" onclick='go("cliente","${c.id}")'><div class="t">${esc(c.nome)} <span class="badge" style="border-color:#a97bd6;color:#c9a3ec">💤 sumido</span>${antigo}</div>
-        <div class="s">${esc(c.telefone1||'sem WhatsApp')}${c.cidade?(' · '+esc(c.cidade)):''}</div></div>
-        <div class="acts">${zap?`<button class="btn sm green" onclick='event.stopPropagation(); contatarReativar("${c.id}")'>📲 Brinde</button>`:'<span class="badge" style="border-color:var(--line2);color:var(--muted)">sem zap</span>'}<button class="btn sm ghost" onclick='event.stopPropagation(); reativarCliente("${c.id}")'>✔ Retira sumido</button></div></div>`; }).join('');
-    box.innerHTML=tabs+topo+(lista.length?`<div class="rows">${cards}</div>`:emptyState('Nenhum sumido','Importe sua base antiga em Mais → Importar clientes.'));
+        <div class="s">${sub}</div></div>
+        <div class="acts">${acts}</div></div>`; }).join('');
+    box.innerHTML=tabs+topo+subTabs+(listaSub.length?`<div class="rows">${cards}</div>`:emptyState(sumidoSub==='contatados'?'Ninguém contatado ainda':'Nenhum a contatar', sumidoSub==='contatados'?'Quem receber o brinde aparece aqui.':'Importe sua base antiga em Mais → Importar clientes.'));
     return;
   }
   if(!lista.length){ box.innerHTML=tabs+emptyState('Nada encontrado','Tente outro termo.'); return; }
