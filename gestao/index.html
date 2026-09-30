@@ -732,7 +732,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-09-30.3';
+const APP_VERSAO='2026-09-30.4';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -1961,6 +1961,7 @@ function renderPagamentosOS(o){
   bloco+=`<div class="os-total"><span class="l">${faseAdiant?'Adiantado':'Pago'}</span><span class="v" style="color:var(--green)">${moneyFmt(pago)}</span></div>
     <div class="os-total"><span class="l"><b>Restante</b></span><span class="v"><b style="color:${rest>0?'var(--red)':'var(--green)'}">${moneyFmt(rest)}</b></span></div>`;
   if(faseAdiant && podeVal) bloco+=`<div class="form-actions" style="margin-top:8px"><button class="btn" onclick='pagamentoModal("${o.id}","adiantamento")'>💵 Adiantamento</button></div>`;
+  if(fase==='executado' && rest>0.005 && podeReceber()) bloco+=`<div class="form-actions" style="margin-top:8px"><button class="btn green" onclick='finalizarOS("${o.id}")'>💵 Receber (à vista ou em boletos)</button></div><div class="hint" style="margin-top:4px">Para receber em parcelas, escolha <b>Boleto</b> e defina as datas — gera os boletos a receber sem baixar tudo de uma vez.</div>`;
   return bloco;
 }
 function cartaoLabel(m){ const t=m.cartao_tipo; if(t==='debito') return '(Débito)'; if(t==='credito') return '(Crédito)'; if(t==='parcelado'||(m.parcelas>1)) return (m.parcelas>1?(m.parcelas+'x'):'(Parcelado)'); return ''; }
