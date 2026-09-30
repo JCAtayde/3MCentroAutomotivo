@@ -732,7 +732,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-09-30.6';
+const APP_VERSAO='2026-09-30.7';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -2133,7 +2133,7 @@ function valorBanco(m){ return (m.liquido!=null&&m.liquido!=='')?(Number(m.liqui
 /* data em que a entrada fica disponível na conta; '' = ainda não caiu (boleto sem pagamento confirmado) */
 function dispMov(m){ if(m.tipo==='saida'){ if(m.pagamento) return m.pagamento; if(m.forma==='cartao'||m.forma==='boleto') return ''; return m.data; }
   if(m.forma==='cartao') return m.data;
-  if(m.forma==='boleto') return m.pagamento?addDiasISO(m.pagamento,3):'';
+  if(m.forma==='boleto') return m.pagamento?m.pagamento:'';
   return m.data; }
 function saldoCaixa(ate){ let s=0; (state.caixa||[]).forEach(m=>{ if(contaMov(m)!=='caixa') return; const d=dispMov(m); if(!d||d>ate) return;
   if(m.tipo==='entrada') s+=(Number(m.valor)||0); else s-=(Number(m.valor)||0); }); return s; }
@@ -2145,7 +2145,7 @@ function baixarConta(id){ const m=(state.caixa||[]).find(x=>x.id===id); if(!m) r
 function baixarGrupo(grupo){ const arr=(state.caixa||[]).filter(x=>x.parcela_grupo===grupo&&!x.pagamento); if(!arr.length) return; confirmar('Dar baixa em todas as '+arr.length+' parcelas? Marca todas como pagas hoje.', function(){ arr.forEach(m=>{ m.pagamento=toISO(hoje()); m.atualizado=Date.now(); }); salvar(); renderSaldos(); toast(arr.length+' baixas registradas ✓'); }, 'Baixar todas','green'); }
 function reRenderFin(){ if(document.querySelector('[data-screen="financeiro"].active')) finTab(finAtiva); if(document.querySelector('[data-screen="boletos"].active')) renderBoletosReceber(); }
 function confirmarBoleto(mid){ const m=(state.caixa||[]).find(x=>x.id===mid); if(!m) return;
-  dtPrompt('Data em que o cliente pagou o boleto', toISO(hoje()), function(dataPg){ m.pagamento=dataPg; m.atualizado=Date.now(); salvar(); toast('Boleto confirmado — cai em '+fmtBR(parseISO(addDiasISO(dataPg,3)))); reRenderFin(); }); }
+  dtPrompt('Data em que o dinheiro caiu na conta', toISO(hoje()), function(dataPg){ m.pagamento=dataPg; m.atualizado=Date.now(); salvar(); toast('Recebido em '+fmtBR(parseISO(dataPg))+' ✓'); reRenderFin(); }); }
 function desfazerBoleto(mid){ const m=(state.caixa||[]).find(x=>x.id===mid); if(!m) return; m.pagamento=''; m.atualizado=Date.now(); salvar(); toast('Pagamento do boleto desfeito'); reRenderFin(); }
 function dtPrompt(titulo,valorPadrao,onOk){ openModal(`<h3>${titulo}</h3>${dtField('dtpVal','date',valorPadrao||toISO(hoje()),'Data')}
   <div class="form-actions"><button class="btn gold" onclick="dtPromptOk()">Confirmar</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
@@ -3258,7 +3258,7 @@ function renderBoletosReceber(){
     const venc=m.vencimento; const atrasado=venc&&venc<hojeI;
     return `<div class="card"><div class="row"><div><div class="t">📄 ${esc((c&&c.nome)||m.descricao||'Boleto')}</div><div class="s">${v?esc(nomeVeiculo(v))+' · ':''}${venc?('vence '+fmtBR(parseISO(venc))):'sem vencimento'}${atrasado?' · <b style="color:var(--red)">vencido</b>':''}</div></div><span class="valor-tag" style="color:var(--amber)">${moneyFmt(Number(m.valor)||0)}</span></div>
       <div class="form-actions" style="margin-top:8px"><button class="btn sm green" onclick='confirmarBoleto("${m.id}")'>✓ Confirmar pagamento</button>${o?`<button class="btn sm ghost" onclick='go("os","${m.ordem_id}")'>Ver OS</button>`:''}</div></div>`; }).join('');
-  box.innerHTML=`<div class="hint" style="margin:2px 2px 12px">Boletos que os clientes ainda não pagaram. Ao confirmar o pagamento, o valor cai no banco em 3 dias.</div>
+  box.innerHTML=`<div class="hint" style="margin:2px 2px 12px">Boletos que os clientes ainda não pagaram. Ao confirmar o pagamento, o valor entra na conta na data que você confirmar.</div>
     ${bol.length?cards:emptyState('Nenhum boleto a receber','Tudo em dia por aqui. 👍')}
     ${bol.length?`<div class="totline"><span><b>Total a receber em boletos</b></span><b style="color:var(--amber)">${moneyFmt(total)}</b></div>`:''}`;
 }
