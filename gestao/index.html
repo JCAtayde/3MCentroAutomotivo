@@ -732,7 +732,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-09-30.4';
+const APP_VERSAO='2026-09-30.6';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -1944,7 +1944,11 @@ function acoesFase(o,st){
 }
 function renderPagamentosOS(o){
   const pgs=pagamentosOS(o.id); const pago=pagoOS(o.id); const rest=restanteOS(o);
-  const linhas=pgs.map(m=>`<div class="row"><div class="main"><div class="t">${formaLabel(m.forma)}${m.forma==='cartao'?(' '+cartaoLabel(m)):''}</div><div class="s">${fmtBR(parseISO(m.data))}${m.forma==='cartao'&&m.taxa?(' · taxa '+moneyFmt(m.taxa)):''}</div></div><div class="acts"><span class="valor-tag" style="color:var(--green)">+${moneyFmt(m.valor)}</span>${pode('excluir')?`<button class="btn sm ghost" onclick='removerPagamento("${m.id}","${o.id}")'>✕</button>`:''}</div></div>`).join('');
+  const ehBolPend=(m)=>(m.forma==='boleto'&&!m.pagamento);
+  const recebidoReal=pgs.reduce((s,m)=>s+(ehBolPend(m)?0:(Number(m.valor)||0)),0);
+  const aReceberBol=pgs.reduce((s,m)=>s+(ehBolPend(m)?(Number(m.valor)||0):0),0);
+  const linhas=pgs.map(m=>{ if(ehBolPend(m)) return `<div class="row"><div class="main"><div class="t">📄 Boleto a receber <span class="cx-mini">vence ${m.vencimento?fmtBR(parseISO(m.vencimento)):'—'}</span></div><div class="s" style="color:var(--amber)">aguardando pagamento — não recebido ainda</div></div><div class="acts"><span class="valor-tag" style="color:var(--amber)">${moneyFmt(m.valor)}</span><button class="btn sm green" onclick='confirmarBoleto("${m.id}")'>✓ Recebi</button>${pode('excluir')?`<button class="btn sm ghost" onclick='removerPagamento("${m.id}","${o.id}")'>✕</button>`:''}</div></div>`;
+    return `<div class="row"><div class="main"><div class="t">${formaLabel(m.forma)}${m.forma==='cartao'?(' '+cartaoLabel(m)):''}</div><div class="s">${fmtBR(parseISO(m.pagamento||m.data))}${m.forma==='cartao'&&m.taxa?(' · taxa '+moneyFmt(m.taxa)):''}</div></div><div class="acts"><span class="valor-tag" style="color:var(--green)">+${moneyFmt(m.valor)}</span>${pode('excluir')?`<button class="btn sm ghost" onclick='removerPagamento("${m.id}","${o.id}")'>✕</button>`:''}</div></div>`; }).join('');
   const podeVal=pode('valores'); const fase=osStatus(o);
   const faseAdiant=(fase==='aguardando'||fase==='andamento');
   const faseReceber=(fase==='liberado'||fase==='executado');
@@ -1958,8 +1962,9 @@ function renderPagamentosOS(o){
   bloco+=`<div class="section-label">${faseAdiant?'Adiantamentos':'Pagamentos'}</div>`;
   bloco+= pgs.length?`<div class="rows">${linhas}</div>`:`<div class="note empty-note">${faseAdiant?'Nenhum adiantamento.':'Nenhum pagamento lançado.'}</div>`;
   if(descontoTotal(o)>0) bloco+=`<div class="os-total"><span class="l">Subtotal</span><span class="v">${moneyFmt(osTotalBruto(o))}</span></div><div class="os-total"><span class="l">Descontos</span><span class="v" style="color:var(--amber)">− ${moneyFmt(descontoTotal(o))}</span></div><div class="os-total"><span class="l"><b>Total com desconto</b></span><span class="v"><b>${moneyFmt(osTotal(o))}</b></span></div>`;
-  bloco+=`<div class="os-total"><span class="l">${faseAdiant?'Adiantado':'Pago'}</span><span class="v" style="color:var(--green)">${moneyFmt(pago)}</span></div>
-    <div class="os-total"><span class="l"><b>Restante</b></span><span class="v"><b style="color:${rest>0?'var(--red)':'var(--green)'}">${moneyFmt(rest)}</b></span></div>`;
+  bloco+=`<div class="os-total"><span class="l">${faseAdiant?'Adiantado':'Recebido (em caixa/banco)'}</span><span class="v" style="color:var(--green)">${moneyFmt(recebidoReal)}</span></div>`;
+  if(aReceberBol>0.005) bloco+=`<div class="os-total"><span class="l">Em boletos a receber (pendente)</span><span class="v" style="color:var(--amber)">${moneyFmt(aReceberBol)}</span></div>`;
+  if(rest>0.005) bloco+=`<div class="os-total"><span class="l"><b>Restante a lançar</b></span><span class="v"><b style="color:var(--red)">${moneyFmt(rest)}</b></span></div>`;
   if(faseAdiant && podeVal) bloco+=`<div class="form-actions" style="margin-top:8px"><button class="btn" onclick='pagamentoModal("${o.id}","adiantamento")'>💵 Adiantamento</button></div>`;
   if(fase==='executado' && rest>0.005 && podeReceber()) bloco+=`<div class="form-actions" style="margin-top:8px"><button class="btn green" onclick='finalizarOS("${o.id}")'>💵 Receber (à vista ou em boletos)</button></div><div class="hint" style="margin-top:4px">Para receber em parcelas, escolha <b>Boleto</b> e defina as datas — gera os boletos a receber sem baixar tudo de uma vez.</div>`;
   return bloco;
@@ -2189,16 +2194,17 @@ function pgBolRebuild(){ const total=moneyParse(val('pgValor'));
   for(let i=0;i<n;i++){ const ex=old[i]; if(ex&&ex.manual){ manualSum+=ex.valor; manualCount++; } }
   const restante=Math.max(0,total-manualSum); const autoCount=n-manualCount; const each=autoCount>0?Math.floor((restante/autoCount)*100)/100:0;
   pgBolParc=[];
-  for(let i=0;i<n;i++){ const ex=old[i]; const venc=addDiasISO(venc0,i*intv);
-    if(ex&&ex.manual) pgBolParc.push({venc,valor:ex.valor,manual:true}); else pgBolParc.push({venc,valor:each,manual:false}); }
+  for(let i=0;i<n;i++){ const ex=old[i]; const venc=(ex&&ex.manualD&&ex.venc)?ex.venc:addDiasISO(venc0,i*intv); const manualD=!!(ex&&ex.manualD);
+    if(ex&&ex.manual) pgBolParc.push({venc,valor:ex.valor,manual:true,manualD}); else pgBolParc.push({venc,valor:each,manual:false,manualD}); }
   const somaAuto=pgBolParc.filter(p=>!p.manual).reduce((s,p)=>s+p.valor,0); const diff=Math.round((restante-somaAuto)*100)/100;
   for(let i=pgBolParc.length-1;i>=0;i--){ if(!pgBolParc[i].manual){ pgBolParc[i].valor=Math.round((pgBolParc[i].valor+diff)*100)/100; break; } }
   pgBolRender(); }
 function pgBolRender(){ const box=document.getElementById('pgBolLista'); if(!box) return;
   const soma=pgBolParc.reduce((s,p)=>s+p.valor,0);
-  box.innerHTML=pgBolParc.map((p,i)=>`<div class="parc-row"><div><div class="pn">Parcela ${i+1}${p.manual?' <span class="man-tag">fixo</span>':''}</div><div class="pd">vence ${fmtBR(parseISO(p.venc))}</div></div><input class="pv-inp" inputmode="decimal" value="${String(p.valor.toFixed(2)).replace('.',',')}" onchange="pgBolManual(${i},this.value)"></div>`).join('')
+  box.innerHTML=pgBolParc.map((p,i)=>`<div class="parc-row"><div><div class="pn">Parcela ${i+1}${p.manual?' <span class="man-tag">fixo</span>':''}</div><input class="pr-date" type="date" value="${p.venc||''}" onchange="pgBolSetVenc(${i},this.value)"></div><input class="pv-inp" inputmode="decimal" value="${String(p.valor.toFixed(2)).replace('.',',')}" onchange="pgBolManual(${i},this.value)"></div>`).join('')
     +`<div class="totline"><span>Total das parcelas</span><b style="color:${Math.abs(soma-moneyParse(val('pgValor')))<0.01?'var(--green)':'var(--amber)'}">${moneyFmt(soma)}</b></div>`; }
 function pgBolManual(i,v){ if(!pgBolParc[i]) return; pgBolParc[i].valor=moneyParse(v); pgBolParc[i].manual=true; pgBolRebuild(); }
+function pgBolSetVenc(i,d){ if(!pgBolParc[i]) return; pgBolParc[i].venc=d; pgBolParc[i].manualD=!!d; pgBolRender(); }
 function salvarPagamento(oid,modo){ const o=getOS(oid); if(!o) return; const forma=val('pgForma'); const valor=moneyParse(val('pgValor'));
   if(!forma){ toast('Escolha a forma de pagamento'); return; }
   const liq=forma==='cartao'?(val('pgLiquido').trim()?moneyParse(val('pgLiquido')):valor):valor; const taxa=forma==='cartao'?Math.max(0,valor-liq):0;
