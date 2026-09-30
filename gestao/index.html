@@ -732,7 +732,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-09-30.1';
+const APP_VERSAO='2026-09-30.2';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -3614,7 +3614,7 @@ function renderCaixa(){
   cxFiltrar();
 }
 function cxFiltrar(){ cxDe=val('cxDe')||''; cxAte=val('cxAte')||''; const de=cxDe||'0000-00-00', ate=cxAte||'9999-99-99';
-  const movs=(state.caixa||[]).filter(m=>{ const d=m.data||''; return d>=de&&d<=ate; }).sort((a,b)=>(b.data||'').localeCompare(a.data||'')||(b.criado||0)-(a.criado||0));
+  const movs=(state.caixa||[]).filter(m=>{ const d=dispMov(m); return d&&d>=de&&d<=ate; }).sort((a,b)=>(dispMov(b)||'').localeCompare(dispMov(a)||'')||(b.criado||0)-(a.criado||0));
   const somaForma=(tipo)=>{ const r={pix:0,dinheiro:0,cartao:0}; movs.filter(m=>m.tipo===tipo).forEach(m=>{ r[m.forma]=(r[m.forma]||0)+(tipo==='entrada'?(Number(m.liquido)||Number(m.valor)||0):(Number(m.valor)||0)); }); return r; };
   const entF=somaForma('entrada'), saiF=somaForma('saida');
   const entBruto=movs.filter(m=>m.tipo==='entrada').reduce((s,m)=>s+(Number(m.valor)||0),0);
@@ -3638,7 +3638,7 @@ function cxFiltrar(){ cxDe=val('cxDe')||''; cxAte=val('cxAte')||''; const de=cxD
   if(!movs.length){ lista.innerHTML='<div class="note empty-note">Nenhum lançamento no período.</div>'; return; }
   lista.innerHTML='<div class="rows">'+movs.map(m=>{ const ent=m.tipo==='entrada'; const cartao=m.forma==='cartao';
     return `<div class="row"><div class="main"><div class="t">${ent?'▲':'▼'} ${esc(m.descricao||(ent?'Entrada':'Saída'))} <span class="badge">${formaLabel(m.forma)}${cartao&&m.parcelas>1?(' '+m.parcelas+'x'):''}</span>${!ent&&m.categoria?` <span class="badge">${catSaidaLabel(m.categoria)}</span>`:''}</div>
-      <div class="s">${fmtBR(parseISO(m.data))}${cartao&&m.taxa?(' · taxa '+moneyFmt(m.taxa)+' · líq. '+moneyFmt(m.liquido)):''}${m.forma==='boleto'&&m.tipo==='entrada'?(' · '+(m.pagamento?('pago '+fmtBR(parseISO(m.pagamento))):('vence '+(m.vencimento?fmtBR(parseISO(m.vencimento)):'—')+' · a receber'))):''}${m.tipo==='saida'&&(m.forma==='cartao'||m.forma==='boleto')&&m.vencimento?(' · paga em '+fmtBR(parseISO(m.vencimento))):''}${m.tipo==='saida'?(' · '+(contaMov(m)==='banco'?'🏦 banco':'💵 caixa')):''}${m.ordem_id?' · OS':''}${m.funcionario_id?(' · '+esc((state.mecanicos.find(x=>x.id===m.funcionario_id)||{}).nome||'func.')):''}${m.socio?(' · '+esc(m.socio)):''}${m.fornecedor_id?(' · 🏭 '+esc(fornecedorNome(m.fornecedor_id))):''}</div></div>
+      <div class="s">${fmtBR(parseISO(dispMov(m)||m.data))}${cartao&&m.taxa?(' · taxa '+moneyFmt(m.taxa)+' · líq. '+moneyFmt(m.liquido)):''}${m.forma==='boleto'&&m.tipo==='entrada'?(' · '+(m.pagamento?('pago '+fmtBR(parseISO(m.pagamento))):('vence '+(m.vencimento?fmtBR(parseISO(m.vencimento)):'—')+' · a receber'))):''}${m.tipo==='saida'&&(m.forma==='cartao'||m.forma==='boleto')&&m.vencimento?(' · paga em '+fmtBR(parseISO(m.vencimento))):''}${m.tipo==='saida'?(' · '+(contaMov(m)==='banco'?'🏦 banco':'💵 caixa')):''}${m.ordem_id?' · OS':''}${m.funcionario_id?(' · '+esc((state.mecanicos.find(x=>x.id===m.funcionario_id)||{}).nome||'func.')):''}${m.socio?(' · '+esc(m.socio)):''}${m.fornecedor_id?(' · 🏭 '+esc(fornecedorNome(m.fornecedor_id))):''}</div></div>
       <div class="acts"><span class="valor-tag" style="color:${ent?'var(--green)':'var(--red)'}">${ent?'+':'−'}${moneyFmt(m.valor)}</span>
         ${!m.ordem_id?`<button class="btn sm ghost" onclick='movimentoModal("${m.tipo}","${m.id}")'>Editar</button>`:`<button class="btn sm ghost" onclick='go("os","${m.ordem_id}")'>Ver OS</button>`}</div></div>`;
   }).join('')+'</div>';
