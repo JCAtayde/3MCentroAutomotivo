@@ -732,7 +732,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-09-30.2';
+const APP_VERSAO='2026-09-30.3';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -3184,6 +3184,23 @@ let toastT; function toast(m){ const t=document.getElementById('toast'); t.textC
 ================================================================== */
 let cxDe='',cxAte='';
 let saldoAte='', saldoAPagarAberto=false;
+function ajustarSaldoModal(){ if(!(ehAdmin()||pode('valores'))){ toast('Sem permissão'); return; }
+  openModal(`<h3>⚖️ Ajustar saldo</h3><p class="sub">Digite o saldo REAL de hoje. O sistema cria um lançamento de ajuste pela diferença, para bater com o extrato.</p>
+    <div class="field"><label>Conta a ajustar</label><select id="ajTipo" onchange="ajAtual()"><option value="banco">🏦 Banco</option><option value="caixa">💵 Caixa (dinheiro)</option></select></div>
+    <div class="cx-mini" id="ajInfo" style="margin:-4px 0 8px"></div>
+    <div class="field"><label>Saldo real hoje (R$)</label><input id="ajReal" inputmode="decimal" placeholder="0,00"></div>
+    <div class="hint" style="margin:-2px 0 8px">Se o saldo real for maior que o do sistema, entra um ajuste de <b>entrada</b>; se for menor, um ajuste de <b>saída</b>. Fica registrado na auditoria.</div>
+    <div class="form-actions"><button class="btn gold" onclick="salvarAjusteSaldo()">Criar ajuste</button><button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
+  ajAtual(); }
+function ajAtual(){ const t=val('ajTipo'); const ate=toISO(hoje()); const atual=(t==='caixa')?saldoCaixa(ate):saldoBanco(ate); const el=document.getElementById('ajInfo'); if(el) el.innerHTML='Saldo no sistema hoje: <b>'+moneyFmt(atual)+'</b>'; }
+function salvarAjusteSaldo(){ if(!(ehAdmin()||pode('valores'))){ toast('Sem permissão'); return; }
+  const t=val('ajTipo')||'banco'; const ate=toISO(hoje()); const atual=(t==='caixa')?saldoCaixa(ate):saldoBanco(ate);
+  const real=moneyParse(val('ajReal')); const diff=Math.round((real-atual)*100)/100;
+  if(Math.abs(diff)<0.01){ toast('Já está batendo — nada a ajustar'); return; }
+  const data=toISO(hoje()); const forma=(t==='caixa')?'dinheiro':'pix'; const tipo=diff>0?'entrada':'saida'; const valor=Math.abs(diff);
+  state.caixa.push({id:uid(),ordem_id:null,tipo,data,valor,forma,taxa:0,liquido:valor,descricao:'Ajuste de saldo ('+(t==='caixa'?'caixa':'banco')+')',categoria:tipo==='saida'?'outros':'',funcionario_id:'',socio:'',conta:t,vencimento:'',pagamento:'',criado:Date.now()});
+  if(typeof logAcao==='function') logAcao('Ajuste de saldo', (t==='caixa'?'Caixa':'Banco')+' '+(diff>0?'+':'−')+moneyFmt(valor), 'ajustado para bater '+moneyFmt(real));
+  salvar(); closeModal(); renderSaldos(); toast('Ajuste criado — saldo agora bate ✓'); }
 function renderSaldos(){
   const box=document.getElementById('saldosBox'); if(!box) return;
   if(!saldoAte) saldoAte=toISO(hoje());
@@ -3211,6 +3228,7 @@ function renderSaldos(){
     return h; })();
   box.innerHTML=`
     <div class="field"><label>Posição até a data</label><div class="dt-wrap"><input id="saldoAteInp" type="date" value="${ate}" onchange="saldoAte=this.value; renderSaldos()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('saldoAteInp')">📅</button></div></div>
+    <div style="margin:0 0 8px"><button class="btn sm ghost" onclick="ajustarSaldoModal()">⚖️ Ajustar saldo (bater com o banco)</button></div>
     <div class="saldo-fixo"><div class="sf-grid">
       <div class="sf-item"><span class="sf-l">💵 Caixa</span><b class="sf-v">${moneyFmt(sc)}</b></div>
       <div class="sf-item"><span class="sf-l">🏦 Banco</span><b class="sf-v">${moneyFmt(sb)}</b></div>
