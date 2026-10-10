@@ -732,7 +732,7 @@ function migrarV1toV2shape(v1){
 }
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
-const APP_VERSAO='2026-10-06.1';
+const APP_VERSAO='2026-10-10.1';
 function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
@@ -1648,7 +1648,7 @@ function renderOrdens(){
     segBox.innerHTML=abas.map(([k,r,n])=>`<button class="${k===osFiltroStatus?'on':''}" onclick="setOsFiltro('${k}')">${r}${n?` <span class="seg-n">${n}</span>`:''}</button>`).join(''); }
   if(osFiltroStatus==='faltou'){ return renderReativacao(base, q); }
   const topo = (osFiltroStatus==='agendamento' && !mecR) ? faltasTopoBtn(base) : '';
-  let lista=base.filter(o=>osStatus(o)===osFiltroStatus).sort((a,b)=>{ const da=(a.agenda_data||a.data||''), db=(b.agenda_data||b.data||''); return osFiltroStatus==='agendamento'? da.localeCompare(db) : db.localeCompare(da); });
+  let lista=base.filter(o=>osStatus(o)===osFiltroStatus).sort((a,b)=>{ if(osFiltroStatus==='agendamento'){ return (a.agenda_data||a.data||'').localeCompare(b.agenda_data||b.data||''); } return (b.data||'').localeCompare(a.data||''); });
   if(q){ lista=lista.filter(o=>{ const v=getVeiculo(o.veiculo_id); if(!v) return false; const c=getCliente(v.cliente_id);
     return ((c&&c.nome||'').toLowerCase().includes(q)) || ((v.placa||'').toLowerCase().includes(q)) || ((v.modelo||'').toLowerCase().includes(q)); }); }
   if(!lista.length){ box.innerHTML=topo+emptyState(q?'Nada encontrado':'Nada nesta fase', q?'Tente outro nome ou placa.':(osFiltroStatus==='aguardando'?(mecR?'':'Toque em “Nova OS”.'):'')); return; }
@@ -1739,6 +1739,8 @@ function mecanicoOSNome(o){ const g=id=>{ const m=(state.mecanicos||[]).find(x=>
   if(!ids.length) return ''; if(ids.length===1) return g(ids[0]); return g(ids[0])+' +'+(ids.length-1); }
 
 /* OS detalhe (por fase) */
+function osEntradaData(o){ if(o&&o.entrada_em) return o.entrada_em; if(o&&o.criado){ const d=new Date(o.criado); if(!isNaN(d)) return toISO(d); } return (o&&o.data)||''; }
+function osSaidaData(o){ if(o&&o.saida_em) return o.saida_em; if(o&&osStatus(o)==='executado') return o.data||''; return ''; }
 function renderOsDet(id){
   const o=getOS(id); const box=document.getElementById('osDet');
   if(!o){ box.innerHTML=emptyState('Ordem não encontrada',''); return; }
@@ -1759,7 +1761,7 @@ function renderOsDet(id){
     <div class="panel" style="margin-top:8px"><div class="kv">
       <span class="k">Cliente</span><span class="v link" onclick='go("cliente","${c?.id}")'>${esc(c?.nome||'—')}</span>
       <span class="k">Veículo</span><span class="v link" onclick='go("veiculo","${v?.id}")'>${esc(v?nomeVeiculo(v):'—')} · ${esc(v?.placa||'')}</span>
-      ${(st==='agendamento'||st==='faltou')?`<span class="k">Agendado para</span><span class="v">${o.agenda_data?fmtBR(parseISO(o.agenda_data)):'—'}${o.agenda_hora?(' às '+o.agenda_hora):''}</span>`:`<span class="k">KM na entrada</span><span class="v">${o.km?nfmt(o.km)+' km':'—'}</span>`}
+      ${(st==='agendamento'||st==='faltou')?`<span class="k">Agendado para</span><span class="v">${o.agenda_data?fmtBR(parseISO(o.agenda_data)):'—'}${o.agenda_hora?(' às '+o.agenda_hora):''}</span>`:`<span class="k">KM na entrada</span><span class="v">${o.km?nfmt(o.km)+' km':'—'}</span>`}${(st!=='agendamento'&&st!=='faltou')?`<span class="k">Entrada na oficina</span><span class="v">${osEntradaData(o)?fmtBR(parseISO(osEntradaData(o))):'—'}</span>${osSaidaData(o)?`<span class="k">Saída (entregue)</span><span class="v">${fmtBR(parseISO(osSaidaData(o)))}</span>`:''}`:''}
       ${mecResp?`<span class="k">Mecânico</span><span class="v">👨‍🔧 ${esc(mecResp.nome)}</span>`:''}</div></div>
     <div class="note-label">${(st==='agendamento'||st==='faltou')?'Prévia do serviço / problema':'Reclamação do cliente'}</div><div class="note ${o.reclamacao?'':'empty-note'}">${o.reclamacao?esc(o.reclamacao):'—'}</div>
     ${bannerRetorno(o)}
@@ -2006,7 +2008,7 @@ function removerDesconto(oid,did){ const o=getOS(oid); if(!o) return; o.desconto
 
 /* ---- transições de fase ---- */
 function carroChegou(oid){ const o=getOS(oid); if(!o) return;
-  confirmar('Confirmar que o carro chegou? A OS vai para "Aguardando orçamento".', function(){ o.status='aguardando'; o.data=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; refreshAtual(); toast('Em Aguardando orçamento'); }, 'Confirmar', 'green'); }
+  confirmar('Confirmar que o carro chegou? A OS vai para "Aguardando orçamento".', function(){ o.status='aguardando'; o.data=toISO(hoje()); if(!o.entrada_em) o.entrada_em=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; refreshAtual(); toast('Em Aguardando orçamento'); }, 'Confirmar', 'green'); }
 function alertaCadastro(o,st){
   if(ehMecanico()) return '';
   if(st!=='agendamento' && st!=='aguardando') return '';
@@ -2113,7 +2115,7 @@ function reabrirParaRevisao(oid){ if(!ehAdmin()&&!pode('reabrir')){ toast('Sem p
 }
 function reabrirOrcamento(oid){ if(!ehAdmin()&&!pode('reabrir')){ toast('Sem permissão'); return; } const o=getOS(oid); if(!o) return; confirmar('Reabrir esta ordem? Ela volta para "Aguardando orçamento".', function(){ o.status='aguardando'; o.atualizado=Date.now(); salvar(); osFiltroStatus='aguardando'; renderOsDet(oid); toast('Reaberta em Aguardando'); }, 'Reabrir'); }
 function finalizarOS(oid){ const o=getOS(oid); if(!o) return;
-  if(restanteOS(o)<=0.005){ confirmar('Não há valor em aberto.\nFinalizar e enviar para Executado?', function(){ o.status='executado'; o.data=toISO(hoje()); if(!o.fechado_em) o.fechado_em=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='executado'; renderOsDet(oid); toast('OS finalizada ✓'); }, 'Finalizar', 'green'); return; }
+  if(restanteOS(o)<=0.005){ confirmar('Não há valor em aberto.\nFinalizar e enviar para Executado?', function(){ o.status='executado'; o.data=toISO(hoje()); o.saida_em=toISO(hoje()); if(!o.fechado_em) o.fechado_em=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='executado'; renderOsDet(oid); toast('OS finalizada ✓'); }, 'Finalizar', 'green'); return; }
   pagamentoModal(oid,'final'); }
 function liberarCarro(oid){ const o=getOS(oid); if(!o) return; if(!podeLiberarOS(o)){ toast('Só o mecânico responsável pode liberar este carro'); return; } confirmar('Liberar o carro?\nA OS vai para "Carro liberado" — onde o cliente busca o carro e é feito o recebimento.', function(){ logAcao('Liberou carro', o.codigo?('OS '+o.codigo):'OS', ''); o.status='liberado'; if(osEhLojista(o)&&!o.data) o.data=toISO(hoje()); if(!o.fechado_em) o.fechado_em=toISO(hoje()); o.atualizado=Date.now(); salvar(); osFiltroStatus='liberado'; renderOsDet(oid); toast('Carro liberado ✓'); }, 'Liberar', 'green'); }
 function reagendarOS(oid){ const o=getOS(oid); if(!o) return;
@@ -2243,7 +2245,7 @@ function salvarPagamento(oid,modo){ const o=getOS(oid); if(!o) return; const for
   if(modo==='final'){
     const rest=restanteOS(o);
     if(rest>0.005){ o.atualizado=Date.now(); salvar(); closeModal(); renderOsDet(oid); toast('Recebimento registrado. Ainda faltam '+moneyFmt(rest)+' — só finaliza quando estiver quitado.'); return; }
-    o.status='executado'; o.data=toISO(hoje()); if(!o.fechado_em) o.fechado_em=toISO(hoje()); o.atualizado=Date.now(); osFiltroStatus='executado'; logAcao('Recebeu/finalizou OS', o.codigo?('OS '+o.codigo):'OS', 'total '+moneyFmt(osTotal(o)));
+    o.status='executado'; o.data=toISO(hoje()); o.saida_em=toISO(hoje()); if(!o.fechado_em) o.fechado_em=toISO(hoje()); o.atualizado=Date.now(); osFiltroStatus='executado'; logAcao('Recebeu/finalizou OS', o.codigo?('OS '+o.codigo):'OS', 'total '+moneyFmt(osTotal(o)));
   }
   salvar(); closeModal(); renderOsDet(oid); toast(modo==='final'?'OS finalizada e enviada para Executados ✓':'Recebimento registrado ✓'); }
 function removerPagamento(mid,oid){ if(!pode('excluir')){ toast('Sem permissão para excluir'); return; } const _pg=state.caixa.find(m=>m.id===mid); confirmar('Remover este pagamento do caixa?', function(){ logAcao('Removeu pagamento de OS', _pg?moneyFmt(_pg.valor):'', ''); state.caixa=state.caixa.filter(m=>m.id!==mid); salvar(); renderOsDet(oid); toast('Pagamento removido'); }); }
