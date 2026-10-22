@@ -585,6 +585,11 @@
     <div id="fornecedoresBox"></div>
   </section>
 
+  <section class="screen" data-screen="notas_compra">
+    <div class="view-head"><div><h2>Notas de compra</h2><p>NF-e dos fornecedores, puxadas da SEFAZ</p></div></div>
+    <div id="notasCompraBox"></div>
+  </section>
+
   <section class="screen" data-screen="relatorios">
     <div class="view-head"><div><h2>Relatórios &amp; Dashboard</h2><p>Análises, comparações e melhorias</p></div></div>
     <div id="relBox"></div>
@@ -953,14 +958,14 @@ const VIEWS=[
 ];
 const TABS=['painel','ordens','clientes','financeiro','mais'];
 let histStack=[{screen:'painel',param:null}];
-function telaPai(name){ if(['veiculos','regras','equipe','config','boletos','fornecedores','relatorios','contas_pagar','auditoria'].includes(name)) return 'mais'; if(name==='servicos') return 'painel'; return name; }
+function telaPai(name){ if(['veiculos','regras','equipe','config','boletos','fornecedores','notas_compra','relatorios','contas_pagar','auditoria'].includes(name)) return 'mais'; if(name==='servicos') return 'painel'; return name; }
 function showScreen(name){
   document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===name));
   const tabHi = TABS.includes(name)?name:telaPai(name);
   document.querySelectorAll('#topnav button,#tabbar button').forEach(b=>b.classList.toggle('active',b.dataset.go===tabHi));
 }
 const RENDER={painel:renderPainel,clientes:renderClientes,veiculos:renderVeiculos,ordens:renderOrdens,regras:renderRegras,config:carregarConfig,
-  financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos, boletos:renderBoletosReceber, fornecedores:renderFornecedores, relatorios:renderRelatorios, contas_pagar:renderContasPagar, auditoria:renderAuditoria,
+  financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos, boletos:renderBoletosReceber, fornecedores:renderFornecedores, notas_compra:renderNotasCompra, relatorios:renderRelatorios, contas_pagar:renderContasPagar, auditoria:renderAuditoria,
   cliente:p=>renderClienteDet(p), veiculo:p=>renderVeiculoDet(p), os:p=>renderOsDet(p)};
 function render(screen,param,keepScroll){ const y=window.scrollY||window.pageYOffset||0; showScreen(screen); (RENDER[screen]||(()=>{}))(param); if(keepScroll){ window.scrollTo({top:y}); } else { window.scrollTo({top:0,behavior:'smooth'}); } }
 function goTab(name){ histStack=[{screen:name,param:null}]; render(name,null); }
@@ -2994,6 +2999,7 @@ function renderMais(){
     if(telaLiberada('veiculos')) h+=item('🚗','Veículos','Frota dos clientes',`goTab("veiculos")`);
     if(telaLiberada('regras')) h+=item('🗓️','Tabela de Revisões','Prazos de retorno (km/meses)',`goTab("regras")`);
     if(telaLiberada('fornecedores')) h+=item('🏭','Fornecedores','Lojistas e fornecedores (CNPJ)',`goTab("fornecedores")`);
+    if(telaLiberada('fornecedores')) h+=item('🧾','Notas de compra','NF-e dos fornecedores (SEFAZ) e cadastro de peças',`goTab("notas_compra")`);
   }
   if(ehGestor()){
     h+=`<div class="lbl-sec-mais">Análise</div>`;
@@ -3267,6 +3273,79 @@ function renderBoletosReceber(){
     ${bol.length?cards:emptyState('Nenhum boleto a receber','Tudo em dia por aqui. 👍')}
     ${bol.length?`<div class="totline"><span><b>Total a receber em boletos</b></span><b style="color:var(--amber)">${moneyFmt(total)}</b></div>`:''}`;
 }
+/* ---- Notas de compra (NF-e de entrada, Distribuição DF-e) ---- */
+const API_FISCAL='/gestao/api/fiscal';
+let notasCompra=null, notasCompraBusy=false;
+function nfeFmtData(d){ return d?new Date(d).toLocaleDateString('pt-BR'):'—'; }
+function nfeStatusTag(n){
+  if(n.status==='cancelada') return '<span class="badge" style="color:#e57373;border-color:#e57373">Cancelada</span>';
+  if(n.status==='completa') return '<span class="badge" style="color:#81c784;border-color:#81c784">Completa</span>';
+  return '<span class="badge" style="color:#D9A83E;border-color:#D9A83E">'+(n.manifestado?'Aguardando XML':'Resumo')+'</span>';
+}
+async function carregarNotasCompra(){
+  const r=await fetch(API_FISCAL+'/notas',{headers:{accept:'application/json'}});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(d.error||('http '+r.status));
+  notasCompra=d;
+}
+function renderNotasCompra(){
+  const box=document.getElementById('notasCompraBox'); if(!box) return;
+  if(!telaLiberada('fornecedores')){ box.innerHTML='<div class="note empty-note">Sem permissão.</div>'; return; }
+  if(!notasCompra){ box.innerHTML='<div class="note">Carregando…</div>'; carregarNotasCompra().then(renderNotasCompra).catch(e=>{ box.innerHTML='<div class="note">Erro ao carregar: '+esc(e.message)+'</div>'; }); return; }
+  const ctl=notasCompra.controle, notas=notasCompra.notas||[];
+  const espera=ctl&&ctl.espera_ate>Date.now()?ctl.espera_ate:0;
+  const info=!notasCompra.configurada?'⚠️ Ponte fiscal ainda não configurada (certificado A1). Veja docs/certificado-a1.md.'
+    : ctl?('Última busca: '+new Date(ctl.ultima_execucao).toLocaleString('pt-BR')+' · '+esc(ctl.ultimo_status||'')
+        +(espera?('\nPróxima busca liberada às '+new Date(espera).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+' (regra da SEFAZ: 1 consulta por hora quando não há nada novo).'):''))
+    : 'Nenhuma busca feita ainda. A primeira traz as notas dos últimos 90 dias.';
+  const rows=notas.map(n=>`<div class="row click" onclick='openNotaCompra("${n.chave}")'><div class="main"><div class="t">${esc(n.nome_emit||'—')} ${nfeStatusTag(n)}</div>
+    <div class="s">${n.numero?('NF '+esc(n.numero)+' · '):''}${nfeFmtData(n.dh_emi)} · ${moneyFmt(n.valor)}${n.itens.length?(' · '+n.itens.length+' itens'):''}</div></div>${chev()}</div>`).join('');
+  box.innerHTML=`<div class="note" style="margin:0 16px 12px">${info}</div>
+    <div class="section-label"><span>Notas (${notas.length})</span><span>
+      ${ehAdmin()?'<button class="btn sm" onclick="diagnosticoFiscal()">Diagnóstico</button> ':''}
+      <button class="btn sm gold" id="btnBuscarNfe" onclick="buscarNotasSefaz()" ${notasCompraBusy?'disabled':''}>${notasCompraBusy?'Buscando…':'Buscar na SEFAZ'}</button></span></div>
+    <div class="rows">${notas.length?rows:emptyState('Nenhuma nota de compra','Toque em “Buscar na SEFAZ” para puxar as notas emitidas contra o CNPJ da 3M.')}</div>`;
+}
+async function buscarNotasSefaz(){
+  if(notasCompraBusy) return; notasCompraBusy=true; renderNotasCompra();
+  const tot={resumos:0,completas:0,ciencias:0,pecas_novas:0}; const avisos=[];
+  try{
+    // Cada chamada é uma rodada curta; repete até o servidor dizer que acabou.
+    for(let i=0;i<10;i++){
+      const r=await fetch(API_FISCAL+'/sincronizar',{method:'POST'});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(d.error||('http '+r.status));
+      for(const k in tot) tot[k]+=d[k]||0; (d.avisos||[]).forEach(a=>avisos.push(a));
+      const b=document.getElementById('btnBuscarNfe'); if(b) b.textContent='Buscando… '+(tot.resumos+tot.completas)+' docs';
+      if(d.fim) break;
+    }
+    logAcao('Buscou notas de compra na SEFAZ', '', tot.completas+' completas, '+tot.ciencias+' ciências, '+tot.pecas_novas+' peças novas');
+    toast(`SEFAZ: ${tot.resumos+tot.completas} documentos · ${tot.pecas_novas} peças novas`);
+    if(avisos.length) alert('Avisos da SEFAZ:\n\n'+avisos.slice(0,15).join('\n'));
+  }catch(e){ alert('Não foi possível buscar as notas:\n'+e.message); }
+  notasCompraBusy=false;
+  try{ await carregarNotasCompra(); }catch(e){}
+  if(tot.pecas_novas) sincronizar();
+  if(document.querySelector('[data-screen="notas_compra"].active')) renderNotasCompra();
+}
+async function diagnosticoFiscal(){
+  toast('Conferindo certificado e SEFAZ…');
+  try{ const r=await fetch(API_FISCAL+'/diagnostico',{method:'POST'}); const d=await r.json(); alert(JSON.stringify(d,null,2)); }
+  catch(e){ alert('Erro: '+e.message); }
+}
+function openNotaCompra(chave){
+  const n=((notasCompra&&notasCompra.notas)||[]).find(x=>x.chave===chave); if(!n) return;
+  const itens=n.itens.map(i=>`<tr><td>${esc(i.descricao)}<div style="color:#999;font-size:11px">NCM ${esc(i.ncm||'—')} · CFOP ${esc(i.cfop||'—')} · cód. ${esc(i.codigo||'—')}</div></td>
+    <td style="text-align:center">${(Number(i.qtde)||0).toLocaleString('pt-BR')} ${esc(i.unidade||'')}</td><td style="text-align:right">${moneyFmt(i.valor_unit)}</td><td style="text-align:right">${moneyFmt(i.valor_total)}</td></tr>`).join('');
+  openModal(`<h3>${esc(n.nome_emit||'Nota de compra')}</h3>
+    <div class="note">${n.numero?('NF '+esc(n.numero)+' série '+esc(n.serie||'')+'\n'):''}Emissão: ${nfeFmtData(n.dh_emi)} · Total ${moneyFmt(n.valor)}
+CNPJ ${esc(n.cnpj_emit||'')}
+Chave: ${esc(n.chave)}${n.manifesto_msg?('\nCiência: '+esc(n.manifesto_msg)):''}</div>
+    ${itens?`<table style="width:100%;font-size:13px;margin-top:10px"><tr style="color:#999;font-size:11px"><td><b>ITEM</b></td><td style="text-align:center"><b>QTD</b></td><td style="text-align:right"><b>UNIT.</b></td><td style="text-align:right"><b>TOTAL</b></td></tr>${itens}</table>`
+      :'<div class="note" style="margin-top:10px">Os itens aparecem quando a SEFAZ liberar o XML completo (alguns minutos depois da ciência). Toque em “Buscar na SEFAZ” mais tarde.</div>'}
+    <div style="display:flex;gap:8px;margin-top:14px">${n.status==='completa'?`<a class="btn" href="${API_FISCAL}/xml?chave=${n.chave}">Baixar XML</a>`:''}<button class="btn" onclick="closeModal()">Fechar</button></div>`);
+}
+
 /* ---- Fornecedores ---- */
 function getFornecedor(id){ return (state.fornecedores||[]).find(f=>f.id===id); }
 function fornecedorNome(id){ const f=getFornecedor(id); return f?f.nome:''; }

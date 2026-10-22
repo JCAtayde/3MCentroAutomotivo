@@ -1,0 +1,31 @@
+# Ponte fiscal da 3M no Fly.io (ver server.mjs e docs/certificado-a1.md).
+app = "3m-fiscal-ponte"
+primary_region = "gru"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  CNPJ = "49958723000197"
+  UF = "52"
+  # 1 = produção, 2 = homologação. A Distribuição de DF-e só traz notas reais em produção.
+  AMBIENTE = "1"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Desliga quando ninguém usa e liga sozinha no próximo pedido (custo mínimo).
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/saude"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

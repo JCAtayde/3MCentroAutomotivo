@@ -1,2 +1,6 @@
 # manda quem digitar sem www para o endereço principal
 https://3mcentroautomotivo.com.br/*  https://www.3mcentroautomotivo.com.br/:splat  301!
+
+# código da ponte fiscal e documentação interna não são páginas do site
+/ponte-fiscal/*  /  302
+/docs/*  /  302
