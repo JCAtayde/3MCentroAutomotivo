@@ -11,6 +11,15 @@
  *   GET  xml?chave=         baixa o XML da nota
  *   POST sincronizar        uma rodada de busca; o navegador repete até vir fim:true
  *   POST diagnostico        confere ponte, certificado e conexão com a SEFAZ
+ *
+ * Destino das peças (rastreio e estoque):
+ *   POST destinar           { item_id, ordem_id, os_item_id, qtde } → liga parte de um item da nota a uma OS
+ *   POST desfazer_destino   { id }
+ *   POST historico          { chave, valor } → nota conta (0) ou não (1) no estoque
+ *   GET  estoque            saldo por peça: comprado nas notas que contam − destinado às OS
+ *
+ * Notas anteriores à ativação do estoque (dfe_controle.estoque_desde) ficam como
+ * histórico: dá para ligar as peças às OS (rastreio/garantia), mas não somam no estoque.
  */
 
 // Regra da SEFAZ: sem documentos novos (137) ou já no fim da fila, esperar 1 hora
@@ -47,9 +56,38 @@ async function garantirTabelas(DB) {
   ]);
   // Dados fiscais da peça (vêm das notas de compra). Ficam fora do SCHEMA da API
   // principal de propósito: o navegador nunca sobrescreve estas colunas.
-  for (const col of ['ncm TEXT', 'cest TEXT', 'ean TEXT', 'unidade TEXT', 'custo REAL', 'origem TEXT', 'codigo_forn TEXT', 'fornecedor_id TEXT']) {
+  for (const col of ['ncm TEXT', 'cest TEXT', 'ean TEXT', 'unidade TEXT', 'custo REAL', 'origem TEXT', 'codigo_forn TEXT', 'fornecedor_id TEXT', 'codigo TEXT']) {
     try { await DB.prepare(`ALTER TABLE pecas ADD COLUMN ${col}`).run(); } catch (e) { /* coluna já existe */ }
   }
+  try { await DB.prepare('ALTER TABLE nfe_entrada ADD COLUMN historico INTEGER').run(); } catch (e) { /* coluna já existe */ }
+  try { await DB.prepare('ALTER TABLE dfe_controle ADD COLUMN estoque_desde INTEGER').run(); } catch (e) { /* coluna já existe */ }
+  await DB.prepare(`CREATE TABLE IF NOT EXISTS nfe_destinos (id TEXT PRIMARY KEY, item_id TEXT, chave TEXT, ordem_id TEXT, os_item_id TEXT,
+    qtde REAL, quem TEXT, criado INTEGER)`).run();
+
+  // Ativação do estoque: a partir de agora. O que já estava gravado vira histórico.
+  const ctl = await DB.prepare("SELECT estoque_desde FROM dfe_controle WHERE id='3m'").first();
+  if (!ctl || !ctl.estoque_desde) {
+    const agora = Date.now();
+    await DB.batch([
+      DB.prepare(`INSERT INTO dfe_controle (id,ult_nsu,espera_ate,estoque_desde) VALUES ('3m','0',0,?)
+        ON CONFLICT(id) DO UPDATE SET estoque_desde=excluded.estoque_desde`).bind(agora),
+      DB.prepare('UPDATE nfe_entrada SET historico=1 WHERE historico IS NULL'),
+    ]);
+  }
+
+  // Código próprio (P0001…) para toda peça que já apareceu numa nota.
+  const semCodigo = await DB.prepare(`SELECT DISTINCT p.id FROM pecas p JOIN nfe_entrada_itens i ON i.peca_id=p.id
+    WHERE p.codigo IS NULL ORDER BY p.criado, p.id`).all();
+  if ((semCodigo.results || []).length) {
+    let n = await ultimoCodigo(DB);
+    await DB.batch(semCodigo.results.map(r => DB.prepare('UPDATE pecas SET codigo=? WHERE id=?').bind(codigoPeca(++n), r.id)));
+  }
+}
+
+const codigoPeca = (n) => 'P' + String(n).padStart(4, '0');
+async function ultimoCodigo(DB) {
+  const r = await DB.prepare("SELECT MAX(CAST(SUBSTR(codigo,2) AS INTEGER)) AS n FROM pecas WHERE codigo LIKE 'P%'").first();
+  return (r && r.n) || 0;
 }
 
 async function ponte(env, pedido) {
@@ -66,11 +104,13 @@ async function ponte(env, pedido) {
 
 /** Contexto de uma rodada: peças e fornecedores carregados uma vez só. */
 async function carregarCadastros(DB) {
-  const [pec, forn] = await Promise.all([
+  const [pec, forn, ctl, ult] = await Promise.all([
     DB.prepare('SELECT id, nome, ean, codigo_forn, fornecedor_id FROM pecas').all(),
     DB.prepare('SELECT id, nome, cnpj FROM fornecedores').all(),
+    DB.prepare("SELECT estoque_desde FROM dfe_controle WHERE id='3m'").first(),
+    ultimoCodigo(DB),
   ]);
-  return { pecas: pec.results || [], fornecedores: forn.results || [] };
+  return { pecas: pec.results || [], fornecedores: forn.results || [], estoqueDesde: (ctl && ctl.estoque_desde) || 0, ultCodigo: ult };
 }
 
 function fornecedorPara(ctx, stmts, DB, cnpj, nome, agora) {
@@ -95,9 +135,10 @@ function pecaPara(ctx, stmts, DB, item, fornecedorId, agora) {
     p = { id: uid(), nome: item.descricao, ean, codigo_forn: item.codigo, fornecedor_id: fornecedorId };
     ctx.pecas.push(p);
     // Preço de venda fica em branco: quem define é a oficina. O custo vem da nota.
-    stmts.push(DB.prepare(`INSERT INTO pecas (id,nome,preco,ncm,cest,ean,unidade,custo,origem,codigo_forn,fornecedor_id,criado,atualizado)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .bind(p.id, item.descricao, null, item.ncm, item.cest, ean, item.unidade, item.valorUnit, item.origem, item.codigo, fornecedorId, agora, agora));
+    stmts.push(DB.prepare(`INSERT INTO pecas (id,nome,preco,ncm,cest,ean,unidade,custo,origem,codigo_forn,fornecedor_id,codigo,criado,atualizado)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(p.id, item.descricao, null, item.ncm, item.cest, ean, item.unidade, item.valorUnit, item.origem, item.codigo, fornecedorId,
+        codigoPeca(++ctx.ultCodigo), agora, agora));
   } else {
     stmts.push(DB.prepare(`UPDATE pecas SET ncm=COALESCE(?,ncm), cest=COALESCE(?,cest), ean=COALESCE(ean,?), unidade=COALESCE(unidade,?),
       custo=COALESCE(?,custo), origem=COALESCE(?,origem), codigo_forn=COALESCE(codigo_forn,?), fornecedor_id=COALESCE(fornecedor_id,?) WHERE id=?`)
@@ -116,23 +157,25 @@ async function gravarDocumentos(DB, ctx, docs, agora) {
     if (!x.chave) continue;
     comNulos(d, ['nsu', 'xml']);
     (x.itens || []).forEach(it => comNulos(it, CAMPOS_ITEM));
+    // Nota emitida antes da ativação do estoque = histórico (não soma no estoque).
+    const hist = x.dhEmi && Date.parse(x.dhEmi) < ctx.estoqueDesde ? 1 : 0;
     if (d.tipo === 'resumo') {
       conta.resumos++;
       const status = x.situacao === '3' ? 'cancelada' : 'resumo';
-      stmts.push(DB.prepare(`INSERT INTO nfe_entrada (chave,nsu,status,cnpj_emit,nome_emit,dh_emi,valor,situacao_sefaz,tp_nf,criado,atualizado)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      stmts.push(DB.prepare(`INSERT INTO nfe_entrada (chave,nsu,status,cnpj_emit,nome_emit,dh_emi,valor,situacao_sefaz,tp_nf,historico,criado,atualizado)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(chave) DO UPDATE SET situacao_sefaz=excluded.situacao_sefaz, atualizado=excluded.atualizado,
           status=CASE WHEN excluded.status='cancelada' THEN 'cancelada' ELSE nfe_entrada.status END`)
-        .bind(x.chave, d.nsu, status, soDigitos(x.cnpjEmit), x.nomeEmit, x.dhEmi, x.valor, x.situacao, x.tpNF, agora, agora));
+        .bind(x.chave, d.nsu, status, soDigitos(x.cnpjEmit), x.nomeEmit, x.dhEmi, x.valor, x.situacao, x.tpNF, hist, agora, agora));
     } else if (d.tipo === 'completa') {
       conta.completas++;
       const fornecedorId = fornecedorPara(ctx, stmts, DB, x.cnpjEmit, x.nomeEmit, agora);
-      stmts.push(DB.prepare(`INSERT INTO nfe_entrada (chave,nsu,status,numero,serie,cnpj_emit,nome_emit,fornecedor_id,dh_emi,valor,tp_nf,xml,criado,atualizado)
-        VALUES (?,?,'completa',?,?,?,?,?,?,?,?,?,?,?)
+      stmts.push(DB.prepare(`INSERT INTO nfe_entrada (chave,nsu,status,numero,serie,cnpj_emit,nome_emit,fornecedor_id,dh_emi,valor,tp_nf,xml,historico,criado,atualizado)
+        VALUES (?,?,'completa',?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(chave) DO UPDATE SET numero=excluded.numero, serie=excluded.serie, nome_emit=excluded.nome_emit,
           fornecedor_id=excluded.fornecedor_id, dh_emi=excluded.dh_emi, valor=excluded.valor, tp_nf=excluded.tp_nf, xml=excluded.xml,
           atualizado=excluded.atualizado, status=CASE WHEN nfe_entrada.status='cancelada' THEN 'cancelada' ELSE 'completa' END`)
-        .bind(x.chave, d.nsu, x.numero, x.serie, soDigitos(x.cnpjEmit), x.nomeEmit, fornecedorId, x.dhEmi, x.valor, x.tpNF, d.xml, agora, agora));
+        .bind(x.chave, d.nsu, x.numero, x.serie, soDigitos(x.cnpjEmit), x.nomeEmit, fornecedorId, x.dhEmi, x.valor, x.tpNF, d.xml, hist, agora, agora));
       for (const it of x.itens || []) {
         const pecaId = pecaPara(ctx, stmts, DB, it, fornecedorId, agora);
         stmts.push(DB.prepare(`INSERT OR REPLACE INTO nfe_entrada_itens (id,chave,n_item,codigo,ean,descricao,ncm,cest,cfop,unidade,qtde,valor_unit,valor_total,origem,peca_id)
@@ -226,6 +269,51 @@ async function sincronizar(DB, env) {
   return saida;
 }
 
+/**
+ * Liga parte de um item da nota a um item de OS. Devolve a "origem" que o
+ * navegador guarda dentro do item da OS (fornecedor, nota, custo real, NCM, código).
+ */
+async function destinar(DB, b) {
+  const qtde = Number(b.qtde);
+  if (!b.item_id || !b.ordem_id || !b.os_item_id || !(qtde > 0)) throw new Error('Informe a OS, o item e a quantidade.');
+  const it = await DB.prepare(`SELECT i.*, n.nome_emit, n.cnpj_emit, n.fornecedor_id, n.numero, n.serie, n.dh_emi, n.status,
+      p.codigo AS peca_codigo, (SELECT COALESCE(SUM(qtde),0) FROM nfe_destinos d WHERE d.item_id=i.id) AS destinado
+    FROM nfe_entrada_itens i JOIN nfe_entrada n ON n.chave=i.chave LEFT JOIN pecas p ON p.id=i.peca_id WHERE i.id=?`).bind(b.item_id).first();
+  if (!it) throw new Error('Item da nota não encontrado.');
+  if (it.status === 'cancelada') throw new Error('Esta nota foi cancelada pelo fornecedor.');
+  const saldo = (Number(it.qtde) || 0) - (Number(it.destinado) || 0);
+  if (qtde > saldo + 1e-9) throw new Error(`Só restam ${saldo} deste item na nota.`);
+  const id = uid(), agora = Date.now();
+  await DB.prepare('INSERT INTO nfe_destinos (id,item_id,chave,ordem_id,os_item_id,qtde,quem,criado) VALUES (?,?,?,?,?,?,?,?)')
+    .bind(id, it.id, it.chave, String(b.ordem_id), String(b.os_item_id), qtde, String(b.quem || ''), agora).run();
+  return {
+    destino_id: id, item_id: it.id, chave: it.chave, qtde,
+    fornecedor: it.nome_emit, cnpj: it.cnpj_emit, fornecedor_id: it.fornecedor_id,
+    nf: it.numero, serie: it.serie, data: it.dh_emi,
+    custo: it.valor_unit, descricao: it.descricao, codigo_forn: it.codigo,
+    ncm: it.ncm, cfop: it.cfop, peca_id: it.peca_id, peca_codigo: it.peca_codigo,
+  };
+}
+
+/** Saldo por peça, só das notas que contam no estoque, com as notas de onde vem. */
+async function estoque(DB) {
+  const r = await DB.prepare(`SELECT i.id, i.peca_id, i.descricao, i.unidade, i.qtde, i.valor_unit, i.ncm, n.chave, n.nome_emit, n.numero, n.dh_emi,
+      p.codigo, p.nome AS peca_nome, (SELECT COALESCE(SUM(qtde),0) FROM nfe_destinos d WHERE d.item_id=i.id) AS destinado
+    FROM nfe_entrada_itens i JOIN nfe_entrada n ON n.chave=i.chave LEFT JOIN pecas p ON p.id=i.peca_id
+    WHERE n.status='completa' AND COALESCE(n.historico,0)=0 ORDER BY n.dh_emi`).all();
+  const porPeca = {};
+  for (const i of r.results || []) {
+    const saldo = (Number(i.qtde) || 0) - (Number(i.destinado) || 0);
+    if (saldo <= 1e-9) continue;
+    const k = i.peca_id || i.id;
+    const p = (porPeca[k] ||= { peca_id: i.peca_id, codigo: i.codigo, nome: i.peca_nome || i.descricao, ncm: i.ncm, unidade: i.unidade, saldo: 0, valor: 0, origens: [] });
+    p.saldo += saldo; p.valor += saldo * (Number(i.valor_unit) || 0);
+    p.origens.push({ item_id: i.id, chave: i.chave, fornecedor: i.nome_emit, nf: i.numero, data: i.dh_emi, saldo, custo: i.valor_unit });
+  }
+  return Object.values(porPeca).map(p => ({ ...p, custo_medio: p.saldo ? p.valor / p.saldo : 0 }))
+    .sort((a, b) => String(a.nome).localeCompare(String(b.nome)));
+}
+
 export async function onRequest(context) {
   const { request, env } = context;
   const DB = env.DB;
@@ -237,15 +325,24 @@ export async function onRequest(context) {
     await garantirTabelas(DB);
 
     if (request.method === 'GET' && acao === 'notas') {
-      const [notas, itens, ctl] = await Promise.all([
-        DB.prepare(`SELECT chave,nsu,status,numero,serie,cnpj_emit,nome_emit,fornecedor_id,dh_emi,valor,situacao_sefaz,tp_nf,manifestado,manifesto_msg,criado
+      const [notas, itens, dest, ctl] = await Promise.all([
+        DB.prepare(`SELECT chave,nsu,status,numero,serie,cnpj_emit,nome_emit,fornecedor_id,dh_emi,valor,situacao_sefaz,tp_nf,manifestado,manifesto_msg,historico,criado
           FROM nfe_entrada ORDER BY dh_emi DESC LIMIT 500`).all(),
-        DB.prepare(`SELECT i.* FROM nfe_entrada_itens i JOIN (SELECT chave FROM nfe_entrada ORDER BY dh_emi DESC LIMIT 500) n ON n.chave=i.chave
-          ORDER BY i.chave, i.n_item`).all(),
+        DB.prepare(`SELECT i.*, p.codigo AS peca_codigo FROM nfe_entrada_itens i
+          JOIN (SELECT chave FROM nfe_entrada ORDER BY dh_emi DESC LIMIT 500) n ON n.chave=i.chave
+          LEFT JOIN pecas p ON p.id=i.peca_id ORDER BY i.chave, i.n_item`).all(),
+        DB.prepare('SELECT id,item_id,ordem_id,os_item_id,qtde,quem,criado FROM nfe_destinos').all(),
         DB.prepare("SELECT * FROM dfe_controle WHERE id='3m'").first(),
       ]);
+      const destPorItem = {};
+      (dest.results || []).forEach(d => { (destPorItem[d.item_id] ||= []).push(d); });
       const porNota = {};
-      (itens.results || []).forEach(i => { (porNota[i.chave] ||= []).push(i); });
+      (itens.results || []).forEach(i => {
+        const ds = destPorItem[i.id] || [];
+        i.destinos = ds;
+        i.saldo = (Number(i.qtde) || 0) - ds.reduce((s, d) => s + (Number(d.qtde) || 0), 0);
+        (porNota[i.chave] ||= []).push(i);
+      });
       return jsonResp({
         notas: (notas.results || []).map(n => ({ ...n, itens: porNota[n.chave] || [] })),
         controle: ctl || null,
@@ -266,6 +363,21 @@ export async function onRequest(context) {
 
     if (request.method === 'POST' && acao === 'sincronizar') return jsonResp(await sincronizar(DB, env));
     if (request.method === 'POST' && acao === 'diagnostico') return jsonResp(await ponte(env, { diagnostico: true }));
+
+    if (request.method === 'GET' && acao === 'estoque') return jsonResp({ pecas: await estoque(DB) });
+
+    if (request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      if (acao === 'destinar') return jsonResp(await destinar(DB, body));
+      if (acao === 'desfazer_destino') {
+        await DB.prepare('DELETE FROM nfe_destinos WHERE id=?').bind(String(body.id || '')).run();
+        return jsonResp({ ok: true });
+      }
+      if (acao === 'historico') {
+        await DB.prepare('UPDATE nfe_entrada SET historico=? WHERE chave=?').bind(body.valor ? 1 : 0, soDigitos(body.chave)).run();
+        return jsonResp({ ok: true });
+      }
+    }
 
     return jsonResp({ error: 'rota não encontrada' }, 404);
   } catch (e) {

@@ -590,6 +590,11 @@
     <div id="notasCompraBox"></div>
   </section>
 
+  <section class="screen" data-screen="estoque">
+    <div class="view-head"><div><h2>Estoque de peças</h2><p>Sobras das notas de compra, com a origem de cada peça</p></div></div>
+    <div id="estoqueBox"></div>
+  </section>
+
   <section class="screen" data-screen="relatorios">
     <div class="view-head"><div><h2>Relatórios &amp; Dashboard</h2><p>Análises, comparações e melhorias</p></div></div>
     <div id="relBox"></div>
@@ -958,14 +963,14 @@ const VIEWS=[
 ];
 const TABS=['painel','ordens','clientes','financeiro','mais'];
 let histStack=[{screen:'painel',param:null}];
-function telaPai(name){ if(['veiculos','regras','equipe','config','boletos','fornecedores','notas_compra','relatorios','contas_pagar','auditoria'].includes(name)) return 'mais'; if(name==='servicos') return 'painel'; return name; }
+function telaPai(name){ if(['veiculos','regras','equipe','config','boletos','fornecedores','notas_compra','estoque','relatorios','contas_pagar','auditoria'].includes(name)) return 'mais'; if(name==='servicos') return 'painel'; return name; }
 function showScreen(name){
   document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===name));
   const tabHi = TABS.includes(name)?name:telaPai(name);
   document.querySelectorAll('#topnav button,#tabbar button').forEach(b=>b.classList.toggle('active',b.dataset.go===tabHi));
 }
 const RENDER={painel:renderPainel,clientes:renderClientes,veiculos:renderVeiculos,ordens:renderOrdens,regras:renderRegras,config:carregarConfig,
-  financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos, boletos:renderBoletosReceber, fornecedores:renderFornecedores, notas_compra:renderNotasCompra, relatorios:renderRelatorios, contas_pagar:renderContasPagar, auditoria:renderAuditoria,
+  financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos, boletos:renderBoletosReceber, fornecedores:renderFornecedores, notas_compra:renderNotasCompra, estoque:renderEstoque, relatorios:renderRelatorios, contas_pagar:renderContasPagar, auditoria:renderAuditoria,
   cliente:p=>renderClienteDet(p), veiculo:p=>renderVeiculoDet(p), os:p=>renderOsDet(p)};
 function render(screen,param,keepScroll){ const y=window.scrollY||window.pageYOffset||0; showScreen(screen); (RENDER[screen]||(()=>{}))(param); if(keepScroll){ window.scrollTo({top:y}); } else { window.scrollTo({top:0,behavior:'smooth'}); } }
 function goTab(name){ histStack=[{screen:name,param:null}]; render(name,null); }
@@ -1757,7 +1762,7 @@ function renderOsDet(id){
   const stBadge=`<span class="badge" style="border-color:${faseCor(st)};color:${faseCor(st)}">${faseLabel(st)}</span>`;
   const linhaPeca=i=>{ const q=Number(i.qtde)||1; const sub=(Number(i.valor)||0)*q;
     return `<div class="row"><div class="main"><div class="t">${esc(i.nome)}${(i.regra_id||regraPorNome(i.nome))?' <span class="badge prev">gera retorno</span>':''}</div>
-      <div class="s">${q} × ${i.valor?moneyFmt(i.valor):'—'}</div></div><span class="valor-tag">${moneyFmt(sub)}</span></div>`; };
+      <div class="s">${q} × ${i.valor?moneyFmt(i.valor):'—'}</div>${origemPecaOS(i)}</div><span class="valor-tag">${moneyFmt(sub)}</span></div>`; };
 
   // Cabeçalho comum
   let head=`<div class="det-head"><h2>OS · ${(st==='agendamento'||st==='faltou')?(o.agenda_data?fmtBR(parseISO(o.agenda_data)):'Agendamento'):fmtBR(parseISO(o.data))}</h2>
@@ -2111,6 +2116,8 @@ function reabrirParaRevisao(oid){ if(!ehAdmin()&&!pode('reabrir')){ toast('Sem p
     const nova=JSON.parse(JSON.stringify(o));
     nova.id=uid(); nova.codigo=codigoOS(); nova.status='andamento';
     nova.revisao_de=o.id; nova.revisada_para=''; nova.motivo_rejeicao=''; nova.fechado_em='';
+    // A ligação com a nota de compra fica só na ficha original.
+    (nova.itens||[]).forEach(it=>{ if(it.origens){ it.origens=[]; recalcCustoItemOS(it); } });
     nova.data=toISO(hoje()); nova.criado=Date.now(); nova.atualizado=Date.now();
     state.ordens.push(normOrdem(nova));
     o.revisada_para=nova.id; o.atualizado=Date.now();
@@ -2837,7 +2844,7 @@ function veicComboPick(vid){ const v=getVeiculo(vid); if(!v) return; const c=get
 function openOS(id, veiculoFixo){ if(!pode('editar')){ toast('Sem permissão para editar'); return; }
   if(!state.veiculos.length){ toast('Cadastre um veículo primeiro'); goTab('veiculos'); return; }
   const o=id?getOS(id):null; osFixoVeiculo = o?o.veiculo_id : (veiculoFixo||null);
-  osItens = o?(o.itens||[]).map(i=>({id:uid(),nome:i.nome,qtde:i.qtde?String(i.qtde):'1',valor:i.valor?String(i.valor).replace('.',','):'',custo:(i.custo!=null&&i.custo!=='')?String(i.custo).replace('.',','):''})) : [{id:uid(),nome:'',qtde:'1',valor:'',custo:''}];
+  osItens = o?(o.itens||[]).map(i=>({id:i.id||uid(),_orig:i,nome:i.nome,qtde:i.qtde?String(i.qtde):'1',valor:i.valor?String(i.valor).replace('.',','):'',custo:(i.custo!=null&&i.custo!=='')?String(i.custo).replace('.',','):''})) : [{id:uid(),nome:'',qtde:'1',valor:'',custo:''}];
   osMdo = o?(o.maodeobra||[]).map(m=>({id:uid(),desc:m.desc||'',mecanico_id:m.mecanico_id||'',valor:m.valor?String(m.valor).replace('.',','):''})) : [];
   osMecRespPrev = o?(o.mecanico_id||''):'';
   let veiculoCampo;
@@ -2901,11 +2908,17 @@ let osMecRespPrev='';
 function osMecRespChange(){ const novo=val('osMecResp')||''; osMdo.forEach(r=>{ if(!r.mecanico_id || r.mecanico_id===osMecRespPrev) r.mecanico_id=novo; }); osMecRespPrev=novo; renderOsMdo(); }
 function addOsMdo(){ if(!mecanicosAtivos().length){ toast('Cadastre mecânicos em Equipe → Funcionários'); } osMdo.push({id:uid(),desc:'',mecanico_id:(val('osMecResp')||''),valor:''}); renderOsMdo(); }
 function removeOsMdo(id){ osMdo=osMdo.filter(x=>x.id!==id); renderOsMdo(); }
+// Dados internos do item (nota de compra de onde veio a peça) que a edição da OS preserva.
+function origemPecaOS(i){
+  if(!pode('valores')||!(i.origens||[]).length) return '';
+  return i.origens.map(x=>`<div class="s" style="color:var(--muted);font-size:12px">🔒 ${x.peca_codigo?('<b>'+esc(x.peca_codigo)+'</b> · '):''}${esc(x.fornecedor||'—')} · NF ${esc(x.nf||'—')} de ${nfeFmtData(x.data)} · ${nfeQtd(x.qtde)} × ${moneyFmt(x.custo)}${i.custo_orcado!=null&&Number(i.custo_orcado)!==Number(x.custo)?(' <span title="custo do orçamento">(orçado '+moneyFmt(i.custo_orcado)+')</span>'):''}</div>`).join('');
+}
+function extrasItemOS(o){ if(!o) return {}; const x={}; ['origens','custo_orcado','peca_id','peca_codigo','ncm'].forEach(k=>{ if(o[k]!==undefined) x[k]=o[k]; }); return x; }
 function saveOS(id){
   const vid=osFixoVeiculo||val('osVeiculo'); const km=num('osKm'); const data=val('osData');
   if(!vid){ toast('Escolha o veículo'); return; }
   if(!data){ toast('Informe a data'); return; }
-  const itens=osItens.filter(i=>(i.nome||'').trim()).map(i=>{ const nome=tc(i.nome.trim()); const r=regraPorNome(nome); return {id:uid(),nome,qtde:parseInt(i.qtde)||1,valor:moneyParse(i.valor),custo:moneyParse(i.custo),regra_id:r?r.id:null}; });
+  const itens=osItens.filter(i=>(i.nome||'').trim()).map(i=>{ const nome=tc(i.nome.trim()); const r=regraPorNome(nome); return {...extrasItemOS(i._orig),id:i.id||uid(),nome,qtde:parseInt(i.qtde)||1,valor:moneyParse(i.valor),custo:moneyParse(i.custo),regra_id:r?r.id:null}; });
   const maodeobra=osMdo.filter(m=>moneyParse(m.valor)>0).map(m=>({id:uid(),desc:tc((m.desc||'').trim()),mecanico_id:m.mecanico_id||'',valor:moneyParse(m.valor)}));
   const antigo=id?getOS(id):null;
   const dados={veiculo_id:vid,data,km:km||0,reclamacao:val('osRec').trim(),obs_mecanico:val('osMec').trim(),obs_admin:val('osAdm').trim(),itens,maodeobra,mecanico_id:val('osMecResp')||'',
@@ -3000,6 +3013,7 @@ function renderMais(){
     if(telaLiberada('regras')) h+=item('🗓️','Tabela de Revisões','Prazos de retorno (km/meses)',`goTab("regras")`);
     if(telaLiberada('fornecedores')) h+=item('🏭','Fornecedores','Lojistas e fornecedores (CNPJ)',`goTab("fornecedores")`);
     if(telaLiberada('fornecedores')) h+=item('🧾','Notas de compra','NF-e dos fornecedores (SEFAZ) e cadastro de peças',`goTab("notas_compra")`);
+    if(telaLiberada('fornecedores')) h+=item('📦','Estoque de peças','O que sobrou das compras e de onde veio',`goTab("estoque")`);
   }
   if(ehGestor()){
     h+=`<div class="lbl-sec-mais">Análise</div>`;
@@ -3333,18 +3347,137 @@ async function diagnosticoFiscal(){
   try{ const r=await fetch(API_FISCAL+'/diagnostico',{method:'POST'}); const d=await r.json(); alert(JSON.stringify(d,null,2)); }
   catch(e){ alert('Erro: '+e.message); }
 }
+function nfeQtd(n){ return (Number(n)||0).toLocaleString('pt-BR',{maximumFractionDigits:3}); }
+function nfeOsRotulo(o){ if(!o) return 'OS removida'; const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
+  return [v&&v.placa, c&&c.nome, o.codigo?('OS '+o.codigo):null].filter(Boolean).join(' · '); }
 function openNotaCompra(chave){
   const n=((notasCompra&&notasCompra.notas)||[]).find(x=>x.chave===chave); if(!n) return;
-  const itens=n.itens.map(i=>`<tr><td>${esc(i.descricao)}<div style="color:#999;font-size:11px">NCM ${esc(i.ncm||'—')} · CFOP ${esc(i.cfop||'—')} · cód. ${esc(i.codigo||'—')}</div></td>
-    <td style="text-align:center">${(Number(i.qtde)||0).toLocaleString('pt-BR')} ${esc(i.unidade||'')}</td><td style="text-align:right">${moneyFmt(i.valor_unit)}</td><td style="text-align:right">${moneyFmt(i.valor_total)}</td></tr>`).join('');
+  const podeDest=n.status==='completa'&&pode('editar');
+  const itens=n.itens.map(i=>{
+    const dests=(i.destinos||[]).map(d=>{ const o=getOS(d.ordem_id); const it=o&&(o.itens||[]).find(x=>x.id===d.os_item_id);
+      return `<div style="font-size:12px;margin-top:3px;color:var(--green)">→ ${nfeQtd(d.qtde)} para ${esc(nfeOsRotulo(o))}${it?(' · '+esc(it.nome)):''}
+        ${pode('editar')?`<a href="#" style="color:#e57373;margin-left:6px" onclick='desfazerDestino(event,"${chave}","${d.id}")'>desfazer</a>`:''}</div>`; }).join('');
+    const saldoTxt=i.saldo>0?(n.historico?'':`<span style="color:#D9A83E">${nfeQtd(i.saldo)} ${esc(i.unidade||'')} no estoque</span>`):'<span style="color:var(--green)">tudo destinado</span>';
+    return `<div class="row" style="display:block"><div style="display:flex;gap:8px;align-items:flex-start"><div class="main" style="flex:1">
+      <div class="t">${esc(i.descricao)}</div>
+      <div class="s">${i.peca_codigo?('<b>'+esc(i.peca_codigo)+'</b> · '):''}${nfeQtd(i.qtde)} ${esc(i.unidade||'')} × ${moneyFmt(i.valor_unit)} · NCM ${esc(i.ncm||'—')} · cód. forn. ${esc(i.codigo||'—')}</div>
+      <div class="s">${saldoTxt}</div>${dests}</div>
+      ${podeDest&&i.saldo>0?`<button class="btn sm gold" onclick='abrirDestino("${chave}","${i.id}")'>Destinar</button>`:''}</div></div>`; }).join('');
   openModal(`<h3>${esc(n.nome_emit||'Nota de compra')}</h3>
     <div class="note">${n.numero?('NF '+esc(n.numero)+' série '+esc(n.serie||'')+'\n'):''}Emissão: ${nfeFmtData(n.dh_emi)} · Total ${moneyFmt(n.valor)}
 CNPJ ${esc(n.cnpj_emit||'')}
 Chave: ${esc(n.chave)}${n.manifesto_msg?('\nCiência: '+esc(n.manifesto_msg)):''}</div>
-    ${itens?`<table style="width:100%;font-size:13px;margin-top:10px"><tr style="color:#999;font-size:11px"><td><b>ITEM</b></td><td style="text-align:center"><b>QTD</b></td><td style="text-align:right"><b>UNIT.</b></td><td style="text-align:right"><b>TOTAL</b></td></tr>${itens}</table>`
+    ${n.status==='completa'?`<div class="note" style="margin-top:8px">${n.historico
+      ?'📁 <b>Só histórico</b>: não soma no estoque. Ainda dá para ligar as peças às OS (rastreio e garantia).'
+      :'📦 <b>Conta no estoque</b>: o que não for destinado a uma OS fica no estoque.'}${pode('editar')?`<br><a href="#" style="color:#D9A83E" onclick='alternarHistorico(event,"${chave}",${n.historico?0:1})'>${n.historico?'Passar a contar no estoque':'Marcar como só histórico'}</a>`:''}</div>`:''}
+    ${itens?`<div class="rows" style="margin-top:10px">${itens}</div>`
       :'<div class="note" style="margin-top:10px">Os itens aparecem quando a SEFAZ liberar o XML completo (alguns minutos depois da ciência). Toque em “Buscar na SEFAZ” mais tarde.</div>'}
     <div style="display:flex;gap:8px;margin-top:14px">${n.status==='completa'?`<a class="btn" href="${API_FISCAL}/xml?chave=${n.chave}">Baixar XML</a>`:''}<button class="btn" onclick="closeModal()">Fechar</button></div>`);
 }
+async function fiscalPost(acao,body){
+  const r=await fetch(API_FISCAL+'/'+acao,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})});
+  const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||('http '+r.status)); return d;
+}
+async function alternarHistorico(ev,chave,valor){ ev.preventDefault();
+  try{ await fiscalPost('historico',{chave,valor}); await carregarNotasCompra(); openNotaCompra(chave); renderNotasCompra(); }catch(e){ alert(e.message); } }
+
+/* Destinar: liga parte de um item da nota a um item (peça) de uma OS. */
+let destinoCtx=null;
+function itemOsVinculado(it){ return (it.origens||[]).reduce((s,x)=>s+(Number(x.qtde)||0),0); }
+function abrirDestino(chave,itemId){
+  const n=notasCompra.notas.find(x=>x.chave===chave); const i=n&&n.itens.find(x=>x.id===itemId); if(!i) return;
+  destinoCtx={chave,itemId,filtro:''}; renderDestinoOS(); }
+function renderDestinoOS(){
+  const {chave,itemId,filtro}=destinoCtx; const n=notasCompra.notas.find(x=>x.chave===chave); const i=n.itens.find(x=>x.id===itemId);
+  const q=(filtro||'').trim().toLowerCase();
+  const lista=(state.ordens||[]).filter(o=>osStatus(o)!=='rejeitado'&&(o.itens||[]).length)
+    .filter(o=>!q||nfeOsRotulo(o).toLowerCase().includes(q)||(o.itens||[]).some(it=>(it.nome||'').toLowerCase().includes(q)))
+    .sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))).slice(0,40);
+  const rows=lista.map(o=>`<div class="row click" onclick='escolherOSDestino("${o.id}")'><div class="main"><div class="t">${esc(nfeOsRotulo(o))}</div>
+    <div class="s">${fmtBR(parseISO(o.data))} · ${esc(faseLabel(osStatus(o)))} · ${(o.itens||[]).map(it=>esc(it.nome)).join(', ')}</div></div>${chev()}</div>`).join('');
+  openModal(`<h3>Para qual OS vai?</h3>
+    <div class="note">${esc(i.descricao)}\n${nfeQtd(i.saldo)} ${esc(i.unidade||'')} disponíveis nesta nota</div>
+    <div class="field" style="margin-top:10px"><input id="dstBusca" placeholder="Buscar por placa, cliente, OS ou peça" value="${esc(filtro)}"
+      oninput="destinoCtx.filtro=this.value; clearTimeout(window._dstT); window._dstT=setTimeout(()=>{ renderDestinoOS(); const e=document.getElementById('dstBusca'); if(e){ e.focus(); e.setSelectionRange(e.value.length,e.value.length); } },250)"></div>
+    <div class="rows">${rows||emptyState('Nenhuma OS encontrada','A OS precisa ter a peça lançada no orçamento.')}</div>
+    <div style="display:flex;gap:8px;margin-top:14px"><button class="btn" onclick='openNotaCompra("${chave}")'>Voltar</button></div>`);
+}
+function escolherOSDestino(oid){
+  const {chave,itemId}=destinoCtx; const n=notasCompra.notas.find(x=>x.chave===chave); const i=n.itens.find(x=>x.id===itemId); const o=getOS(oid); if(!o) return;
+  destinoCtx.oid=oid;
+  const opts=(o.itens||[]).map(it=>{ const falta=Math.max(0,(Number(it.qtde)||1)-itemOsVinculado(it));
+    return `<option value="${it.id}" data-falta="${falta}">${esc(it.nome)} — ${nfeQtd(it.qtde||1)} no orçamento${itemOsVinculado(it)?(' · '+nfeQtd(itemOsVinculado(it))+' já ligada(s)'):''}</option>`; }).join('');
+  const primeiro=(o.itens||[]).find(it=>(Number(it.qtde)||1)>itemOsVinculado(it))||o.itens[0];
+  const sugestao=Math.min(i.saldo, Math.max(1,(Number(primeiro.qtde)||1)-itemOsVinculado(primeiro)));
+  openModal(`<h3>${esc(nfeOsRotulo(o))}</h3>
+    <div class="note">Da nota: ${esc(i.descricao)} (${nfeQtd(i.saldo)} disponíveis · custo ${moneyFmt(i.valor_unit)})</div>
+    <div class="field" style="margin-top:10px"><label>Peça do orçamento</label><select id="dstItem" onchange="const f=+this.selectedOptions[0].dataset.falta; if(f>0) document.getElementById('dstQtd').value=Math.min(f,${i.saldo});">${opts}</select></div>
+    <div class="field"><label>Quantidade para esta OS</label><input id="dstQtd" inputmode="decimal" value="${sugestao}"></div>
+    <div class="note" style="font-size:12px">O cliente continua vendo só o nome e o valor do orçamento. Fornecedor, nota e custo real ficam guardados por dentro da OS (🔒).${i.saldo>sugestao?' O que sobrar fica no estoque.':''}</div>
+    <div style="display:flex;gap:8px;margin-top:14px"><button class="btn gold" onclick="confirmarDestino()">Confirmar</button><button class="btn" onclick="renderDestinoOS()">Voltar</button></div>`);
+  const sel=document.getElementById('dstItem'); if(sel&&primeiro) sel.value=primeiro.id;
+}
+function recalcCustoItemOS(it){
+  const os=it.origens||[]; const q=os.reduce((s,x)=>s+(Number(x.qtde)||0),0);
+  if(q>0){ it.custo=Math.round(os.reduce((s,x)=>s+(Number(x.qtde)||0)*(Number(x.custo)||0),0)/q*100)/100; return; }
+  // Sem nenhuma nota ligada: volta ao custo do orçamento.
+  if(it.custo_orcado!==undefined){ it.custo=it.custo_orcado; delete it.custo_orcado; }
+  delete it.origens; delete it.peca_id; delete it.peca_codigo; delete it.ncm;
+}
+async function confirmarDestino(){
+  const {chave,itemId,oid}=destinoCtx; const o=getOS(oid); const osItemId=val('dstItem');
+  const qtde=parseFloat(String(val('dstQtd')||'').replace(',','.'));
+  if(!(qtde>0)){ toast('Informe a quantidade'); return; }
+  try{
+    const u=(typeof usuarioAtual!=='undefined'&&usuarioAtual)||{};
+    const orig=await fiscalPost('destinar',{item_id:itemId,ordem_id:oid,os_item_id:osItemId,qtde,quem:u.nome||''});
+    const it=(o.itens||[]).find(x=>x.id===osItemId);
+    if(it){ if(it.custo_orcado===undefined) it.custo_orcado=(it.custo===undefined?null:it.custo);
+      it.origens=(it.origens||[]).concat([orig]); it.peca_id=orig.peca_id; it.peca_codigo=orig.peca_codigo; it.ncm=orig.ncm;
+      recalcCustoItemOS(it); o.atualizado=Date.now(); salvar(); }
+    logAcao('Destinou peça da nota à OS', o.codigo?('OS '+o.codigo):'OS', nfeQtd(qtde)+' × '+(orig.descricao||'')+' · NF '+(orig.nf||'')+' '+(orig.fornecedor||''));
+    toast('Peça ligada à OS ✓');
+    await carregarNotasCompra(); openNotaCompra(chave); renderNotasCompra();
+  }catch(e){ alert('Não foi possível destinar:\n'+e.message); }
+}
+async function desfazerDestino(ev,chave,destId){ ev.preventDefault();
+  confirmar('Desfazer esta ligação? A quantidade volta para o estoque da nota.', async function(){
+    try{
+      await fiscalPost('desfazer_destino',{id:destId});
+      (state.ordens||[]).forEach(o=>(o.itens||[]).forEach(it=>{ if((it.origens||[]).some(x=>x.destino_id===destId)){
+        it.origens=it.origens.filter(x=>x.destino_id!==destId); recalcCustoItemOS(it); o.atualizado=Date.now(); } }));
+      salvar(); logAcao('Desfez destino de peça', '', destId); toast('Ligação desfeita');
+      await carregarNotasCompra(); openNotaCompra(chave); renderNotasCompra();
+    }catch(e){ alert(e.message); }
+  });
+}
+
+/* ---- Estoque de peças (saldo das notas que contam no estoque) ---- */
+let estoqueDados=null;
+function renderEstoque(){
+  const box=document.getElementById('estoqueBox'); if(!box) return;
+  if(!telaLiberada('fornecedores')){ box.innerHTML='<div class="note empty-note">Sem permissão.</div>'; return; }
+  box.innerHTML='<div class="note">Carregando…</div>';
+  fetch(API_FISCAL+'/estoque').then(r=>r.json()).then(d=>{ estoqueDados=d.pecas||[]; desenharEstoque(); })
+    .catch(e=>{ box.innerHTML='<div class="note">Erro ao carregar: '+esc(e.message)+'</div>'; });
+}
+function desenharEstoque(){
+  const box=document.getElementById('estoqueBox'); if(!box) return; const lista=estoqueDados||[];
+  const total=lista.reduce((s,p)=>s+p.saldo*p.custo_medio,0);
+  const rows=lista.map((p,ix)=>`<div class="row click" onclick='abrirEstoquePeca(${ix})'><div class="main"><div class="t">${p.codigo?('<b>'+esc(p.codigo)+'</b> · '):''}${esc(p.nome)}</div>
+    <div class="s">${nfeQtd(p.saldo)} ${esc(p.unidade||'')} · custo médio ${moneyFmt(p.custo_medio)} · NCM ${esc(p.ncm||'—')}</div></div>${chev()}</div>`).join('');
+  box.innerHTML=`<div class="note" style="margin:0 16px 12px">Peças compradas que ainda não foram destinadas a uma OS. Valor em estoque (custo): <b>${moneyFmt(total)}</b></div>
+    <div class="section-label"><span>Peças em estoque (${lista.length})</span></div>
+    <div class="rows">${lista.length?rows:emptyState('Estoque vazio','As sobras das notas de compra aparecem aqui.')}</div>`;
+}
+function abrirEstoquePeca(ix){ const p=(estoqueDados||[])[ix]; if(!p) return;
+  openModal(`<h3>${p.codigo?(esc(p.codigo)+' · '):''}${esc(p.nome)}</h3>
+    <div class="note">${nfeQtd(p.saldo)} ${esc(p.unidade||'')} em estoque · NCM ${esc(p.ncm||'—')}</div>
+    <div class="section-label">De onde veio</div>
+    <div class="rows">${p.origens.map(o=>`<div class="row click" onclick='abrirNotaPorChave("${o.chave}")'><div class="main"><div class="t">${esc(o.fornecedor||'—')}</div>
+      <div class="s">NF ${esc(o.nf||'—')} · ${nfeFmtData(o.data)} · ${nfeQtd(o.saldo)} restantes · custo ${moneyFmt(o.custo)}</div></div>${chev()}</div>`).join('')}</div>
+    <div style="display:flex;gap:8px;margin-top:14px"><button class="btn" onclick="closeModal()">Fechar</button></div>`); }
+async function abrirNotaPorChave(chave){ try{ if(!notasCompra) await carregarNotasCompra(); openNotaCompra(chave); }catch(e){ alert(e.message); } }
 
 /* ---- Fornecedores ---- */
 function getFornecedor(id){ return (state.fornecedores||[]).find(f=>f.id===id); }
