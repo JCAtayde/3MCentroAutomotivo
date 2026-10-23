@@ -3291,9 +3291,12 @@ function renderBoletosReceber(){
 const API_FISCAL='/gestao/api/fiscal';
 let notasCompra=null, notasCompraBusy=false;
 function nfeFmtData(d){ return d?new Date(d).toLocaleDateString('pt-BR'):'—'; }
+// Ciência recusada por prazo (mais de 10 dias): a SEFAZ não libera mais o XML completo.
+function nfeSoResumo(n){ return n.status==='resumo'&&!n.manifestado&&/^596/.test(n.manifesto_msg||''); }
 function nfeStatusTag(n){
   if(n.status==='cancelada') return '<span class="badge" style="color:#e57373;border-color:#e57373">Cancelada</span>';
   if(n.status==='manual') return '<span class="badge" style="color:#9AA3AF;border-color:#9AA3AF">Sem nota</span>';
+  if(nfeSoResumo(n)) return '<span class="badge" style="color:#9AA3AF;border-color:#9AA3AF">Só resumo</span>';
   if(n.status==='completa') return '<span class="badge" style="color:#81c784;border-color:#81c784">Completa</span>';
   return '<span class="badge" style="color:#D9A83E;border-color:#D9A83E">'+(n.manifestado?'Aguardando XML':'Resumo')+'</span>';
 }
@@ -3374,6 +3377,7 @@ Chave: ${esc(n.chave)}${n.manifesto_msg?('\nCiência: '+esc(n.manifesto_msg)):''
       ?'📁 <b>Só histórico</b>: não soma no estoque. Ainda dá para ligar as peças às OS (rastreio e garantia).'
       :'📦 <b>Conta no estoque</b>: o que não for destinado a uma OS fica no estoque.'}${pode('editar')?`<br><a href="#" style="color:#D9A83E" onclick='alternarHistorico(event,"${chave}",${n.historico?0:1})'>${n.historico?'Passar a contar no estoque':'Marcar como só histórico'}</a>`:''}</div>`:''}
     ${itens?`<div class="rows" style="margin-top:10px">${itens}</div>`
+      :nfeSoResumo(n)?'<div class="note" style="margin-top:10px">📄 <b>Só resumo.</b> A SEFAZ só libera a nota completa (com os itens) quando a ciência é feita em até 10 dias da emissão, e esta nota já passou do prazo. Ficam guardados o fornecedor, a data e o valor. Se precisar dos itens, peça o XML ao fornecedor ou ao contador.</div>'
       :'<div class="note" style="margin-top:10px">Os itens aparecem quando a SEFAZ liberar o XML completo (alguns minutos depois da ciência). Toque em “Buscar na SEFAZ” mais tarde.</div>'}
     <div style="display:flex;gap:8px;margin-top:14px">${n.status==='completa'?`<a class="btn" href="${API_FISCAL}/xml?chave=${n.chave}">Baixar XML</a>`:''}${manual&&pode('editar')&&!n.itens.some(i=>(i.destinos||[]).length)?`<button class="btn" style="color:#e57373" onclick='excluirEntradaManual("${chave}")'>Excluir</button>`:''}<button class="btn" onclick="closeModal()">Fechar</button></div>`);
 }

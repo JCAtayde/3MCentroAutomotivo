@@ -32,6 +32,8 @@
 const ESPERA_MS = 65 * 60 * 1000;
 const LOTES_POR_RODADA = 3;     // cada lote traz até 50 documentos
 const CIENCIAS_POR_RODADA = 10;
+// Prazo da SEFAZ para a Ciência da Operação; com folga para o fuso e a hora da autorização.
+const PRAZO_CIENCIA_DIAS = 9.5;
 const COMPLETAR_POR_RODADA = 5;
 // Depois da ciência a SEFAZ leva alguns minutos para liberar o XML completo.
 const ESPERA_COMPLETA_MS = 15 * 60 * 1000;
@@ -240,8 +242,14 @@ async function sincronizar(DB, env) {
     .bind(ult, max, espera, Date.now(), status).run();
 
   // 2) Ciência da Operação nos resumos autorizados — libera o XML completo.
+  // A SEFAZ só aceita a ciência até 10 dias depois da autorização (rejeição 596). Nota mais
+  // velha fica só como resumo, sem chamar a SEFAZ. Recusa gravada em manifesto_msg não é
+  // tentada de novo — senão o mesmo aviso voltaria a cada busca.
+  await DB.prepare(`UPDATE nfe_entrada SET manifesto_msg='596 Fora do prazo de 10 dias para a ciência'
+    WHERE status='resumo' AND manifestado IS NULL AND manifesto_msg IS NULL AND dh_emi IS NOT NULL
+    AND julianday('now') - julianday(dh_emi) > ?`).bind(PRAZO_CIENCIA_DIAS).run();
   const pend = await DB.prepare(`SELECT chave FROM nfe_entrada WHERE status='resumo' AND situacao_sefaz='1' AND manifestado IS NULL
-    ORDER BY dh_emi DESC LIMIT ?`).bind(CIENCIAS_POR_RODADA).all();
+    AND manifesto_msg IS NULL ORDER BY dh_emi DESC LIMIT ?`).bind(CIENCIAS_POR_RODADA).all();
   for (const { chave } of pend.results || []) {
     try {
       const r = await ponte(env, { acao: 'ciencia', chave });
@@ -249,7 +257,8 @@ async function sincronizar(DB, env) {
       const ok = r.cStat === '135' || r.cStat === '573';
       await DB.prepare('UPDATE nfe_entrada SET manifestado=?, manifesto_msg=? WHERE chave=?')
         .bind(ok ? Date.now() : null, `${r.cStat} ${r.xMotivo}`, chave).run();
-      if (ok) saida.ciencias++; else saida.avisos.push(`Ciência ${chave.slice(25, 34)}: ${r.cStat} ${r.xMotivo}`);
+      if (ok) saida.ciencias++;
+      else if (r.cStat !== '596') saida.avisos.push(`Ciência ${chave.slice(25, 34)}: ${r.cStat} ${r.xMotivo}`);
     } catch (e) {
       saida.avisos.push(`Ciência ${chave.slice(25, 34)}: ${e.message}`);
     }
