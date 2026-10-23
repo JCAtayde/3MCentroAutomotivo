@@ -3316,14 +3316,38 @@ function renderNotasCompra(){
     : ctl?('Última busca: '+new Date(ctl.ultima_execucao).toLocaleString('pt-BR')+' · '+esc(ctl.ultimo_status||'')
         +(espera?('\nPróxima busca liberada às '+new Date(espera).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+' (regra da SEFAZ: 1 consulta por hora quando não há nada novo).'):''))
     : 'Nenhuma busca feita ainda. A primeira traz as notas dos últimos 90 dias.';
-  const rows=notas.map(n=>`<div class="row click" onclick='openNotaCompra("${n.chave}")'><div class="main"><div class="t">${esc(n.nome_emit||'—')} ${nfeStatusTag(n)}</div>
-    <div class="s">${n.numero?('NF '+esc(n.numero)+' · '):''}${nfeFmtData(n.dh_emi)} · ${moneyFmt(n.valor)}${n.itens.length?(' · '+n.itens.length+' itens'):''}</div></div>${chev()}</div>`).join('');
   box.innerHTML=`<div class="note" style="margin:0 16px 12px">${info}</div>
     <div class="section-label"><span>Notas (${notas.length})</span><span>
       ${ehAdmin()?'<button class="btn sm" onclick="diagnosticoFiscal()">Diagnóstico</button> ':''}
       ${pode('editar')?'<button class="btn sm" onclick="abrirEntradaManual()">+ Sem nota</button> ':''}
       <button class="btn sm gold" id="btnBuscarNfe" onclick="buscarNotasSefaz()" ${notasCompraBusy?'disabled':''}>${notasCompraBusy?'Buscando…':'Buscar na SEFAZ'}</button></span></div>
-    <div class="rows">${notas.length?rows:emptyState('Nenhuma nota de compra','Toque em “Buscar na SEFAZ” para puxar as notas emitidas contra o CNPJ da 3M.')}</div>`;
+    <div style="margin:0 0 10px"><input id="nfeBusca" placeholder="🔎 Buscar peça, fornecedor ou nº da NF (ex.: valvula, palio, 247997)" value="${esc(nfeFiltro)}"
+      oninput="nfeFiltro=this.value; desenharListaNotas()" style="width:100%">
+      <label style="display:flex;gap:8px;align-items:center;justify-content:flex-start;text-align:left;font-size:13px;margin-top:8px;color:var(--muted);cursor:pointer"><input type="checkbox" style="width:18px;height:18px;flex:none;margin:0" ${nfeSoPend?'checked':''} onchange="nfeSoPend=this.checked; desenharListaNotas()"><span>Só notas com peças ainda sem OS</span></label></div>
+    <div class="rows" id="nfeLista"></div>`;
+  desenharListaNotas();
+}
+let nfeFiltro='', nfeSoPend=false;
+// Lista das notas com as peças à mostra: nome, quantidade e quanto falta destinar.
+function desenharListaNotas(){
+  const el=document.getElementById('nfeLista'); if(!el||!notasCompra) return;
+  const q=(nfeFiltro||'').trim().toLowerCase();
+  const notas=(notasCompra.notas||[]).filter(n=>{
+    // Pendência só conta em nota que vale para o estoque (histórico = peças que já saíram).
+    if(nfeSoPend&&(n.historico||!n.itens.some(i=>i.saldo>0))) return false;
+    if(!q) return true;
+    return [n.nome_emit,n.numero,n.cnpj_emit].some(v=>String(v||'').toLowerCase().includes(q))
+      || n.itens.some(i=>[i.descricao,i.codigo,i.peca_codigo].some(v=>String(v||'').toLowerCase().includes(q)));
+  });
+  const linhaItem=i=>{ const usados=(Number(i.qtde)||0)-(Number(i.saldo)||0);
+    const marca=i.saldo<=0?'<span style="color:var(--green)">✓ na OS</span>':(usados>0?`<span style="color:#D9A83E">${nfeQtd(i.saldo)} sem OS</span>`:'');
+    const destaque=q&&String(i.descricao||'').toLowerCase().includes(q)?'font-weight:700;color:var(--txt)':'';
+    return `<div class="s" style="${destaque}"><b>${nfeQtd(i.qtde)} ${esc(i.unidade||'un')}</b> · ${esc(i.descricao)} ${marca}</div>`; };
+  el.innerHTML=notas.length?notas.map(n=>{ const its=n.itens; const mostra=q?its.filter(i=>String(i.descricao||'').toLowerCase().includes(q)).concat(its.filter(i=>!String(i.descricao||'').toLowerCase().includes(q))):its;
+    return `<div class="row click" onclick='openNotaCompra("${n.chave}")'><div class="main"><div class="t">${esc(n.nome_emit||'—')} ${nfeStatusTag(n)}</div>
+    <div class="s">${n.numero?('NF '+esc(n.numero)+' · '):''}${nfeFmtData(n.dh_emi)} · ${moneyFmt(n.valor)}</div>
+    ${mostra.slice(0,4).map(linhaItem).join('')}${its.length>4?`<div class="s">+ ${its.length-4} outras peças</div>`:''}</div>${chev()}</div>`; }).join('')
+    :emptyState(q||nfeSoPend?'Nada encontrado':'Nenhuma nota de compra', q||nfeSoPend?'Tente outro nome de peça, fornecedor ou número da NF.':'Toque em “Buscar na SEFAZ” para puxar as notas emitidas contra o CNPJ da 3M.');
 }
 async function buscarNotasSefaz(){
   if(notasCompraBusy) return; notasCompraBusy=true; renderNotasCompra();
@@ -3366,7 +3390,8 @@ function openNotaCompra(chave){
     const saldoTxt=i.saldo>0?(n.historico?'':`<span style="color:#D9A83E">${nfeQtd(i.saldo)} ${esc(i.unidade||'')} no estoque</span>`):'<span style="color:var(--green)">tudo destinado</span>';
     return `<div class="row" style="display:block"><div style="display:flex;gap:8px;align-items:flex-start"><div class="main" style="flex:1">
       <div class="t">${esc(i.descricao)}</div>
-      <div class="s">${i.peca_codigo?('<b>'+esc(i.peca_codigo)+'</b> · '):''}${nfeQtd(i.qtde)} ${esc(i.unidade||'')} × ${moneyFmt(i.valor_unit)} · NCM ${esc(i.ncm||'—')} · cód. forn. ${esc(i.codigo||'—')}</div>
+      <div style="font-size:15px;margin:4px 0"><b>Quantidade: ${nfeQtd(i.qtde)} ${esc(i.unidade||'un')}</b>${(i.destinos||[]).length?` · <span style="color:${i.saldo>0?'#D9A83E':'var(--green)'}">${i.saldo>0?('faltam '+nfeQtd(i.saldo)+' para destinar'):'todas já na OS'}</span>`:''}</div>
+      <div class="s">${i.peca_codigo?('<b>'+esc(i.peca_codigo)+'</b> · '):''}${moneyFmt(i.valor_unit)} cada · NCM ${esc(i.ncm||'—')} · cód. forn. ${esc(i.codigo||'—')}</div>
       <div class="s">${saldoTxt}</div>${dests}</div>
       ${podeDest&&i.saldo>0?`<button class="btn sm gold" onclick='abrirDestino("${chave}","${i.id}")'>Destinar</button>`:''}</div></div>`; }).join('');
   openModal(`<h3>${manual?'🧾 Compra sem nota · ':''}${esc(n.nome_emit||'Nota de compra')}</h3>
