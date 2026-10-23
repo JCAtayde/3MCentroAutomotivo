@@ -45,6 +45,12 @@
   .brand h1{font-family:var(--disp); font-weight:700; font-size:18px; margin:0; letter-spacing:.3px; line-height:1}
   .brand small{color:var(--muted); font-size:11.5px; letter-spacing:.4px; text-transform:uppercase}
   .top .spacer{flex:1}
+  .inst-btn{flex:none; display:inline-flex; align-items:center; gap:5px; background:rgba(232,178,58,.12); border:1px solid var(--gold); color:var(--gold);
+    border-radius:999px; padding:7px 12px; font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap}
+  .inst-btn:hover{background:rgba(232,178,58,.22)}
+  .auth-card .inst-btn{width:100%; justify-content:center; margin-top:14px; padding:10px 12px; font-size:14px}
+  @media(max-width:400px){ .top .inst-btn{padding:6px 9px; font-size:12.5px; gap:3px} .top .inst-btn span{display:none} }
+  @media(display-mode:standalone){ .inst-btn{display:none !important} }
   .top nav{display:none; gap:4px}
   @media(min-width:920px){ .top nav{display:flex} body{padding-bottom:24px} }
   .top nav button{background:none; border:0; color:var(--muted); padding:9px 12px; border-radius:9px; font-size:13px; font-weight:600; cursor:pointer;}
@@ -473,6 +479,7 @@
 <header class="top">
   <div class="brand"><div class="logo">3M</div><div><h1>Gestão da Oficina</h1><small>Centro Automotivo</small></div></div>
   <div class="spacer"></div>
+  <button class="inst-btn" onclick="instalarApp()" title="Instalar o app neste aparelho">📲 Instalar<span> app</span></button>
   <span id="syncDot" title="Sincronizado" style="width:10px;height:10px;border-radius:50%;background:#6D7480;flex:none;margin-right:4px"></span>
   <span id="authUser"></span>
   <button id="leadPill" onclick="goTab('painel')" style="display:none"></button>
@@ -4421,6 +4428,7 @@ function mostrarLogin(){
     <button class="btn gold" onclick="fazerLogin()">Entrar</button>
     <div class="auth-alt"><a onclick="mostrarReset()">Esqueci minha senha</a></div>
     <div class="auth-alt">Não tem acesso? <a onclick="mostrarCadastro()">Cadastre-se</a></div>
+    ${appInstalado()?'':'<button type="button" class="inst-btn" onclick="instalarApp()">📲 Instalar app no celular</button>'}
   </div>`);
 }
 function mostrarReset(){
@@ -4589,19 +4597,52 @@ montarNav(); renderPainel(); verificarAuth(); sincronizar();
 window.addEventListener('focus', ()=>{ if(!syncing) sincronizar(); });
 setInterval(()=>{ if(!syncing && document.visibilityState==='visible') sincronizar(); }, 60000);
 
-/* app no celular (PWA): registra o service worker e oferece instalar no Android */
+/* app no celular (PWA): registra o service worker e o botão "Instalar app" (topo e tela de login) */
 if('serviceWorker' in navigator) window.addEventListener('load', ()=>{ navigator.serviceWorker.register('/gestao/sw.js',{scope:'/gestao/'}).catch(()=>{}); });
-window.addEventListener('beforeinstallprompt', ev=>{
-  ev.preventDefault(); if(document.getElementById('instBanner')) return;
-  try{ if(localStorage.getItem('oficina_instalar_nao')) return; }catch(e){}
-  const b=document.createElement('div'); b.id='instBanner';
-  b.style.cssText='position:fixed;left:12px;right:12px;bottom:calc(92px + env(safe-area-inset-bottom,0));z-index:9999;background:var(--panel2);border:1px solid var(--gold);color:var(--txt);border-radius:var(--radius);padding:12px 44px 12px 14px;font-weight:600;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.5)';
-  b.textContent='📲 Instalar o app da Oficina 3M neste aparelho';
-  b.onclick=()=>{ b.remove(); ev.prompt(); };
-  const x=document.createElement('div'); x.textContent='✕'; x.style.cssText='position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--muted)';
-  x.onclick=e=>{ e.stopPropagation(); try{ localStorage.setItem('oficina_instalar_nao','1'); }catch(err){} b.remove(); };
-  b.appendChild(x); document.body.appendChild(b);
-});
+var promptInstalar=null;
+function appInstalado(){ return !!((window.matchMedia&&matchMedia('(display-mode: standalone)').matches) || navigator.standalone); }
+function ehIOS(){ return /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints>1); }
+function navegadorInterno(){ return /FBAN|FBAV|FB_IAB|Instagram|WhatsApp|Line\/|; wv\)/i.test(navigator.userAgent); }
+function esconderInstalar(){ document.querySelectorAll('.inst-btn').forEach(b=>b.style.display='none'); }
+if(appInstalado()) esconderInstalar();
+window.addEventListener('beforeinstallprompt', ev=>{ ev.preventDefault(); promptInstalar=ev; });
+window.addEventListener('appinstalled', ()=>{ promptInstalar=null; esconderInstalar(); fecharInstalar(); toast('App instalado! Procure o ícone 3M na tela inicial'); });
+async function instalarApp(){
+  if(promptInstalar){ const p=promptInstalar; promptInstalar=null; p.prompt(); try{ const r=await p.userChoice; if(r&&r.outcome==='accepted') esconderInstalar(); }catch(e){} return; }
+  const passo=(n,html)=>`<div style="display:flex;gap:12px;align-items:flex-start;margin:0 0 14px"><div style="flex:none;width:30px;height:30px;border-radius:50%;background:var(--gold);color:#14161A;font-weight:800;display:grid;place-items:center">${n}</div><div style="padding-top:4px;line-height:1.45">${html}</div></div>`;
+  const chip=t=>`<span style="display:inline-flex;align-items:center;gap:6px;background:#2c3038;border:1px solid var(--line2);border-radius:8px;padding:2px 9px;font-weight:700;white-space:nowrap">${t}</span>`;
+  const icoShare=`<svg width="16" height="18" viewBox="0 0 16 18" fill="none" stroke="#5B93E0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V1M4.5 4.5 8 1l3.5 3.5"/><path d="M5 7H2.5v9.5h11V7H11"/></svg>`;
+  const icoMais=`<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5B93E0" stroke-width="1.8" stroke-linejoin="round"><rect x="1.5" y="1.5" width="13" height="13" rx="3"/><path d="M8 5v6M5 8h6" stroke-linecap="round"/></svg>`;
+  const linkBtn=`<button class="btn" style="width:100%;margin-top:4px" onclick="copiarTexto('https://www.3mcentroautomotivo.com.br/gestao/')">📋 Copiar o endereço do app</button>`;
+  let corpo;
+  if(ehIOS()){
+    if(navegadorInterno() || /CriOS|FxiOS|EdgiOS|OPiOS|GSA\//.test(navigator.userAgent)){
+      corpo=`<div style="background:var(--amber-bg);border:1px solid var(--amber);border-radius:12px;padding:12px 14px;margin-bottom:16px">⚠️ No iPhone, só o <b>Safari</b> consegue instalar o app. Você está em outro navegador${navegadorInterno()?' (dentro do WhatsApp/Instagram)':''}.</div>
+        ${passo(1,'Toque no botão abaixo para copiar o endereço.')}${passo(2,'Abra o <b>Safari</b> (a bússola azul), cole o endereço na barra e entre.')}${passo(3,'No Safari, toque de novo em '+chip('📲 Instalar app')+' e siga o passo a passo.')}${linkBtn}`;
+    } else {
+      corpo=`${passo(1,'Toque no botão '+chip(icoShare+' Compartilhar')+' do Safari.<div style="color:var(--muted);font-size:13px;margin-top:4px">Fica na barra de baixo (ou no topo, no iPad). Se não aparecer, toque em '+chip('⋯')+' ao lado do endereço e depois em Compartilhar.</div>')}
+        ${passo(2,'Role a lista para baixo e toque em '+chip(icoMais+' Adicionar à Tela de Início')+'.<div style="color:var(--muted);font-size:13px;margin-top:4px">Não achou? No fim da lista, toque em “Editar Ações” e ative essa opção.</div>')}
+        ${passo(3,'Toque em '+chip('Adicionar')+' no canto superior direito.')}
+        ${passo(4,'Pronto! Abra pelo ícone <b>Oficina 3M</b> na tela inicial.')}`;
+    }
+  } else if(navegadorInterno()){
+    corpo=`<div style="background:var(--amber-bg);border:1px solid var(--amber);border-radius:12px;padding:12px 14px;margin-bottom:16px">⚠️ Você abriu o sistema dentro de outro aplicativo (WhatsApp/Instagram). Por aqui não dá para instalar.</div>
+      ${passo(1,'Toque em '+chip('⋮')+' no canto da tela e escolha “Abrir no Chrome” (ou “Abrir no navegador”).')}${passo(2,'No Chrome, toque de novo em '+chip('📲 Instalar app')+'.')}${linkBtn}`;
+  } else if(/Android/i.test(navigator.userAgent)){
+    corpo=`${passo(1,'Toque em '+chip('⋮')+' no canto superior direito do Chrome.')}${passo(2,'Escolha '+chip('Instalar app')+' ou '+chip('Adicionar à tela inicial')+'.')}${passo(3,'Confirme em '+chip('Instalar')+'. O ícone <b>Oficina 3M</b> aparece na tela inicial.')}`;
+  } else {
+    corpo=`${passo(1,'No Chrome ou Edge, clique no ícone de instalar no fim da barra de endereço (um monitor com seta) ou no menu '+chip('⋮')+' → “Instalar Gestão da Oficina”.')}${passo(2,'No celular, abra este endereço e toque em '+chip('📲 Instalar app')+'.')}${linkBtn}`;
+  }
+  fecharInstalar();
+  const o=document.createElement('div'); o.id='instOverlay';
+  o.style.cssText='position:fixed;inset:0;z-index:400;background:rgba(6,7,9,.78);backdrop-filter:blur(3px);display:flex;align-items:flex-end;justify-content:center;padding:12px';
+  o.innerHTML=`<div style="width:100%;max-width:440px;max-height:92vh;overflow:auto;background:var(--panel);border:1px solid var(--line2);border-radius:18px;padding:20px 18px calc(18px + env(safe-area-inset-bottom,0))">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px"><img src="/gestao/icones/icone-192.png" alt="" style="width:46px;height:46px;border-radius:11px"><div><div style="font-family:var(--disp);font-weight:700;font-size:20px;line-height:1.1">Instalar o app Oficina 3M</div><div style="color:var(--muted);font-size:13px">Fica com ícone na tela inicial, igual a um aplicativo</div></div></div>
+    ${corpo}<button class="btn gold" style="width:100%;margin-top:8px" onclick="fecharInstalar()">Fechar</button></div>`;
+  o.addEventListener('click', e=>{ if(e.target===o) fecharInstalar(); });
+  document.body.appendChild(o);
+}
+function fecharInstalar(){ const o=document.getElementById('instOverlay'); if(o) o.remove(); }
 </script>
 </body>
 </html>
