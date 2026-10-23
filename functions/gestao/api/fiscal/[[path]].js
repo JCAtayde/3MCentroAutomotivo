@@ -66,7 +66,7 @@ async function garantirTabelas(DB) {
   for (const col of ['ncm TEXT', 'cest TEXT', 'ean TEXT', 'unidade TEXT', 'custo REAL', 'origem TEXT', 'codigo_forn TEXT', 'fornecedor_id TEXT', 'codigo TEXT']) {
     try { await DB.prepare(`ALTER TABLE pecas ADD COLUMN ${col}`).run(); } catch (e) { /* coluna já existe */ }
   }
-  for (const col of ['historico INTEGER', 'comprovante TEXT', 'obs TEXT']) {
+  for (const col of ['historico INTEGER', 'comprovante TEXT', 'obs TEXT', 'rateio_un INTEGER']) {
     try { await DB.prepare(`ALTER TABLE nfe_entrada ADD COLUMN ${col}`).run(); } catch (e) { /* coluna já existe */ }
   }
   try { await DB.prepare('ALTER TABLE dfe_controle ADD COLUMN estoque_desde INTEGER').run(); } catch (e) { /* coluna já existe */ }
@@ -102,9 +102,10 @@ async function garantirTabelas(DB) {
 const codigoPeca = (n) => 'P' + String(n).padStart(4, '0');
 
 /**
- * Custo real de cada item a partir do XML da NF-e: vProd + vFrete + vSeg + vOutro + vIPI
- * + ICMS-ST (vICMSST + vFCPST) − vDesc, dividido pela quantidade. A NF-e já traz frete e
- * despesas rateados por item; se só o total vier preenchido, rateia pelo valor do produto.
+ * Custo real de cada item a partir do XML da NF-e: preço do produto (vProd ÷ quantidade) + uma
+ * parte igual, por unidade comprada, de tudo o que a nota cobra além dos produtos (vFrete + vSeg
+ * + vOutro + vIPI + ICMS-ST − vDesc de todos os itens). Os valores por item ficam gravados como a
+ * nota trouxe, só para conferência; se só o total vier preenchido, distribui pelo valor do produto.
  * (O vItem da reforma não serve: soma IBS/CBS, que em 2026 não entram no total da nota.)
  */
 function custosDoXml(xml) {
@@ -125,24 +126,38 @@ function custosDoXml(xml) {
     const total = num(tot, nome);
     if (total > 0 && base > 0 && lista.reduce((a, i) => a + i[campo], 0) < 0.005) lista.forEach(i => { i[campo] = total * i.v_prod / base; });
   }
-  for (const i of lista) i.custo_unit = custoUnit(i);
+  const excedente = lista.reduce((a, i) => a + i.v_frete + i.v_seg + i.v_outro + i.v_ipi + i.v_st - i.v_desc, 0);
+  const porUnidade = rateioPorUnidade(excedente, lista.reduce((a, i) => a + i.qtde, 0));
+  for (const i of lista) i.custo_unit = i.qtde > 0 ? arred4(i.v_prod / i.qtde + porUnidade) : 0;
   return itens;
 }
-function custoUnit(i) {
-  const total = i.v_prod + i.v_frete + i.v_seg + i.v_outro + i.v_ipi + i.v_st - i.v_desc;
-  return i.qtde > 0 ? Math.round(total / i.qtde * 10000) / 10000 : 0;
-}
+const arred4 = (v) => Math.round(v * 10000) / 10000;
+// Excedente da nota (frete, despesas, impostos) dividido igualmente por unidade comprada.
+const rateioPorUnidade = (excedente, unidades) => unidades > 0 ? excedente / unidades : 0;
 
-/** Preenche o custo real dos itens gravados antes desta regra (um lote de notas por pedido). */
+/** Refaz o custo real das notas gravadas antes da regra atual (rateio_un) — um lote por pedido. */
 async function recalcularCustos(DB) {
   await DB.prepare(`UPDATE nfe_entrada_itens SET custo_unit=valor_unit WHERE custo_unit IS NULL
     AND chave IN (SELECT chave FROM nfe_entrada WHERE status='manual')`).run();
-  const r = await DB.prepare(`SELECT n.chave, n.xml FROM nfe_entrada n WHERE n.xml IS NOT NULL
-    AND EXISTS (SELECT 1 FROM nfe_entrada_itens i WHERE i.chave=n.chave AND i.custo_unit IS NULL) LIMIT 40`).all();
+  const r = await DB.prepare(`SELECT n.chave, n.xml FROM nfe_entrada n WHERE (n.xml IS NOT NULL OR n.status='manual')
+    AND (n.rateio_un IS NULL OR EXISTS (SELECT 1 FROM nfe_entrada_itens i WHERE i.chave=n.chave AND i.custo_unit IS NULL)) LIMIT 40`).all();
   const notas = r.results || [];
   if (!notas.length) return;
   const stmts = [];
+  // Compra sem nota: o frete gravado nos itens volta a ser dividido igualmente por unidade.
+  const manuais = notas.filter(n => !n.xml);
+  if (manuais.length) {
+    const its = await DB.prepare(`SELECT id, chave, qtde, valor_unit, v_frete FROM nfe_entrada_itens WHERE chave IN (${manuais.map(() => '?').join(',')})`)
+      .bind(...manuais.map(n => n.chave)).all();
+    for (const n of manuais) {
+      const lista = (its.results || []).filter(i => i.chave === n.chave);
+      const porUnidade = rateioPorUnidade(lista.reduce((a, i) => a + (Number(i.v_frete) || 0), 0), lista.reduce((a, i) => a + (Number(i.qtde) || 0), 0));
+      for (const i of lista) stmts.push(DB.prepare('UPDATE nfe_entrada_itens SET custo_unit=? WHERE id=?').bind(arred4((Number(i.valor_unit) || 0) + porUnidade), i.id));
+    }
+  }
   for (const n of notas) {
+    stmts.push(DB.prepare('UPDATE nfe_entrada SET rateio_un=1 WHERE chave=?').bind(n.chave));
+    if (!n.xml) continue;
     for (const [nItem, c] of Object.entries(custosDoXml(n.xml))) {
       stmts.push(DB.prepare(`UPDATE nfe_entrada_itens SET v_frete=?, v_seg=?, v_desc=?, v_outro=?, v_ipi=?, v_st=?, custo_unit=? WHERE id=?`)
         .bind(c.v_frete, c.v_seg, c.v_desc, c.v_outro, c.v_ipi, c.v_st, c.custo_unit, `${n.chave}-${nItem}`));
@@ -241,10 +256,10 @@ async function gravarDocumentos(DB, ctx, docs, agora) {
     } else if (d.tipo === 'completa') {
       conta.completas++;
       const fornecedorId = fornecedorPara(ctx, stmts, DB, x.cnpjEmit, x.nomeEmit, agora);
-      stmts.push(DB.prepare(`INSERT INTO nfe_entrada (chave,nsu,status,numero,serie,cnpj_emit,nome_emit,fornecedor_id,dh_emi,valor,tp_nf,xml,historico,criado,atualizado)
-        VALUES (?,?,'completa',?,?,?,?,?,?,?,?,?,?,?,?)
+      stmts.push(DB.prepare(`INSERT INTO nfe_entrada (chave,nsu,status,numero,serie,cnpj_emit,nome_emit,fornecedor_id,dh_emi,valor,tp_nf,xml,historico,criado,atualizado,rateio_un)
+        VALUES (?,?,'completa',?,?,?,?,?,?,?,?,?,?,?,?,1)
         ON CONFLICT(chave) DO UPDATE SET numero=excluded.numero, serie=excluded.serie, nome_emit=excluded.nome_emit,
-          fornecedor_id=excluded.fornecedor_id, dh_emi=excluded.dh_emi, valor=excluded.valor, tp_nf=excluded.tp_nf, xml=excluded.xml,
+          fornecedor_id=excluded.fornecedor_id, dh_emi=excluded.dh_emi, valor=excluded.valor, tp_nf=excluded.tp_nf, xml=excluded.xml, rateio_un=1,
           atualizado=excluded.atualizado, status=CASE WHEN nfe_entrada.status='cancelada' THEN 'cancelada' ELSE 'completa' END`)
         .bind(x.chave, d.nsu, x.numero, x.serie, soDigitos(x.cnpjEmit), x.nomeEmit, fornecedorId, x.dhEmi, x.valor, x.tpNF, d.xml, hist, agora, agora));
       const custos = d.xml ? custosDoXml(d.xml) : {};
@@ -402,15 +417,16 @@ async function entradaManual(DB, b) {
   const data = /^\d{4}-\d{2}-\d{2}$/.test(b.data || '') ? b.data + 'T12:00:00-03:00' : new Date(agora).toISOString();
   const total = itens.reduce((s, i) => s + (Number(i.qtde) || 0) * (Number(i.custo) || 0), 0);
   const frete = Math.max(0, Number(b.frete) || 0);
-  stmts.push(DB.prepare(`INSERT INTO nfe_entrada (chave,status,cnpj_emit,nome_emit,fornecedor_id,dh_emi,valor,historico,comprovante,obs,criado,atualizado)
-    VALUES (?,'manual',?,?,?,?,?,0,?,?,?,?)`)
+  stmts.push(DB.prepare(`INSERT INTO nfe_entrada (chave,status,cnpj_emit,nome_emit,fornecedor_id,dh_emi,valor,historico,comprovante,obs,criado,atualizado,rateio_un)
+    VALUES (?,'manual',?,?,?,?,?,0,?,?,?,?,1)`)
     .bind(chave, soDigitos(b.cnpj) || null, nome, fornecedorId, data, Math.round((total + frete) * 100) / 100, b.comprovante || null, String(b.obs || '').trim() || null, agora, agora));
+  const porUnidade = rateioPorUnidade(frete, itens.reduce((s, i) => s + (Number(i.qtde) || 0), 0));
   itens.forEach((i, ix) => {
     const it = comNulos({ nItem: ix + 1, codigo: null, ean: null, descricao: String(i.descricao).trim(), ncm: soDigitos(i.ncm) || null, cest: null,
       cfop: null, unidade: i.unidade || 'UN', qtde: Number(i.qtde), valorUnit: Number(i.custo) || 0, valorTotal: 0, origem: null }, CAMPOS_ITEM);
     it.valorTotal = Math.round(it.qtde * it.valorUnit * 100) / 100;
-    const vFrete = total > 0 ? frete * it.valorTotal / total : frete / itens.length;
-    it.custoUnit = Math.round((it.valorTotal + vFrete) / it.qtde * 10000) / 10000;
+    const vFrete = porUnidade * it.qtde;
+    it.custoUnit = arred4(it.valorUnit + porUnidade);
     // Peça escolhida do cadastro: usa ela; senão procura pelo nome ou cria.
     let pecaId = i.peca_id && ctx.pecas.some(p => p.id === i.peca_id) ? i.peca_id : null;
     if (pecaId) stmts.push(DB.prepare('UPDATE pecas SET ncm=COALESCE(?,ncm), custo=? WHERE id=?').bind(it.ncm, it.custoUnit, pecaId));

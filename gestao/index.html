@@ -2711,7 +2711,9 @@ function renderOsItens(){ const box=document.getElementById('osItensBox');
     <input class="os-qtd" inputmode="numeric" title="Quantidade" placeholder="Qtd" value="${esc(row.qtde||'1')}" oninput="setOsItem('${row.id}','qtde',this.value)">
     <input class="os-val" inputmode="decimal" placeholder="Venda un. 0,00" value="${esc(row.valor)}" oninput="setOsItem('${row.id}','valor',this.value)">
     <button class="rm" onclick="removeOsItem('${row.id}')">✕</button></div>
-    ${verCusto?`<div class="os-custo-row"><span class="ocl">🔒 Custo interno (un.)</span><input class="os-custo" inputmode="decimal" placeholder="R$ 0,00" value="${esc(row.custo||'')}" oninput="setOsItem('${row.id}','custo',this.value)"><span class="os-lucro-mini" id="lucro-${row.id}"></span></div>`:''}
+    ${verCusto?(row._orig&&(row._orig.origens||[]).length
+      ?`<div class="os-custo-row"><span class="ocl">🔒 Custo da nota (un.)</span><input class="os-custo" readonly title="Peça ligada a nota de compra: o custo vem da nota" value="${esc(row.custo||'')}"><span class="os-lucro-mini" id="lucro-${row.id}"></span></div>`
+      :`<div class="os-custo-row"><span class="ocl">🔒 Custo interno (un.)</span><input class="os-custo" inputmode="decimal" placeholder="R$ 0,00" value="${esc(row.custo||'')}" oninput="setOsItem('${row.id}','custo',this.value)"><span class="os-lucro-mini" id="lucro-${row.id}"></span></div>`):''}
   </div>`).join('');
   atualizaTotal(); calcOsPrevia(); atualizaLucroPecas(); }
 function atualizaLucroPecas(){ if(!pode('valores')) return; let tv=0,tc=0;
@@ -2924,7 +2926,10 @@ function saveOS(id){
   const vid=osFixoVeiculo||val('osVeiculo'); const km=num('osKm'); const data=val('osData');
   if(!vid){ toast('Escolha o veículo'); return; }
   if(!data){ toast('Informe a data'); return; }
-  const itens=osItens.filter(i=>(i.nome||'').trim()).map(i=>{ const nome=tc(i.nome.trim()); const r=regraPorNome(nome); return {...extrasItemOS(i._orig),id:i.id||uid(),nome,qtde:parseInt(i.qtde)||1,valor:moneyParse(i.valor),custo:moneyParse(i.custo),regra_id:r?r.id:null}; });
+  const itens=osItens.filter(i=>(i.nome||'').trim()).map(i=>{ const nome=tc(i.nome.trim()); const r=regraPorNome(nome); const it={...extrasItemOS(i._orig),id:i.id||uid(),nome,qtde:parseInt(i.qtde)||1,valor:moneyParse(i.valor),custo:moneyParse(i.custo),regra_id:r?r.id:null};
+    // Peça ligada a nota: o custo vem da nota (e a quantidade pode ter mudado), não do campo.
+    if((it.origens||[]).length) recalcCustoItemOS(it);
+    return it; });
   const maodeobra=osMdo.filter(m=>moneyParse(m.valor)>0).map(m=>({id:uid(),desc:tc((m.desc||'').trim()),mecanico_id:m.mecanico_id||'',valor:moneyParse(m.valor)}));
   const antigo=id?getOS(id):null;
   const dados={veiculo_id:vid,data,km:km||0,reclamacao:val('osRec').trim(),obs_mecanico:val('osMec').trim(),obs_admin:val('osAdm').trim(),itens,maodeobra,mecanico_id:val('osMecResp')||'',
@@ -3313,7 +3318,7 @@ async function carregarNotasCompra(){
   notasCompra=d;
   sincronizarOrigensOS();
 }
-// Custo real do item: preço da nota + frete, despesas e impostos rateados (calculado no servidor).
+// Custo real do item: preço da nota + parte igual, por unidade, do frete, despesas e impostos da nota (calculado no servidor).
 function nfeCustoItem(i){ return Number(i.custo_unit!=null?i.custo_unit:i.valor_unit)||0; }
 function origemDaNota(n,i,d){ return {destino_id:d.id,item_id:i.id,chave:n.chave,qtde:Number(d.qtde)||0,fornecedor:n.nome_emit,cnpj:n.cnpj_emit,
   fornecedor_id:n.fornecedor_id,nf:n.numero,serie:n.serie,data:n.dh_emi,custo:nfeCustoItem(i),preco_nota:i.valor_unit,descricao:i.descricao,
@@ -3331,6 +3336,8 @@ function sincronizarOrigensOS(){
     const antes=it.origens.length; it.origens=it.origens.filter(x=>porDest[x.destino_id]||!carregadas.has(x.chave)); if(it.origens.length!==antes) m=true;
     it.origens.forEach(x=>{ const r=porDest[x.destino_id]; if(!r) return; const novo=origemDaNota(r.n,r.i,r.d);
       ['custo','qtde','peca_id','peca_codigo'].forEach(k=>{ if(novo[k]!=null&&x[k]!==novo[k]){ x[k]=novo[k]; m=true; } }); });
+    // O custo de item ligado é sempre o da nota, mesmo que tenha sido digitado outro por cima.
+    const c=custoItemPelasNotas(it); if(c!=null&&Number(it.custo)!==c) m=true;
     if(m){ recalcCustoItemOS(it); o.atualizado=Date.now(); mudou=true; } }));
   Object.values(porDest).forEach(({n,i,d})=>{ const o=getOS(d.ordem_id); const it=o&&(o.itens||[]).find(x=>x.id===d.os_item_id); if(!it) return;
     if((it.origens||[]).some(x=>x.destino_id===d.id)) return;
@@ -3339,11 +3346,11 @@ function sincronizarOrigensOS(){
     recalcCustoItemOS(it); o.atualizado=Date.now(); mudou=true; });
   if(mudou) salvar();
 }
+// O que a nota cobra além dos produtos (frete, despesas, impostos) é dividido igualmente por unidade comprada.
 function nfeComposicaoCusto(i){
-  const extras=[['frete',i.v_frete],['outras despesas',i.v_outro],['seguro',i.v_seg],['IPI',i.v_ipi],['ICMS-ST',i.v_st]].filter(x=>Number(x[1])>0.004);
-  const desc=Number(i.v_desc)||0, q=Number(i.qtde)||1;
-  if(!extras.length&&desc<0.005) return `${moneyFmt(i.valor_unit)} cada`;
-  return `${moneyFmt(i.valor_unit)} + ${extras.map(x=>esc(x[0])+' '+moneyFmt(x[1]/q)).join(' + ')}${desc>0.004?(' − desconto '+moneyFmt(desc/q)):''} = <b style="color:var(--txt)">custo ${moneyFmt(nfeCustoItem(i))} cada</b>`;
+  const extra=nfeCustoItem(i)-(Number(i.valor_unit)||0);
+  if(Math.abs(extra)<0.005) return `${moneyFmt(i.valor_unit)} cada`;
+  return `${moneyFmt(i.valor_unit)} ${extra>0?'+':'−'} ${moneyFmt(Math.abs(extra))} ${extra>0?'de frete/despesas':'de desconto'} da nota (parte igual por unidade) = <b style="color:var(--txt)">custo ${moneyFmt(nfeCustoItem(i))} cada</b>`;
 }
 function renderNotasCompra(){
   const box=document.getElementById('notasCompraBox'); if(!box) return;
@@ -3491,9 +3498,16 @@ function escolherOSDestino(oid){
     <div style="display:flex;gap:8px;margin-top:14px"><button class="btn gold" id="dstOk" onclick="confirmarDestino()">Confirmar</button><button class="btn" onclick="renderDestinoOS()">Voltar</button></div>`);
   const sel=document.getElementById('dstItem'); if(sel&&primeiro) sel.value=primeiro.id;
 }
+// Custo unitário do item da OS com notas ligadas: o que veio da nota entra pelo custo da nota
+// (total ligado, mesmo que a nota venha em outra unidade — 4 velas para "1 jogo de velas");
+// o que ainda falta ligar continua pelo custo lançado à mão no orçamento.
+function custoItemPelasNotas(it){
+  const os=it.origens||[]; const ligada=os.reduce((s,x)=>s+(Number(x.qtde)||0),0); if(!(ligada>0)) return null;
+  const q=Number(it.qtde)||1; const total=os.reduce((s,x)=>s+(Number(x.qtde)||0)*(Number(x.custo)||0),0)+Math.max(0,q-ligada)*(Number(it.custo_orcado)||0);
+  return Math.round(total/q*100)/100;
+}
 function recalcCustoItemOS(it){
-  const os=it.origens||[]; const q=os.reduce((s,x)=>s+(Number(x.qtde)||0),0);
-  if(q>0){ it.custo=Math.round(os.reduce((s,x)=>s+(Number(x.qtde)||0)*(Number(x.custo)||0),0)/q*100)/100; return; }
+  const c=custoItemPelasNotas(it); if(c!=null){ it.custo=c; return; }
   // Sem nenhuma nota ligada: volta ao custo do orçamento.
   if(it.custo_orcado!==undefined){ it.custo=it.custo_orcado; delete it.custo_orcado; }
   delete it.origens; delete it.peca_id; delete it.peca_codigo; delete it.ncm;
@@ -3558,7 +3572,7 @@ function renderEntradaManual(){
     <div class="field" style="margin-top:12px"><label>Foto do recibo ou comprovante (opcional)</label>
       <input type="file" accept="image/*" onchange="manEnviarComprovante(this)"><div id="manCompSt" style="font-size:12px;color:var(--muted)">${manComprovante?'✓ Comprovante anexado':''}</div></div>
     <div class="field"><label>Frete / entrega (opcional)</label><input id="manFrete" inputmode="decimal" placeholder="R$ 0,00" value="${esc(vals.frete)}">
-      <div style="font-size:12px;color:var(--muted)">É dividido entre as peças pelo valor de cada uma e entra no custo delas.</div></div>
+      <div style="font-size:12px;color:var(--muted)">É dividido em partes iguais por unidade comprada e entra no custo das peças.</div></div>
     <div class="field"><label>Observação (opcional)</label><input id="manObs" value="${esc(vals.obs)}" placeholder="Ex.: peça usada, garantia de 90 dias"></div>
     <div style="display:flex;gap:8px;margin-top:14px"><button class="btn gold" id="manSalvar" onclick="salvarEntradaManual()">Salvar entrada</button><button class="btn" onclick="closeModal()">Cancelar</button></div>`);
   const sel=document.getElementById('manForn'); if(sel&&fAtual) sel.value=fAtual;
