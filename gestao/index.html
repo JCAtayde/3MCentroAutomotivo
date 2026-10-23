@@ -3305,6 +3305,24 @@ async function carregarNotasCompra(){
   const d=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(d.error||('http '+r.status));
   notasCompra=d;
+  ajustarCustoOrigensOS();
+}
+// Custo real do item: preço da nota + frete, despesas e impostos rateados (calculado no servidor).
+function nfeCustoItem(i){ return Number(i.custo_unit!=null?i.custo_unit:i.valor_unit)||0; }
+// OS ligadas antes do custo real (ou com custo que mudou) recebem o valor certo da nota.
+function ajustarCustoOrigensOS(){
+  const custoPorItem={}; (notasCompra.notas||[]).forEach(n=>n.itens.forEach(i=>{ custoPorItem[i.id]=nfeCustoItem(i); }));
+  let mudou=false;
+  (state.ordens||[]).forEach(o=>(o.itens||[]).forEach(it=>{ let m=false;
+    (it.origens||[]).forEach(x=>{ const c=custoPorItem[x.item_id]; if(c!=null&&Math.abs((Number(x.custo)||0)-c)>0.0001){ x.custo=c; m=true; } });
+    if(m){ recalcCustoItemOS(it); o.atualizado=Date.now(); mudou=true; } }));
+  if(mudou) salvar();
+}
+function nfeComposicaoCusto(i){
+  const extras=[['frete',i.v_frete],['outras despesas',i.v_outro],['seguro',i.v_seg],['IPI',i.v_ipi],['ICMS-ST',i.v_st]].filter(x=>Number(x[1])>0.004);
+  const desc=Number(i.v_desc)||0, q=Number(i.qtde)||1;
+  if(!extras.length&&desc<0.005) return `${moneyFmt(i.valor_unit)} cada`;
+  return `${moneyFmt(i.valor_unit)} + ${extras.map(x=>esc(x[0])+' '+moneyFmt(x[1]/q)).join(' + ')}${desc>0.004?(' − desconto '+moneyFmt(desc/q)):''} = <b style="color:var(--txt)">custo ${moneyFmt(nfeCustoItem(i))} cada</b>`;
 }
 function renderNotasCompra(){
   const box=document.getElementById('notasCompraBox'); if(!box) return;
@@ -3391,7 +3409,7 @@ function openNotaCompra(chave){
     return `<div class="row" style="display:block"><div style="display:flex;gap:8px;align-items:flex-start"><div class="main" style="flex:1">
       <div class="t">${esc(i.descricao)}</div>
       <div style="font-size:15px;margin:4px 0"><b>Quantidade: ${nfeQtd(i.qtde)} ${esc(i.unidade||'un')}</b>${(i.destinos||[]).length?` · <span style="color:${i.saldo>0?'#D9A83E':'var(--green)'}">${i.saldo>0?('faltam '+nfeQtd(i.saldo)+' para destinar'):'todas já na OS'}</span>`:''}</div>
-      <div class="s">${i.peca_codigo?('<b>'+esc(i.peca_codigo)+'</b> · '):''}${moneyFmt(i.valor_unit)} cada · NCM ${esc(i.ncm||'—')} · cód. forn. ${esc(i.codigo||'—')}</div>
+      <div class="s">${i.peca_codigo?('<b>'+esc(i.peca_codigo)+'</b> · '):''}${nfeComposicaoCusto(i)} · NCM ${esc(i.ncm||'—')} · cód. forn. ${esc(i.codigo||'—')}</div>
       <div class="s">${saldoTxt}</div>${dests}</div>
       ${podeDest&&i.saldo>0?`<button class="btn sm gold" onclick='abrirDestino("${chave}","${i.id}")'>Destinar</button>`:''}</div></div>`; }).join('');
   openModal(`<h3>${manual?'🧾 Compra sem nota · ':''}${esc(n.nome_emit||'Nota de compra')}</h3>
@@ -3442,7 +3460,7 @@ function escolherOSDestino(oid){
   const primeiro=(o.itens||[]).find(it=>(Number(it.qtde)||1)>itemOsVinculado(it))||o.itens[0];
   const sugestao=Math.min(i.saldo, Math.max(1,(Number(primeiro.qtde)||1)-itemOsVinculado(primeiro)));
   openModal(`<h3>${esc(nfeOsRotulo(o))}</h3>
-    <div class="note">Da nota: ${esc(i.descricao)} (${nfeQtd(i.saldo)} disponíveis · custo ${moneyFmt(i.valor_unit)})</div>
+    <div class="note">Da nota: ${esc(i.descricao)} (${nfeQtd(i.saldo)} disponíveis · custo ${moneyFmt(nfeCustoItem(i))} cada, já com frete e despesas)</div>
     <div class="field" style="margin-top:10px"><label>Peça do orçamento</label><select id="dstItem" onchange="const f=+this.selectedOptions[0].dataset.falta; if(f>0) document.getElementById('dstQtd').value=Math.min(f,${i.saldo});">${opts}</select></div>
     <div class="field"><label>Quantidade para esta OS</label><input id="dstQtd" inputmode="decimal" value="${sugestao}"></div>
     <div class="note" style="font-size:12px">O cliente continua vendo só o nome e o valor do orçamento. Fornecedor, nota e custo real ficam guardados por dentro da OS (🔒).${i.saldo>sugestao?' O que sobrar fica no estoque.':''}</div>
@@ -3491,7 +3509,7 @@ function abrirEntradaManual(){ if(!pode('editar')){ toast('Sem permissão'); ret
 function renderEntradaManual(){
   const forn=(state.fornecedores||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
   const fSel=document.getElementById('manForn'); const fAtual=fSel?fSel.value:'';
-  const vals={nome:val('manFornNome')||'',cnpj:val('manCnpj')||'',data:val('manData')||toISO(hoje()),obs:val('manObs')||''};
+  const vals={nome:val('manFornNome')||'',cnpj:val('manCnpj')||'',data:val('manData')||toISO(hoje()),obs:val('manObs')||'',frete:val('manFrete')||''};
   const linhas=manItens.map((i,ix)=>`<div class="note" style="margin-top:8px;white-space:normal">
       <div class="field"><label>Peça</label><input list="manPecasDL" value="${esc(i.descricao)}" placeholder="Nome da peça" oninput="manSet(${ix},'descricao',this.value)"></div>
       <div style="display:flex;gap:8px">
@@ -3510,6 +3528,8 @@ function renderEntradaManual(){
     <button class="btn sm" style="margin-top:8px" onclick="manItens.push({descricao:'',qtde:'1',custo:'',ncm:'',peca_id:''}); renderEntradaManual();">➕ Outra peça</button>
     <div class="field" style="margin-top:12px"><label>Foto do recibo ou comprovante (opcional)</label>
       <input type="file" accept="image/*" onchange="manEnviarComprovante(this)"><div id="manCompSt" style="font-size:12px;color:var(--muted)">${manComprovante?'✓ Comprovante anexado':''}</div></div>
+    <div class="field"><label>Frete / entrega (opcional)</label><input id="manFrete" inputmode="decimal" placeholder="R$ 0,00" value="${esc(vals.frete)}">
+      <div style="font-size:12px;color:var(--muted)">É dividido entre as peças pelo valor de cada uma e entra no custo delas.</div></div>
     <div class="field"><label>Observação (opcional)</label><input id="manObs" value="${esc(vals.obs)}" placeholder="Ex.: peça usada, garantia de 90 dias"></div>
     <div style="display:flex;gap:8px;margin-top:14px"><button class="btn gold" id="manSalvar" onclick="salvarEntradaManual()">Salvar entrada</button><button class="btn" onclick="closeModal()">Cancelar</button></div>`);
   const sel=document.getElementById('manForn'); if(sel&&fAtual) sel.value=fAtual;
@@ -3526,7 +3546,7 @@ async function manEnviarComprovante(input){ const file=input.files&&input.files[
 async function salvarEntradaManual(){
   const fid=val('manForn'); const novo=fid==='__novo__';
   const corpo={ fornecedor_id:novo?null:fid, fornecedor_nome:novo?tc((val('manFornNome')||'').trim()):'', cnpj:novo?val('manCnpj'):'',
-    data:val('manData'), obs:val('manObs'), comprovante:manComprovante,
+    data:val('manData'), obs:val('manObs'), comprovante:manComprovante, frete:moneyParse(val('manFrete')),
     itens:manItens.map(i=>({peca_id:i.peca_id||null, descricao:tc((i.descricao||'').trim()), qtde:parseFloat(String(i.qtde||'').replace(',','.'))||0, custo:moneyParse(i.custo), ncm:i.ncm})) };
   if(novo&&!corpo.fornecedor_nome){ toast('Informe de quem foi comprado'); return; }
   if(!corpo.itens.some(i=>i.descricao&&i.qtde>0)){ toast('Informe a peça e a quantidade'); return; }
