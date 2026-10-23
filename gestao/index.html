@@ -768,7 +768,8 @@ let lastSnapshot = deepCopy(state);
 let syncTimer=null, syncing=false, syncPend=false;
 
 function salvar(){ cacheSave(); agendarSync(); }
-function agendarSync(){ clearTimeout(syncTimer); syncTimer=setTimeout(enviarMudancas,350); }
+let syncAgendado=false, origensConferidas=false;
+function agendarSync(){ clearTimeout(syncTimer); syncAgendado=true; syncTimer=setTimeout(enviarMudancas,350); }
 
 function diffTabela(antes, agora){
   const mapA={}; (antes||[]).forEach(r=>mapA[r.id]=JSON.stringify(r));
@@ -780,7 +781,7 @@ function diffTabela(antes, agora){
 }
 async function enviarMudancas(){
   if(syncing){ syncPend=true; return; }
-  syncing=true; setSync('sync');
+  syncAgendado=false; syncing=true; setSync('sync');
   try{
     for(const t of ['clientes','veiculos','ordens','regras','usuarios','mecanicos','caixa','pecas','fornecedores']){
       const d=diffTabela(lastSnapshot[t], state[t]);
@@ -795,6 +796,9 @@ async function enviarMudancas(){
 }
 async function sincronizar(){
   try{
+    // Mudança salva que ainda não subiu: envia antes de recarregar, senão o recarregamento a apagaria.
+    if(syncAgendado){ clearTimeout(syncTimer); await enviarMudancas(); }
+    if(syncing||syncAgendado||syncPend) return;
     const data=await apiGet();
     state.clientes=(data.clientes||[]).map(normCliente);
     state.veiculos=(data.veiculos||[]).map(normVeiculo);
@@ -813,6 +817,8 @@ async function sincronizar(){
     if(typeof atualizarRegrasList==='function') atualizarRegrasList();
     if(typeof atualizarLeadBadge==='function') atualizarLeadBadge();
     if(typeof revalidarAposSync==='function') revalidarAposSync();
+    // Uma vez por sessão: confere as ligações nota → OS mesmo sem abrir Notas de compra.
+    if(!origensConferidas&&usuarioAtual&&telaLiberada('fornecedores')){ origensConferidas=true; carregarNotasCompra().catch(()=>{ origensConferidas=false; }); }
   }catch(e){ setSync('erro'); }
 }
 function setSync(estado){ const el=document.getElementById('syncDot'); if(!el) return;
@@ -3305,17 +3311,32 @@ async function carregarNotasCompra(){
   const d=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(d.error||('http '+r.status));
   notasCompra=d;
-  ajustarCustoOrigensOS();
+  sincronizarOrigensOS();
 }
 // Custo real do item: preço da nota + frete, despesas e impostos rateados (calculado no servidor).
 function nfeCustoItem(i){ return Number(i.custo_unit!=null?i.custo_unit:i.valor_unit)||0; }
-// OS ligadas antes do custo real (ou com custo que mudou) recebem o valor certo da nota.
-function ajustarCustoOrigensOS(){
-  const custoPorItem={}; (notasCompra.notas||[]).forEach(n=>n.itens.forEach(i=>{ custoPorItem[i.id]=nfeCustoItem(i); }));
+function origemDaNota(n,i,d){ return {destino_id:d.id,item_id:i.id,chave:n.chave,qtde:Number(d.qtde)||0,fornecedor:n.nome_emit,cnpj:n.cnpj_emit,
+  fornecedor_id:n.fornecedor_id,nf:n.numero,serie:n.serie,data:n.dh_emi,custo:nfeCustoItem(i),preco_nota:i.valor_unit,descricao:i.descricao,
+  codigo_forn:i.codigo,ncm:i.ncm,cfop:i.cfop,peca_id:i.peca_id,peca_codigo:i.peca_codigo}; }
+// A ligação nota → OS vale pelo que está gravado na nota (servidor). A cópia dentro da OS é
+// refeita daqui: entra o que faltar (a OS pode ter sido recarregada antes de salvar), sai o
+// que foi desfeito e o custo acompanha o custo real da nota.
+function sincronizarOrigensOS(){
+  if(!notasCompra||!(state.ordens||[]).length) return;
+  const notas=notasCompra.notas||[]; const porDest={}; const carregadas=new Set(notas.map(n=>n.chave));
+  notas.forEach(n=>n.itens.forEach(i=>(i.destinos||[]).forEach(d=>{ porDest[d.id]={n,i,d}; })));
   let mudou=false;
-  (state.ordens||[]).forEach(o=>(o.itens||[]).forEach(it=>{ let m=false;
-    (it.origens||[]).forEach(x=>{ const c=custoPorItem[x.item_id]; if(c!=null&&Math.abs((Number(x.custo)||0)-c)>0.0001){ x.custo=c; m=true; } });
+  (state.ordens||[]).forEach(o=>(o.itens||[]).forEach(it=>{ if(!it.origens) return; let m=false;
+    // Só tira o que é de nota carregada (a lista traz as 500 mais recentes).
+    const antes=it.origens.length; it.origens=it.origens.filter(x=>porDest[x.destino_id]||!carregadas.has(x.chave)); if(it.origens.length!==antes) m=true;
+    it.origens.forEach(x=>{ const r=porDest[x.destino_id]; if(!r) return; const novo=origemDaNota(r.n,r.i,r.d);
+      ['custo','qtde','peca_id','peca_codigo'].forEach(k=>{ if(novo[k]!=null&&x[k]!==novo[k]){ x[k]=novo[k]; m=true; } }); });
     if(m){ recalcCustoItemOS(it); o.atualizado=Date.now(); mudou=true; } }));
+  Object.values(porDest).forEach(({n,i,d})=>{ const o=getOS(d.ordem_id); const it=o&&(o.itens||[]).find(x=>x.id===d.os_item_id); if(!it) return;
+    if((it.origens||[]).some(x=>x.destino_id===d.id)) return;
+    if(it.custo_orcado===undefined) it.custo_orcado=(it.custo===undefined?null:it.custo);
+    const orig=origemDaNota(n,i,d); it.origens=(it.origens||[]).concat([orig]); it.peca_id=orig.peca_id; it.peca_codigo=orig.peca_codigo; it.ncm=orig.ncm;
+    recalcCustoItemOS(it); o.atualizado=Date.now(); mudou=true; });
   if(mudou) salvar();
 }
 function nfeComposicaoCusto(i){
@@ -3440,7 +3461,9 @@ function abrirDestino(chave,itemId){
 function renderDestinoOS(){
   const {chave,itemId,filtro}=destinoCtx; const n=notasCompra.notas.find(x=>x.chave===chave); const i=n.itens.find(x=>x.id===itemId);
   const q=(filtro||'').trim().toLowerCase();
-  const lista=(state.ordens||[]).filter(o=>osStatus(o)!=='rejeitado'&&(o.itens||[]).length)
+  // Peça comprada vai para OS em aberto. Concluídas só se pedir (rastreio de compra antiga).
+  const abertas=['agendamento','aguardando','andamento'];
+  const lista=(state.ordens||[]).filter(o=>(o.itens||[]).length&&(destinoCtx.todas?osStatus(o)!=='rejeitado':abertas.includes(osStatus(o))))
     .filter(o=>!q||nfeOsRotulo(o).toLowerCase().includes(q)||(o.itens||[]).some(it=>(it.nome||'').toLowerCase().includes(q)))
     .sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))).slice(0,40);
   const rows=lista.map(o=>`<div class="row click" onclick='escolherOSDestino("${o.id}")'><div class="main"><div class="t">${esc(nfeOsRotulo(o))}</div>
@@ -3449,7 +3472,8 @@ function renderDestinoOS(){
     <div class="note">${esc(i.descricao)}\n${nfeQtd(i.saldo)} ${esc(i.unidade||'')} disponíveis nesta nota</div>
     <div class="field" style="margin-top:10px"><input id="dstBusca" placeholder="Buscar por placa, cliente, OS ou peça" value="${esc(filtro)}"
       oninput="destinoCtx.filtro=this.value; clearTimeout(window._dstT); window._dstT=setTimeout(()=>{ renderDestinoOS(); const e=document.getElementById('dstBusca'); if(e){ e.focus(); e.setSelectionRange(e.value.length,e.value.length); } },250)"></div>
-    <div class="rows">${rows||emptyState('Nenhuma OS encontrada','A OS precisa ter a peça lançada no orçamento.')}</div>
+    <label style="display:flex;gap:8px;align-items:center;justify-content:flex-start;text-align:left;font-size:13px;margin:0 0 8px;color:var(--muted);cursor:pointer"><input type="checkbox" style="width:18px;height:18px;flex:none;margin:0" ${destinoCtx.todas?'checked':''} onchange="destinoCtx.todas=this.checked; renderDestinoOS()"><span>Mostrar também OS concluídas (carro liberado / executado)</span></label>
+    <div class="rows">${rows||emptyState('Nenhuma OS encontrada',destinoCtx.todas?'A OS precisa ter a peça lançada no orçamento.':'Só aparecem OS em agendamento, aguardando orçamento ou em andamento, com a peça lançada no orçamento.')}</div>
     <div style="display:flex;gap:8px;margin-top:14px"><button class="btn" onclick='openNotaCompra("${chave}")'>Voltar</button></div>`);
 }
 function escolherOSDestino(oid){
@@ -3464,7 +3488,7 @@ function escolherOSDestino(oid){
     <div class="field" style="margin-top:10px"><label>Peça do orçamento</label><select id="dstItem" onchange="const f=+this.selectedOptions[0].dataset.falta; if(f>0) document.getElementById('dstQtd').value=Math.min(f,${i.saldo});">${opts}</select></div>
     <div class="field"><label>Quantidade para esta OS</label><input id="dstQtd" inputmode="decimal" value="${sugestao}"></div>
     <div class="note" style="font-size:12px">O cliente continua vendo só o nome e o valor do orçamento. Fornecedor, nota e custo real ficam guardados por dentro da OS (🔒).${i.saldo>sugestao?' O que sobrar fica no estoque.':''}</div>
-    <div style="display:flex;gap:8px;margin-top:14px"><button class="btn gold" onclick="confirmarDestino()">Confirmar</button><button class="btn" onclick="renderDestinoOS()">Voltar</button></div>`);
+    <div style="display:flex;gap:8px;margin-top:14px"><button class="btn gold" id="dstOk" onclick="confirmarDestino()">Confirmar</button><button class="btn" onclick="renderDestinoOS()">Voltar</button></div>`);
   const sel=document.getElementById('dstItem'); if(sel&&primeiro) sel.value=primeiro.id;
 }
 function recalcCustoItemOS(it){
@@ -3475,20 +3499,25 @@ function recalcCustoItemOS(it){
   delete it.origens; delete it.peca_id; delete it.peca_codigo; delete it.ncm;
 }
 async function confirmarDestino(){
-  const {chave,itemId,oid}=destinoCtx; const o=getOS(oid); const osItemId=val('dstItem');
+  const {chave,itemId,oid}=destinoCtx; const osItemId=val('dstItem');
   const qtde=parseFloat(String(val('dstQtd')||'').replace(',','.'));
   if(!(qtde>0)){ toast('Informe a quantidade'); return; }
+  const btn=document.getElementById('dstOk'); if(btn){ btn.disabled=true; btn.textContent='Salvando…'; }
   try{
     const u=(typeof usuarioAtual!=='undefined'&&usuarioAtual)||{};
     const orig=await fiscalPost('destinar',{item_id:itemId,ordem_id:oid,os_item_id:osItemId,qtde,quem:u.nome||''});
-    const it=(o.itens||[]).find(x=>x.id===osItemId);
+    // A OS é buscada só agora: a sincronização automática pode ter trocado os objetos durante a espera.
+    const o=getOS(oid); const it=o&&(o.itens||[]).find(x=>x.id===osItemId);
     if(it){ if(it.custo_orcado===undefined) it.custo_orcado=(it.custo===undefined?null:it.custo);
       it.origens=(it.origens||[]).concat([orig]); it.peca_id=orig.peca_id; it.peca_codigo=orig.peca_codigo; it.ncm=orig.ncm;
       recalcCustoItemOS(it); o.atualizado=Date.now(); salvar(); }
-    logAcao('Destinou peça da nota à OS', o.codigo?('OS '+o.codigo):'OS', nfeQtd(qtde)+' × '+(orig.descricao||'')+' · NF '+(orig.nf||'')+' '+(orig.fornecedor||''));
-    toast('Peça ligada à OS ✓');
-    await carregarNotasCompra(); openNotaCompra(chave); renderNotasCompra();
-  }catch(e){ alert('Não foi possível destinar:\n'+e.message); }
+    logAcao('Destinou peça da nota à OS', o&&o.codigo?('OS '+o.codigo):'OS', nfeQtd(qtde)+' × '+(orig.descricao||'')+' · '+(orig.nf?('NF '+orig.nf):'sem nota')+' '+(orig.fornecedor||''));
+    // Volta já para a nota (saldo atualizado aqui mesmo) para ligar a próxima peça.
+    const n=notasCompra.notas.find(x=>x.chave===chave); const ni=n&&n.itens.find(x=>x.id===itemId);
+    if(ni){ ni.destinos=(ni.destinos||[]).concat([{id:orig.destino_id,item_id:itemId,ordem_id:oid,os_item_id:osItemId,qtde}]); ni.saldo=(Number(ni.saldo)||0)-qtde; }
+    openNotaCompra(chave); toast('Peça ligada à OS ✓');
+    carregarNotasCompra().then(renderNotasCompra).catch(()=>{});
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent='Confirmar'; } alert('Não foi possível destinar:\n'+e.message); }
 }
 async function desfazerDestino(ev,chave,destId){ ev.preventDefault();
   confirmar('Desfazer esta ligação? A quantidade volta para o estoque da nota.', async function(){
