@@ -757,8 +757,8 @@ function migrarV1toV2shape(v1){
 /* ---------- Camada de dados: nuvem (D1) com cache local ---------- */
 const API='/gestao/api';
 const APP_VERSAO='2026-10-10.1';
-function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }catch(e){}
-  try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }catch(e){}
+function atualizarApp(){ try{ if(window.caches&&caches.keys) caches.keys().then(ks=>ks.filter(k=>!k.startsWith('cliente-3m-')).forEach(k=>caches.delete(k))); }catch(e){}
+  try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs=>rs.filter(r=>!r.scope.endsWith('/cliente/')).forEach(r=>r.unregister())); }catch(e){}
   const base=location.href.split('?')[0].split('#')[0];
   setTimeout(function(){ location.replace(base+'?v='+Date.now()); }, 200); }
 function mostrarUpdate(){ if(document.getElementById('updBanner')||window.__updDismiss) return;
