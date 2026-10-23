@@ -18,6 +18,11 @@
  *   POST historico          { chave, valor } → nota conta (0) ou não (1) no estoque
  *   GET  estoque            saldo por peça: comprado nas notas que contam − destinado às OS
  *
+ * Compra sem nota (balcão, peça usada, pessoa física): fica em nfe_entrada com status 'manual'
+ * e chave 'MAN…'; destina e conta no estoque igual a uma nota.
+ *   POST entrada_manual     { fornecedor_id?, fornecedor_nome, cnpj?, data, obs?, comprovante?, itens:[{peca_id?, descricao, qtde, custo, ncm?, unidade?}] }
+ *   POST excluir_manual     { chave } (só sem destinos)
+ *
  * Notas anteriores à ativação do estoque (dfe_controle.estoque_desde) ficam como
  * histórico: dá para ligar as peças às OS (rastreio/garantia), mas não somam no estoque.
  */
@@ -59,7 +64,9 @@ async function garantirTabelas(DB) {
   for (const col of ['ncm TEXT', 'cest TEXT', 'ean TEXT', 'unidade TEXT', 'custo REAL', 'origem TEXT', 'codigo_forn TEXT', 'fornecedor_id TEXT', 'codigo TEXT']) {
     try { await DB.prepare(`ALTER TABLE pecas ADD COLUMN ${col}`).run(); } catch (e) { /* coluna já existe */ }
   }
-  try { await DB.prepare('ALTER TABLE nfe_entrada ADD COLUMN historico INTEGER').run(); } catch (e) { /* coluna já existe */ }
+  for (const col of ['historico INTEGER', 'comprovante TEXT', 'obs TEXT']) {
+    try { await DB.prepare(`ALTER TABLE nfe_entrada ADD COLUMN ${col}`).run(); } catch (e) { /* coluna já existe */ }
+  }
   try { await DB.prepare('ALTER TABLE dfe_controle ADD COLUMN estoque_desde INTEGER').run(); } catch (e) { /* coluna já existe */ }
   await DB.prepare(`CREATE TABLE IF NOT EXISTS nfe_destinos (id TEXT PRIMARY KEY, item_id TEXT, chave TEXT, ordem_id TEXT, os_item_id TEXT,
     qtde REAL, quem TEXT, criado INTEGER)`).run();
@@ -295,12 +302,55 @@ async function destinar(DB, b) {
   };
 }
 
+/** Grava uma compra sem nota como entrada 'manual', com fornecedor e peças como as da SEFAZ. */
+async function entradaManual(DB, b) {
+  const itens = (b.itens || []).filter(i => String(i.descricao || '').trim() && Number(i.qtde) > 0);
+  if (!itens.length) throw new Error('Informe ao menos uma peça com quantidade.');
+  const nomeForn = String(b.fornecedor_nome || '').trim();
+  if (!b.fornecedor_id && !nomeForn) throw new Error('Informe de quem foi comprado.');
+  const agora = Date.now(), chave = 'MAN' + uid();
+  const ctx = await carregarCadastros(DB);
+  const stmts = [];
+  let fornecedorId = b.fornecedor_id && ctx.fornecedores.some(f => f.id === b.fornecedor_id) ? b.fornecedor_id : null;
+  if (!fornecedorId && soDigitos(b.cnpj)) fornecedorId = fornecedorPara(ctx, stmts, DB, b.cnpj, nomeForn, agora);
+  if (!fornecedorId) {
+    const f = ctx.fornecedores.find(x => nomeNorm(x.nome) === nomeNorm(nomeForn));
+    if (f) fornecedorId = f.id;
+    else {
+      fornecedorId = uid();
+      stmts.push(DB.prepare('INSERT INTO fornecedores (id,nome,cnpj,obs,criado,atualizado) VALUES (?,?,?,?,?,?)')
+        .bind(fornecedorId, nomeForn, soDigitos(b.cnpj) ? fmtCnpj(soDigitos(b.cnpj)) : null, 'Cadastrado por compra sem nota', agora, agora));
+    }
+  }
+  const forn = ctx.fornecedores.find(f => f.id === fornecedorId);
+  const nome = (forn && forn.nome) || nomeForn;
+  const data = /^\d{4}-\d{2}-\d{2}$/.test(b.data || '') ? b.data + 'T12:00:00-03:00' : new Date(agora).toISOString();
+  const total = itens.reduce((s, i) => s + (Number(i.qtde) || 0) * (Number(i.custo) || 0), 0);
+  stmts.push(DB.prepare(`INSERT INTO nfe_entrada (chave,status,cnpj_emit,nome_emit,fornecedor_id,dh_emi,valor,historico,comprovante,obs,criado,atualizado)
+    VALUES (?,'manual',?,?,?,?,?,0,?,?,?,?)`)
+    .bind(chave, soDigitos(b.cnpj) || null, nome, fornecedorId, data, Math.round(total * 100) / 100, b.comprovante || null, String(b.obs || '').trim() || null, agora, agora));
+  itens.forEach((i, ix) => {
+    const it = comNulos({ nItem: ix + 1, codigo: null, ean: null, descricao: String(i.descricao).trim(), ncm: soDigitos(i.ncm) || null, cest: null,
+      cfop: null, unidade: i.unidade || 'UN', qtde: Number(i.qtde), valorUnit: Number(i.custo) || 0, valorTotal: 0, origem: null }, CAMPOS_ITEM);
+    it.valorTotal = Math.round(it.qtde * it.valorUnit * 100) / 100;
+    // Peça escolhida do cadastro: usa ela; senão procura pelo nome ou cria.
+    let pecaId = i.peca_id && ctx.pecas.some(p => p.id === i.peca_id) ? i.peca_id : null;
+    if (pecaId) stmts.push(DB.prepare('UPDATE pecas SET ncm=COALESCE(?,ncm), custo=? WHERE id=?').bind(it.ncm, it.valorUnit, pecaId));
+    else pecaId = pecaPara(ctx, stmts, DB, it, fornecedorId, agora);
+    stmts.push(DB.prepare(`INSERT INTO nfe_entrada_itens (id,chave,n_item,codigo,ean,descricao,ncm,cest,cfop,unidade,qtde,valor_unit,valor_total,origem,peca_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(`${chave}-${it.nItem}`, chave, it.nItem, null, null, it.descricao, it.ncm, null, null, it.unidade, it.qtde, it.valorUnit, it.valorTotal, null, pecaId));
+  });
+  await DB.batch(stmts);
+  return { ok: true, chave };
+}
+
 /** Saldo por peça, só das notas que contam no estoque, com as notas de onde vem. */
 async function estoque(DB) {
   const r = await DB.prepare(`SELECT i.id, i.peca_id, i.descricao, i.unidade, i.qtde, i.valor_unit, i.ncm, n.chave, n.nome_emit, n.numero, n.dh_emi,
       p.codigo, p.nome AS peca_nome, (SELECT COALESCE(SUM(qtde),0) FROM nfe_destinos d WHERE d.item_id=i.id) AS destinado
     FROM nfe_entrada_itens i JOIN nfe_entrada n ON n.chave=i.chave LEFT JOIN pecas p ON p.id=i.peca_id
-    WHERE n.status='completa' AND COALESCE(n.historico,0)=0 ORDER BY n.dh_emi`).all();
+    WHERE n.status IN ('completa','manual') AND COALESCE(n.historico,0)=0 ORDER BY n.dh_emi`).all();
   const porPeca = {};
   for (const i of r.results || []) {
     const saldo = (Number(i.qtde) || 0) - (Number(i.destinado) || 0);
@@ -326,7 +376,7 @@ export async function onRequest(context) {
 
     if (request.method === 'GET' && acao === 'notas') {
       const [notas, itens, dest, ctl] = await Promise.all([
-        DB.prepare(`SELECT chave,nsu,status,numero,serie,cnpj_emit,nome_emit,fornecedor_id,dh_emi,valor,situacao_sefaz,tp_nf,manifestado,manifesto_msg,historico,criado
+        DB.prepare(`SELECT chave,nsu,status,numero,serie,cnpj_emit,nome_emit,fornecedor_id,dh_emi,valor,situacao_sefaz,tp_nf,manifestado,manifesto_msg,historico,comprovante,obs,criado
           FROM nfe_entrada ORDER BY dh_emi DESC LIMIT 500`).all(),
         DB.prepare(`SELECT i.*, p.codigo AS peca_codigo FROM nfe_entrada_itens i
           JOIN (SELECT chave FROM nfe_entrada ORDER BY dh_emi DESC LIMIT 500) n ON n.chave=i.chave
@@ -371,6 +421,16 @@ export async function onRequest(context) {
       if (acao === 'destinar') return jsonResp(await destinar(DB, body));
       if (acao === 'desfazer_destino') {
         await DB.prepare('DELETE FROM nfe_destinos WHERE id=?').bind(String(body.id || '')).run();
+        return jsonResp({ ok: true });
+      }
+      if (acao === 'entrada_manual') return jsonResp(await entradaManual(DB, body));
+      if (acao === 'excluir_manual') {
+        const chave = String(body.chave || '');
+        const n = await DB.prepare("SELECT status FROM nfe_entrada WHERE chave=?").bind(chave).first();
+        if (!n || n.status !== 'manual') throw new Error('Só dá para excluir entrada sem nota.');
+        const d = await DB.prepare('SELECT COUNT(*) AS n FROM nfe_destinos WHERE chave=?').bind(chave).first();
+        if (d && d.n) throw new Error('Desfaça antes os destinos desta entrada.');
+        await DB.batch([DB.prepare('DELETE FROM nfe_entrada_itens WHERE chave=?').bind(chave), DB.prepare('DELETE FROM nfe_entrada WHERE chave=?').bind(chave)]);
         return jsonResp({ ok: true });
       }
       if (acao === 'historico') {

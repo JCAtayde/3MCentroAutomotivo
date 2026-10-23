@@ -2911,7 +2911,7 @@ function removeOsMdo(id){ osMdo=osMdo.filter(x=>x.id!==id); renderOsMdo(); }
 // Dados internos do item (nota de compra de onde veio a peça) que a edição da OS preserva.
 function origemPecaOS(i){
   if(!pode('valores')||!(i.origens||[]).length) return '';
-  return i.origens.map(x=>`<div class="s" style="color:var(--muted);font-size:12px">🔒 ${x.peca_codigo?('<b>'+esc(x.peca_codigo)+'</b> · '):''}${esc(x.fornecedor||'—')} · NF ${esc(x.nf||'—')} de ${nfeFmtData(x.data)} · ${nfeQtd(x.qtde)} × ${moneyFmt(x.custo)}${i.custo_orcado!=null&&Number(i.custo_orcado)!==Number(x.custo)?(' <span title="custo do orçamento">(orçado '+moneyFmt(i.custo_orcado)+')</span>'):''}</div>`).join('');
+  return i.origens.map(x=>`<div class="s" style="color:var(--muted);font-size:12px">🔒 ${x.peca_codigo?('<b>'+esc(x.peca_codigo)+'</b> · '):''}${esc(x.fornecedor||'—')} · ${x.nf?('NF '+esc(x.nf)):'sem nota'} de ${nfeFmtData(x.data)} · ${nfeQtd(x.qtde)} × ${moneyFmt(x.custo)}${i.custo_orcado!=null&&Number(i.custo_orcado)!==Number(x.custo)?(' <span title="custo do orçamento">(orçado '+moneyFmt(i.custo_orcado)+')</span>'):''}</div>`).join('');
 }
 function extrasItemOS(o){ if(!o) return {}; const x={}; ['origens','custo_orcado','peca_id','peca_codigo','ncm'].forEach(k=>{ if(o[k]!==undefined) x[k]=o[k]; }); return x; }
 function saveOS(id){
@@ -3293,6 +3293,7 @@ let notasCompra=null, notasCompraBusy=false;
 function nfeFmtData(d){ return d?new Date(d).toLocaleDateString('pt-BR'):'—'; }
 function nfeStatusTag(n){
   if(n.status==='cancelada') return '<span class="badge" style="color:#e57373;border-color:#e57373">Cancelada</span>';
+  if(n.status==='manual') return '<span class="badge" style="color:#9AA3AF;border-color:#9AA3AF">Sem nota</span>';
   if(n.status==='completa') return '<span class="badge" style="color:#81c784;border-color:#81c784">Completa</span>';
   return '<span class="badge" style="color:#D9A83E;border-color:#D9A83E">'+(n.manifestado?'Aguardando XML':'Resumo')+'</span>';
 }
@@ -3317,6 +3318,7 @@ function renderNotasCompra(){
   box.innerHTML=`<div class="note" style="margin:0 16px 12px">${info}</div>
     <div class="section-label"><span>Notas (${notas.length})</span><span>
       ${ehAdmin()?'<button class="btn sm" onclick="diagnosticoFiscal()">Diagnóstico</button> ':''}
+      ${pode('editar')?'<button class="btn sm" onclick="abrirEntradaManual()">+ Sem nota</button> ':''}
       <button class="btn sm gold" id="btnBuscarNfe" onclick="buscarNotasSefaz()" ${notasCompraBusy?'disabled':''}>${notasCompraBusy?'Buscando…':'Buscar na SEFAZ'}</button></span></div>
     <div class="rows">${notas.length?rows:emptyState('Nenhuma nota de compra','Toque em “Buscar na SEFAZ” para puxar as notas emitidas contra o CNPJ da 3M.')}</div>`;
 }
@@ -3352,7 +3354,8 @@ function nfeOsRotulo(o){ if(!o) return 'OS removida'; const v=getVeiculo(o.veicu
   return [v&&v.placa, c&&c.nome, o.codigo?('OS '+o.codigo):null].filter(Boolean).join(' · '); }
 function openNotaCompra(chave){
   const n=((notasCompra&&notasCompra.notas)||[]).find(x=>x.chave===chave); if(!n) return;
-  const podeDest=n.status==='completa'&&pode('editar');
+  const podeDest=(n.status==='completa'||n.status==='manual')&&pode('editar');
+  const manual=n.status==='manual';
   const itens=n.itens.map(i=>{
     const dests=(i.destinos||[]).map(d=>{ const o=getOS(d.ordem_id); const it=o&&(o.itens||[]).find(x=>x.id===d.os_item_id);
       return `<div style="font-size:12px;margin-top:3px;color:var(--green)">→ ${nfeQtd(d.qtde)} para ${esc(nfeOsRotulo(o))}${it?(' · '+esc(it.nome)):''}
@@ -3363,16 +3366,16 @@ function openNotaCompra(chave){
       <div class="s">${i.peca_codigo?('<b>'+esc(i.peca_codigo)+'</b> · '):''}${nfeQtd(i.qtde)} ${esc(i.unidade||'')} × ${moneyFmt(i.valor_unit)} · NCM ${esc(i.ncm||'—')} · cód. forn. ${esc(i.codigo||'—')}</div>
       <div class="s">${saldoTxt}</div>${dests}</div>
       ${podeDest&&i.saldo>0?`<button class="btn sm gold" onclick='abrirDestino("${chave}","${i.id}")'>Destinar</button>`:''}</div></div>`; }).join('');
-  openModal(`<h3>${esc(n.nome_emit||'Nota de compra')}</h3>
-    <div class="note">${n.numero?('NF '+esc(n.numero)+' série '+esc(n.serie||'')+'\n'):''}Emissão: ${nfeFmtData(n.dh_emi)} · Total ${moneyFmt(n.valor)}
+  openModal(`<h3>${manual?'🧾 Compra sem nota · ':''}${esc(n.nome_emit||'Nota de compra')}</h3>
+    ${manual?`<div class="note">Data: ${nfeFmtData(n.dh_emi)} · Total ${moneyFmt(n.valor)}${n.cnpj_emit?('\nCNPJ/CPF '+esc(n.cnpj_emit)):''}${n.obs?('\n'+esc(n.obs)):''}</div>${n.comprovante?`<a href="/gestao/api/midia/${esc(n.comprovante)}" target="_blank"><img src="/gestao/api/midia/${esc(n.comprovante)}" style="max-width:100%;max-height:220px;border-radius:8px;margin-top:8px"></a>`:''}`:`<div class="note">${n.numero?('NF '+esc(n.numero)+' série '+esc(n.serie||'')+'\n'):''}Emissão: ${nfeFmtData(n.dh_emi)} · Total ${moneyFmt(n.valor)}
 CNPJ ${esc(n.cnpj_emit||'')}
-Chave: ${esc(n.chave)}${n.manifesto_msg?('\nCiência: '+esc(n.manifesto_msg)):''}</div>
+Chave: ${esc(n.chave)}${n.manifesto_msg?('\nCiência: '+esc(n.manifesto_msg)):''}</div>`}
     ${n.status==='completa'?`<div class="note" style="margin-top:8px">${n.historico
       ?'📁 <b>Só histórico</b>: não soma no estoque. Ainda dá para ligar as peças às OS (rastreio e garantia).'
       :'📦 <b>Conta no estoque</b>: o que não for destinado a uma OS fica no estoque.'}${pode('editar')?`<br><a href="#" style="color:#D9A83E" onclick='alternarHistorico(event,"${chave}",${n.historico?0:1})'>${n.historico?'Passar a contar no estoque':'Marcar como só histórico'}</a>`:''}</div>`:''}
     ${itens?`<div class="rows" style="margin-top:10px">${itens}</div>`
       :'<div class="note" style="margin-top:10px">Os itens aparecem quando a SEFAZ liberar o XML completo (alguns minutos depois da ciência). Toque em “Buscar na SEFAZ” mais tarde.</div>'}
-    <div style="display:flex;gap:8px;margin-top:14px">${n.status==='completa'?`<a class="btn" href="${API_FISCAL}/xml?chave=${n.chave}">Baixar XML</a>`:''}<button class="btn" onclick="closeModal()">Fechar</button></div>`);
+    <div style="display:flex;gap:8px;margin-top:14px">${n.status==='completa'?`<a class="btn" href="${API_FISCAL}/xml?chave=${n.chave}">Baixar XML</a>`:''}${manual&&pode('editar')&&!n.itens.some(i=>(i.destinos||[]).length)?`<button class="btn" style="color:#e57373" onclick='excluirEntradaManual("${chave}")'>Excluir</button>`:''}<button class="btn" onclick="closeModal()">Fechar</button></div>`);
 }
 async function fiscalPost(acao,body){
   const r=await fetch(API_FISCAL+'/'+acao,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})});
@@ -3452,6 +3455,65 @@ async function desfazerDestino(ev,chave,destId){ ev.preventDefault();
   });
 }
 
+/* Compra sem nota (balcão, peça usada, pessoa física): entra no estoque e destina às OS igual a uma nota. */
+let manItens=[], manComprovante=null;
+function abrirEntradaManual(){ if(!pode('editar')){ toast('Sem permissão'); return; }
+  manItens=[{descricao:'',qtde:'1',custo:'',ncm:'',peca_id:''}]; manComprovante=null; renderEntradaManual(); }
+function renderEntradaManual(){
+  const forn=(state.fornecedores||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  const fSel=document.getElementById('manForn'); const fAtual=fSel?fSel.value:'';
+  const vals={nome:val('manFornNome')||'',cnpj:val('manCnpj')||'',data:val('manData')||toISO(hoje()),obs:val('manObs')||''};
+  const linhas=manItens.map((i,ix)=>`<div class="note" style="margin-top:8px;white-space:normal">
+      <div class="field"><label>Peça</label><input list="manPecasDL" value="${esc(i.descricao)}" placeholder="Nome da peça" oninput="manSet(${ix},'descricao',this.value)"></div>
+      <div style="display:flex;gap:8px">
+        <div class="field" style="flex:1"><label>Qtde</label><input inputmode="decimal" value="${esc(i.qtde)}" oninput="manSet(${ix},'qtde',this.value)"></div>
+        <div class="field" style="flex:1"><label>Custo unit.</label><input inputmode="decimal" placeholder="R$ 0,00" value="${esc(i.custo)}" oninput="manSet(${ix},'custo',this.value)"></div>
+        <div class="field" style="flex:1"><label>NCM (opcional)</label><input inputmode="numeric" id="manNcm-${ix}" value="${esc(i.ncm)}" oninput="manSet(${ix},'ncm',this.value)"></div>
+      </div>${manItens.length>1?`<a href="#" style="color:#e57373;font-size:12px" onclick="event.preventDefault(); manItens.splice(${ix},1); renderEntradaManual();">remover peça</a>`:''}</div>`).join('');
+  openModal(`<h3>Compra sem nota</h3>
+    <div class="field"><label>Comprado de</label><select id="manForn" onchange="document.getElementById('manNovoBox').style.display=this.value==='__novo__'?'block':'none'">
+      <option value="__novo__">➕ Outro / novo (digite abaixo)</option>${forn.map(f=>`<option value="${f.id}">${esc(f.nome)}${f.cnpj?(' · '+esc(f.cnpj)):''}</option>`).join('')}</select></div>
+    <div id="manNovoBox"><div class="field"><label>Nome (loja, desmanche ou pessoa)</label><input id="manFornNome" value="${esc(vals.nome)}"></div>
+      <div class="field"><label>CNPJ ou CPF (opcional)</label><input id="manCnpj" inputmode="numeric" value="${esc(vals.cnpj)}"></div></div>
+    <div class="field"><label>Data da compra</label><input type="date" id="manData" value="${esc(vals.data)}"></div>
+    <datalist id="manPecasDL">${(state.pecas||[]).map(p=>`<option value="${esc(p.nome)}">`).join('')}</datalist>
+    ${linhas}
+    <button class="btn sm" style="margin-top:8px" onclick="manItens.push({descricao:'',qtde:'1',custo:'',ncm:'',peca_id:''}); renderEntradaManual();">➕ Outra peça</button>
+    <div class="field" style="margin-top:12px"><label>Foto do recibo ou comprovante (opcional)</label>
+      <input type="file" accept="image/*" onchange="manEnviarComprovante(this)"><div id="manCompSt" style="font-size:12px;color:var(--muted)">${manComprovante?'✓ Comprovante anexado':''}</div></div>
+    <div class="field"><label>Observação (opcional)</label><input id="manObs" value="${esc(vals.obs)}" placeholder="Ex.: peça usada, garantia de 90 dias"></div>
+    <div style="display:flex;gap:8px;margin-top:14px"><button class="btn gold" id="manSalvar" onclick="salvarEntradaManual()">Salvar entrada</button><button class="btn" onclick="closeModal()">Cancelar</button></div>`);
+  const sel=document.getElementById('manForn'); if(sel&&fAtual) sel.value=fAtual;
+  document.getElementById('manNovoBox').style.display=sel.value==='__novo__'?'block':'none';
+}
+function manSet(ix,k,v){ const i=manItens[ix]; if(!i) return; i[k]=v;
+  if(k==='descricao'){ const p=(state.pecas||[]).find(p=>(p.nome||'').trim().toLowerCase()===v.trim().toLowerCase());
+    i.peca_id=p?p.id:''; if(p&&p.ncm&&!i.ncm){ i.ncm=p.ncm; const e=document.getElementById('manNcm-'+ix); if(e) e.value=p.ncm; } } }
+async function manEnviarComprovante(input){ const file=input.files&&input.files[0]; if(!file) return; const st=document.getElementById('manCompSt');
+  try{ if(st) st.textContent='Enviando…'; const b=await comprimirImagem(file);
+    const d=await uploadComProgresso('/gestao/api/midia/upload', b, b.type||'image/jpeg', 'image', pct=>{ if(st) st.textContent='Enviando… '+pct+'%'; });
+    manComprovante=d.key; if(st) st.textContent='✓ Comprovante anexado'; }
+  catch(e){ manComprovante=null; if(st) st.textContent='Não foi possível enviar: '+e.message; } }
+async function salvarEntradaManual(){
+  const fid=val('manForn'); const novo=fid==='__novo__';
+  const corpo={ fornecedor_id:novo?null:fid, fornecedor_nome:novo?tc((val('manFornNome')||'').trim()):'', cnpj:novo?val('manCnpj'):'',
+    data:val('manData'), obs:val('manObs'), comprovante:manComprovante,
+    itens:manItens.map(i=>({peca_id:i.peca_id||null, descricao:tc((i.descricao||'').trim()), qtde:parseFloat(String(i.qtde||'').replace(',','.'))||0, custo:moneyParse(i.custo), ncm:i.ncm})) };
+  if(novo&&!corpo.fornecedor_nome){ toast('Informe de quem foi comprado'); return; }
+  if(!corpo.itens.some(i=>i.descricao&&i.qtde>0)){ toast('Informe a peça e a quantidade'); return; }
+  const btn=document.getElementById('manSalvar'); if(btn){ btn.disabled=true; btn.textContent='Salvando…'; }
+  try{
+    const r=await fiscalPost('entrada_manual',corpo);
+    logAcao('Lançou compra sem nota', corpo.fornecedor_nome||fornecedorNome(fid), corpo.itens.map(i=>i.qtde+' × '+i.descricao).join(', '));
+    toast('Compra sem nota lançada ✓');
+    await carregarNotasCompra(); sincronizar(); renderNotasCompra(); openNotaCompra(r.chave);
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent='Salvar entrada'; } alert('Não foi possível salvar:\n'+e.message); }
+}
+async function excluirEntradaManual(chave){
+  confirmar('Excluir esta compra sem nota? As peças saem do estoque.', async function(){
+    try{ await fiscalPost('excluir_manual',{chave}); logAcao('Excluiu compra sem nota', '', chave); toast('Entrada excluída');
+      await carregarNotasCompra(); closeModal(); renderNotasCompra(); }catch(e){ alert(e.message); } }); }
+
 /* ---- Estoque de peças (saldo das notas que contam no estoque) ---- */
 let estoqueDados=null;
 function renderEstoque(){
@@ -3475,7 +3537,7 @@ function abrirEstoquePeca(ix){ const p=(estoqueDados||[])[ix]; if(!p) return;
     <div class="note">${nfeQtd(p.saldo)} ${esc(p.unidade||'')} em estoque · NCM ${esc(p.ncm||'—')}</div>
     <div class="section-label">De onde veio</div>
     <div class="rows">${p.origens.map(o=>`<div class="row click" onclick='abrirNotaPorChave("${o.chave}")'><div class="main"><div class="t">${esc(o.fornecedor||'—')}</div>
-      <div class="s">NF ${esc(o.nf||'—')} · ${nfeFmtData(o.data)} · ${nfeQtd(o.saldo)} restantes · custo ${moneyFmt(o.custo)}</div></div>${chev()}</div>`).join('')}</div>
+      <div class="s">${o.nf?('NF '+esc(o.nf)):'Sem nota'} · ${nfeFmtData(o.data)} · ${nfeQtd(o.saldo)} restantes · custo ${moneyFmt(o.custo)}</div></div>${chev()}</div>`).join('')}</div>
     <div style="display:flex;gap:8px;margin-top:14px"><button class="btn" onclick="closeModal()">Fechar</button></div>`); }
 async function abrirNotaPorChave(chave){ try{ if(!notasCompra) await carregarNotasCompra(); openNotaCompra(chave); }catch(e){ alert(e.message); } }
 
