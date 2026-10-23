@@ -864,7 +864,12 @@ function nomeVeiculo(v){ return (v.modelo||'Veículo')+(v.ano?(' '+v.ano):''); }
 function pecasTotal(o){ return (o.itens||[]).reduce((s,i)=>s+(Number(i.valor)||0)*(Number(i.qtde)||1),0); }
 function pecasCusto(o){ return (o.itens||[]).reduce((s,i)=>s+(Number(i.custo)||0)*(Number(i.qtde)||1),0); }
 function markupPecasOS(o){ const c=pecasCusto(o); const v=pecasTotal(o); return c>0?Math.round(((v-c)/c)*100):0; }
-function osLucro(o){ return osTotal(o)-pecasCusto(o); }
+// Mão de obra terceirizada (alinhamento, retífica…): o cliente paga como serviço, a oficina paga o prestador.
+// Não gera comissão de mecânico e o valor pago sai do lucro da OS.
+function tercCusto(o){ return (o.maodeobra||[]).filter(m=>m.terc).reduce((s,m)=>s+(Number(m.custo)||0),0); }
+function mdoMecanicoId(o,m){ return m.terc?'':(m.mecanico_id||o.mecanico_id||''); }
+function osMdoProprio(o){ return (o.maodeobra||[]).filter(m=>!m.terc).reduce((s,m)=>s+(Number(m.valor)||0),0); }
+function osLucro(o){ return osTotal(o)-pecasCusto(o)-tercCusto(o); }
 function osLucroPct(o){ const t=osTotal(o); return t>0?Math.round((osLucro(o)/t)*100):0; }
 function itemLucro(i){ return ((Number(i.valor)||0)-(Number(i.custo)||0))*(Number(i.qtde)||1); }
 function osMdoTotal(o){ return (o.maodeobra||[]).reduce((s,m)=>s+(Number(m.valor)||0),0); }
@@ -1815,11 +1820,13 @@ function renderOsDet(id){
     ${podeMidiaProblemas()?blocoMidias(o,'defeito',podeAddDefeito(o)):''}
     ${((o.itens||[]).length||editavel)?`<div class="section-label"><span>Peças / produtos</span>${editavel?`<button class="btn sm gold" onclick='openOS("${o.id}")'>➕ Adicionar peça</button>`:''}</div>${(o.itens||[]).length?`<div class="rows">${o.itens.map(linhaPeca).join('')}</div>`:'<div class="note empty-note" style="margin:0">Nenhuma peça lançada ainda. Toque em <b>➕ Adicionar peça</b>.</div>'}`:''}
     ${(o.maodeobra&&o.maodeobra.length)?`<div class="section-label">Mão de obra</div><div class="rows">${o.maodeobra.map(m=>{ const mec=(state.mecanicos||[]).find(x=>x.id===m.mecanico_id);
-      return `<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div><div class="s">${mec?('👨‍🔧 '+esc(mec.nome)):'<span style=\"color:var(--amber)\">sem mecânico</span>'}</div></div><span class="valor-tag">${moneyFmt(m.valor)}</span></div>`; }).join('')}</div>`:(editavel?`<div class="section-label"><span>Mão de obra</span><button class="btn sm ghost" onclick='openOS("${o.id}")'>➕ Adicionar</button></div>`:'')}
+      const quem=m.terc?('🏭 Terceirizado'+(m.prestador?(' · '+esc(m.prestador)):'')+(pode('valores')?(' · 🔒 pago '+moneyFmt(m.custo)+' · lucro '+moneyFmt((Number(m.valor)||0)-(Number(m.custo)||0))):''))
+        :(mec?('👨‍🔧 '+esc(mec.nome)):'<span style=\"color:var(--amber)\">sem mecânico</span>');
+      return `<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div><div class="s">${quem}</div></div><span class="valor-tag">${moneyFmt(m.valor)}</span></div>`; }).join('')}</div>`:(editavel?`<div class="section-label"><span>Mão de obra</span><button class="btn sm ghost" onclick='openOS("${o.id}")'>➕ Adicionar</button></div>`:'')}
     <div class="os-total" style="margin-top:12px"><span class="l">Valor de peças</span><span class="v">${moneyFmt(pecasTotal(o))}</span></div>
     <div class="os-total"><span class="l">Valor de mão de obra</span><span class="v">${moneyFmt(osMdoTotal(o))}</span></div>
     <div class="os-total" style="border-top:1px solid var(--line2);margin-top:2px;padding-top:8px"><span class="l"><b>Valor total</b></span><span class="v"><b>${moneyFmt(osTotal(o))}</b></span></div>
-    ${pode('valores')?`<div class="os-lucro-panel"><div class="lp-h">🔒 Visão interna — o cliente não vê isto</div><div class="lp-row"><span>Custo das peças</span><span>${moneyFmt(pecasCusto(o))}</span></div><div class="lp-row"><span><b>Lucro da OS</b> (venda − custo das peças)</span><span class="lp-big">${moneyFmt(osLucro(o))}</span></div><div class="lp-row" style="color:var(--muted)"><span>Ganho sobre o custo das peças</span><span>${pecasCusto(o)>0?markupPecasOS(o)+'%':'—'}</span></div></div>`:''}`;
+    ${pode('valores')?`<div class="os-lucro-panel"><div class="lp-h">🔒 Visão interna — o cliente não vê isto</div><div class="lp-row"><span>Custo das peças</span><span>${moneyFmt(pecasCusto(o))}</span></div>${tercCusto(o)>0?`<div class="lp-row"><span>Pago a terceiros</span><span>${moneyFmt(tercCusto(o))}</span></div>`:''}<div class="lp-row"><span><b>Lucro da OS</b> (venda − custo das peças${tercCusto(o)>0?' − terceiros':''})</span><span class="lp-big">${moneyFmt(osLucro(o))}</span></div><div class="lp-row" style="color:var(--muted)"><span>Ganho sobre o custo das peças</span><span>${pecasCusto(o)>0?markupPecasOS(o)+'%':'—'}</span></div></div>`:''}`;
 
   // Orçamento: imprimir/baixar/enviar (aguardando/andamento/executado)
   if(v){ corpo+=`<div class="form-actions" style="margin-top:10px">
@@ -2853,7 +2860,8 @@ function openOS(id, veiculoFixo){ if(!pode('editar')){ toast('Sem permissão par
   if(!state.veiculos.length){ toast('Cadastre um veículo primeiro'); goTab('veiculos'); return; }
   const o=id?getOS(id):null; osFixoVeiculo = o?o.veiculo_id : (veiculoFixo||null);
   osItens = o?(o.itens||[]).map(i=>({id:i.id||uid(),_orig:i,nome:i.nome,qtde:i.qtde?String(i.qtde):'1',valor:i.valor?String(i.valor).replace('.',','):'',custo:(i.custo!=null&&i.custo!=='')?String(i.custo).replace('.',','):''})) : [{id:uid(),nome:'',qtde:'1',valor:'',custo:''}];
-  osMdo = o?(o.maodeobra||[]).map(m=>({id:uid(),desc:m.desc||'',mecanico_id:m.mecanico_id||'',valor:m.valor?String(m.valor).replace('.',','):''})) : [];
+  osMdo = o?(o.maodeobra||[]).map(m=>({id:uid(),desc:m.desc||'',mecanico_id:m.mecanico_id||'',valor:m.valor?String(m.valor).replace('.',','):'',
+    terc:!!m.terc,prestador:m.prestador||'',custo:m.custo?String(m.custo).replace('.',','):''})) : [];
   osMecRespPrev = o?(o.mecanico_id||''):'';
   let veiculoCampo;
   if(osFixoVeiculo){ const v=getVeiculo(osFixoVeiculo); const c=getCliente(v.cliente_id);
@@ -2900,20 +2908,30 @@ function renderOsMdo(){ const box=document.getElementById('osMdoBox'); if(!box) 
   const mecs=mecanicosAtivos();
   if(!osMdo.length){ box.innerHTML=`<div class="hint" style="margin:0 0 6px">Nenhuma mão de obra lançada.${mecs.length?'':' <b>Cadastre mecânicos</b> em Configuração → Mecânicos para poder atribuir.'}</div>`; atualizaTotal(); return; }
   const opts=mecs.map(m=>`<option value="${m.id}">${esc(m.nome)}</option>`).join('');
-  box.innerHTML=osMdo.map(row=>`<div class="mdo-row">
+  const verCusto=pode('valores');
+  const prestadores=[...new Set([...(state.fornecedores||[]).map(f=>f.nome),...(state.ordens||[]).flatMap(o=>(o.maodeobra||[]).filter(m=>m.terc&&m.prestador).map(m=>m.prestador))].filter(Boolean))];
+  box.innerHTML=`<datalist id="prestadoresDL">${prestadores.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>`+osMdo.map(row=>`<div class="os-item-wrap"><div class="mdo-row">
     <div class="os-serv">
       <input placeholder="Descrição da mão de obra (opcional)" value="${esc(row.desc)}" oninput="setOsMdo('${row.id}','desc',this.value)">
-      <select onchange="setOsMdo('${row.id}','mecanico_id',this.value)"><option value="">Mecânico responsável…</option>${opts}</select>
+      ${row.terc
+        ?`<input list="prestadoresDL" placeholder="Prestador (ex.: Retífica Ricardo)" value="${esc(row.prestador)}" oninput="setOsMdo('${row.id}','prestador',this.value)">`
+        :`<select onchange="setOsMdo('${row.id}','mecanico_id',this.value)"><option value="">Mecânico responsável…</option>${opts}</select>`}
+      <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--muted);cursor:pointer;margin:0"><input type="checkbox" style="width:16px;height:16px;flex:none;margin:0" ${row.terc?'checked':''} onchange="setOsMdoTerc('${row.id}',this.checked)"><span>🏭 Terceirizado (alinhamento, retífica…) — não gera comissão</span></label>
     </div>
-    <input class="os-val" inputmode="decimal" placeholder="M.O. R$" value="${esc(row.valor)}" oninput="setOsMdo('${row.id}','valor',this.value)">
-    <button class="rm" onclick="removeOsMdo('${row.id}')">✕</button></div>`).join('');
-  osMdo.forEach(row=>{ const sels=box.querySelectorAll('select'); }); // placeholder
-  box.querySelectorAll('.mdo-row').forEach((el,i)=>{ const sel=el.querySelector('select'); if(sel) sel.value=osMdo[i].mecanico_id||''; });
-  atualizaTotal();
+    <input class="os-val" inputmode="decimal" placeholder="${row.terc?'Cobrado R$':'M.O. R$'}" value="${esc(row.valor)}" oninput="setOsMdo('${row.id}','valor',this.value)">
+    <button class="rm" onclick="removeOsMdo('${row.id}')">✕</button></div>
+    ${row.terc&&verCusto?`<div class="os-custo-row"><span class="ocl">🔒 Pago ao terceiro</span><input class="os-custo" inputmode="decimal" placeholder="R$ 0,00" value="${esc(row.custo)}" oninput="setOsMdo('${row.id}','custo',this.value)"><span class="os-lucro-mini" id="lucroMdo-${row.id}"></span></div>`:''}
+  </div>`).join('');
+  box.querySelectorAll('.mdo-row select').forEach(sel=>{ const row=osMdo.find(r=>sel.getAttribute('onchange').includes(r.id)); if(row) sel.value=row.mecanico_id||''; });
+  atualizaTotal(); osMdo.forEach(atualizaLucroTerc);
 }
-function setOsMdo(id,k,v){ const r=osMdo.find(x=>x.id===id); if(r) r[k]=v; if(k==='valor') atualizaTotal(); }
+function atualizaLucroTerc(r){ const el=document.getElementById('lucroMdo-'+r.id); if(!el) return;
+  const temCusto=r.custo!==''&&r.custo!=null; const l=moneyParse(r.valor)-moneyParse(r.custo);
+  el.textContent=temCusto?('lucro '+moneyFmt(l)):'informe quanto pagou'; el.style.color=temCusto?(l>=0?'var(--green)':'var(--red)'):'var(--muted)'; }
+function setOsMdo(id,k,v){ const r=osMdo.find(x=>x.id===id); if(r) r[k]=v; if(k==='valor') atualizaTotal(); if(r&&(k==='valor'||k==='custo')) atualizaLucroTerc(r); }
+function setOsMdoTerc(id,on){ const r=osMdo.find(x=>x.id===id); if(!r) return; r.terc=on; if(on) r.mecanico_id=''; else r.mecanico_id=val('osMecResp')||''; renderOsMdo(); }
 let osMecRespPrev='';
-function osMecRespChange(){ const novo=val('osMecResp')||''; osMdo.forEach(r=>{ if(!r.mecanico_id || r.mecanico_id===osMecRespPrev) r.mecanico_id=novo; }); osMecRespPrev=novo; renderOsMdo(); }
+function osMecRespChange(){ const novo=val('osMecResp')||''; osMdo.forEach(r=>{ if(!r.terc&&(!r.mecanico_id || r.mecanico_id===osMecRespPrev)) r.mecanico_id=novo; }); osMecRespPrev=novo; renderOsMdo(); }
 function addOsMdo(){ if(!mecanicosAtivos().length){ toast('Cadastre mecânicos em Equipe → Funcionários'); } osMdo.push({id:uid(),desc:'',mecanico_id:(val('osMecResp')||''),valor:''}); renderOsMdo(); }
 function removeOsMdo(id){ osMdo=osMdo.filter(x=>x.id!==id); renderOsMdo(); }
 // Dados internos do item (nota de compra de onde veio a peça) que a edição da OS preserva.
@@ -2930,7 +2948,9 @@ function saveOS(id){
     // Peça ligada a nota: o custo vem da nota (e a quantidade pode ter mudado), não do campo.
     if((it.origens||[]).length) recalcCustoItemOS(it);
     return it; });
-  const maodeobra=osMdo.filter(m=>moneyParse(m.valor)>0).map(m=>({id:uid(),desc:tc((m.desc||'').trim()),mecanico_id:m.mecanico_id||'',valor:moneyParse(m.valor)}));
+  const maodeobra=osMdo.filter(m=>moneyParse(m.valor)>0).map(m=>m.terc
+    ?{id:uid(),desc:tc((m.desc||'').trim()),mecanico_id:'',valor:moneyParse(m.valor),terc:true,prestador:tc((m.prestador||'').trim()),custo:moneyParse(m.custo)}
+    :{id:uid(),desc:tc((m.desc||'').trim()),mecanico_id:m.mecanico_id||'',valor:moneyParse(m.valor)});
   const antigo=id?getOS(id):null;
   const dados={veiculo_id:vid,data,km:km||0,reclamacao:val('osRec').trim(),obs_mecanico:val('osMec').trim(),obs_admin:val('osAdm').trim(),itens,maodeobra,mecanico_id:val('osMecResp')||'',
     status:antigo?osStatus(antigo):'aguardando', agenda_data:antigo?antigo.agenda_data:'', agenda_hora:antigo?antigo.agenda_hora:''};
@@ -3704,7 +3724,7 @@ function relPorCliente(){ const os=osExecPeriodo(relPer.de,relPer.ate); const ma
     <div class="section-label">Ranking de clientes</div>${arr.slice(0,30).map(x=>relBar(x.nome,x.total,max,`${x.n} OS · ${moneyFmt(x.total/x.n)}/OS`)).join('')}`;
 }
 function relPorMecanico(){ const os=(state.ordens||[]).filter(o=>{ if(!osFinalizadaComissao(o)) return false; const d=dataFechamentoOS(o); return d && d>=relPer.de && d<=relPer.ate; }); const map={};
-  os.forEach(o=>{ (o.maodeobra||[]).forEach(m=>{ const mid=m.mecanico_id||o.mecanico_id||''; if(!mid) return; const d=(map[mid]=map[mid]||{mo:0,oss:new Set()}); d.mo+=(Number(m.valor)||0); d.oss.add(o.id); }); });
+  os.forEach(o=>{ (o.maodeobra||[]).forEach(m=>{ const mid=mdoMecanicoId(o,m); if(!mid) return; const d=(map[mid]=map[mid]||{mo:0,oss:new Set()}); d.mo+=(Number(m.valor)||0); d.oss.add(o.id); }); });
   const arr=Object.entries(map).map(([mid,d])=>{ const mec=(state.mecanicos||[]).find(x=>x.id===mid)||{}; const perc=Number(mec.percentual||0); return {nome:mec.nome||'—',mo:d.mo,n:d.oss.size,com:d.mo*perc/100,perc}; }).sort((a,b)=>b.mo-a.mo);
   if(!arr.length) return emptyState('Sem mão de obra no período','Ajuste as datas acima.');
   const max=Math.max(...arr.map(x=>x.mo),1), totMO=arr.reduce((s,x)=>s+x.mo,0), totCom=arr.reduce((s,x)=>s+x.com,0);
@@ -3752,7 +3772,7 @@ function salvarMeta(comp){ const all=metasAll(); all[comp]={fixos:moneyParse(val
 function excluirMeta(comp){ confirmar('Excluir a meta de '+nomeMesComp(comp)+'?\nSó apaga a meta cadastrada \u2014 as OS e os valores continuam.', function(){ const all=metasAll(); delete all[comp]; setMetasAll(all); if(typeof logAcao==='function') logAcao('Excluiu meta',nomeMesComp(comp),''); salvar(); renderRelatorios(); toast('Meta exclu\u00edda'); }, 'Excluir','danger'); }
 function metaMesShift(delta){ if(!metaComp) metaComp=toISO(hoje()).slice(0,7); const [y,m]=metaComp.split('-').map(Number); const d=new Date(y,m-1+delta,1); metaComp=toISO(d).slice(0,7); renderRelatorios(); }
 function osExecMes(comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01', ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); return (state.ordens||[]).filter(o=>osStatus(o)==='executado'&&o.data&&o.data>=de&&o.data<=ate); }
-function rankMecanicosMes(comp){ const exec=osExecMes(comp); const map={}; exec.forEach(o=>{ const mid=o.mecanico_id; if(!mid) return; const d=(map[mid]=map[mid]||{mo:0,pec:0}); d.mo+=osMdoTotal(o); d.pec+=pecasTotal(o); }); return Object.entries(map).map(([mid,d])=>{ const mec=(state.mecanicos||[]).find(x=>x.id===mid); return {nome:mec?mec.nome:'\u2014',mo:d.mo,pec:d.pec,total:d.mo+d.pec}; }).sort((a,b)=>b.total-a.total); }
+function rankMecanicosMes(comp){ const exec=osExecMes(comp); const map={}; exec.forEach(o=>{ const mid=o.mecanico_id; if(!mid) return; const d=(map[mid]=map[mid]||{mo:0,pec:0}); d.mo+=osMdoProprio(o); d.pec+=pecasTotal(o); }); return Object.entries(map).map(([mid,d])=>{ const mec=(state.mecanicos||[]).find(x=>x.id===mid); return {nome:mec?mec.nome:'\u2014',mo:d.mo,pec:d.pec,total:d.mo+d.pec}; }).sort((a,b)=>b.total-a.total); }
 let metaVista='mes';
 function metaSimplesCard(nome,meta,real,porDia,lblMeta){ lblMeta=lblMeta||'Meta do m\u00eas'; const pct=meta>0?Math.round(real/meta*100):0; const falta=Math.max(0,meta-real); const cor=pct>=100?'var(--green)':pct>=70?'var(--gold)':'var(--red)';
   return `<div class="meta-card"><div class="mc-top"><span class="mc-nome">${nome}</span><span class="mc-pct" style="color:${cor}">${pct}%</span></div>
@@ -3770,7 +3790,7 @@ function aplicarProporcao(pmo,ppec){ const a=document.getElementById('mtPMO'), b
 function osExecDia(d){ return (state.ordens||[]).filter(o=>osStatus(o)==='executado'&&o.data===d); }
 function semanaRange(){ const h=hoje(); const dow=(h.getDay()+6)%7; const ini=new Date(h.getFullYear(),h.getMonth(),h.getDate()-dow); const fim=new Date(ini.getFullYear(),ini.getMonth(),ini.getDate()+6); return [toISO(ini),toISO(fim)]; }
 function osExecSemana(){ const [di,df]=semanaRange(); return (state.ordens||[]).filter(o=>osStatus(o)==='executado'&&o.data>=di&&o.data<=df); }
-function rankMecanicos(execList){ const map={}; execList.forEach(o=>{ const mid=o.mecanico_id; if(!mid) return; const d=(map[mid]=map[mid]||{mo:0,pec:0}); d.mo+=osMdoTotal(o); d.pec+=pecasTotal(o); }); return Object.entries(map).map(([mid,d])=>{ const mec=(state.mecanicos||[]).find(x=>x.id===mid); return {nome:mec?mec.nome:'\u2014',mo:d.mo,pec:d.pec,total:d.mo+d.pec}; }).sort((a,b)=>b.total-a.total); }
+function rankMecanicos(execList){ const map={}; execList.forEach(o=>{ const mid=o.mecanico_id; if(!mid) return; const d=(map[mid]=map[mid]||{mo:0,pec:0}); d.mo+=osMdoProprio(o); d.pec+=pecasTotal(o); }); return Object.entries(map).map(([mid,d])=>{ const mec=(state.mecanicos||[]).find(x=>x.id===mid); return {nome:mec?mec.nome:'\u2014',mo:d.mo,pec:d.pec,total:d.mo+d.pec}; }).sort((a,b)=>b.total-a.total); }
 function nMecanicos(){ return Math.max(1,(state.mecanicos||[]).filter(f=>ehMecanicoFunc(f)&&f.ativo!==0&&f.ativo!=='0').length); }
 function mesesComCaixa(){ const set=new Set(); (state.caixa||[]).forEach(m=>{ if(m.data) set.add(m.data.slice(0,7)); }); return [...set].sort(); }
 function autoDespesas(){ const meses=mesesComCaixa(); const ult=meses.slice(-3); if(ult.length<3) return null; let fixos=0,variaveis=0,prol=0; const n=ult.length;
@@ -4143,7 +4163,7 @@ function editarFechamento(oid){ const o=getOS(oid); if(!o) return; const atual=d
 function salvarFechamento(oid){ const o=getOS(oid); if(!o) return; const d=val('fchData'); if(!d){ toast('Escolha a data'); return; } o.fechado_em=d; o.atualizado=Date.now(); logAcao('Ajustou data de fechamento', o.codigo?('OS '+o.codigo):'OS', fmtBR(parseISO(d))); salvar(); closeModal(); renderOsDet(oid); toast('Data de fechamento salva \u2713'); }
 function comissaoFunc(fid,comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01'; const ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0');
   const mec=(state.mecanicos||[]).find(x=>x.id===fid); const perc=Number((mec&&mec.percentual)||0); if(perc<=0) return 0;
-  let mo=0; (state.ordens||[]).forEach(o=>{ if(!osFinalizadaComissao(o)) return; const dref=dataFechamentoOS(o); if(!dref||dref<de||dref>ate) return; (o.maodeobra||[]).forEach(l=>{ const mid=l.mecanico_id||o.mecanico_id||''; if(mid===fid) mo+=(Number(l.valor)||0); }); });
+  let mo=0; (state.ordens||[]).forEach(o=>{ if(!osFinalizadaComissao(o)) return; const dref=dataFechamentoOS(o); if(!dref||dref<de||dref>ate) return; (o.maodeobra||[]).forEach(l=>{ const mid=mdoMecanicoId(o,l); if(mid&&mid===fid) mo+=(Number(l.valor)||0); }); });
   return Math.round(mo*perc/100*100)/100; }
 function ehMecanicoFunc(f){ return Number(f&&f.percentual||0)>0; }
 function adiantCalend(fid,comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01'; const ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); return (state.caixa||[]).filter(x=>x.tipo==='saida'&&x.categoria==='adiantamento'&&x.funcionario_id===fid&&x.data&&x.data>=de&&x.data<=ate); }
@@ -4311,7 +4331,7 @@ function gerarFinanceiro(){
     else if(st!==finStatus) return;
     const dref = (st==='executado') ? dataFechamentoOS(o) : o.data;
     if(!dref||dref<de||dref>ate) return;
-    (o.maodeobra||[]).forEach(m=>{ const mid0=m.mecanico_id||o.mecanico_id||''; if(finMec && mid0!==finMec) return;
+    (o.maodeobra||[]).forEach(m=>{ if(m.terc) return; const mid0=mdoMecanicoId(o,m); if(finMec && mid0!==finMec) return;
       const mec=(state.mecanicos||[]).find(x=>x.id===mid0); const key=mid0||'__sem__';
       porMec[key]=porMec[key]||{nome:mec?mec.nome:'Sem mecânico definido',perc:mec?(mec.percentual!=null?mec.percentual:50):50,total:0,itens:[]};
       const vLiq=Math.max(0,(Number(m.valor)||0)-descontoMdoLinha(o,m.id));
