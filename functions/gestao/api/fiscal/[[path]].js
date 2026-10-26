@@ -23,6 +23,10 @@
  *   POST entrada_manual     { fornecedor_id?, fornecedor_nome, cnpj?, data, obs?, comprovante?, itens:[{peca_id?, descricao, qtde, custo, ncm?, unidade?}] }
  *   POST excluir_manual     { chave } (só sem destinos)
  *
+ * Regra fiscal de venda das peças (ver "Regra fiscal de venda das peças" abaixo):
+ *   GET  regras             regra sugerida/ajustada/aprovada por peça, com o motivo e os avisos
+ *   POST regra              { peca_id, acao: 'aprovar'|'ajustar'|'limpar', base?, regra?, obs, quem }
+ *
  * Notas anteriores à ativação do estoque (dfe_controle.estoque_desde) ficam como
  * histórico: dá para ligar as peças às OS (rastreio/garantia), mas não somam no estoque.
  */
@@ -89,6 +93,11 @@ async function garantirTabelas(DB) {
     try { await DB.prepare(`ALTER TABLE nfe_entrada_itens ADD COLUMN ${col}`).run(); } catch (e) { /* coluna já existe */ }
   }
   await recalcularCustos(DB);
+  for (const col of ['icms_cst TEXT', 'pis_cst TEXT']) {
+    try { await DB.prepare(`ALTER TABLE nfe_entrada_itens ADD COLUMN ${col}`).run(); } catch (e) { /* coluna já existe */ }
+  }
+  try { await DB.prepare('ALTER TABLE pecas ADD COLUMN regra_fiscal TEXT').run(); } catch (e) { /* coluna já existe */ }
+  await recalcularFiscal(DB);
 
   // Código próprio (P0001…) para toda peça que já apareceu numa nota.
   const semCodigo = await DB.prepare(`SELECT DISTINCT p.id FROM pecas p JOIN nfe_entrada_itens i ON i.peca_id=p.id
@@ -263,15 +272,17 @@ async function gravarDocumentos(DB, ctx, docs, agora) {
           atualizado=excluded.atualizado, status=CASE WHEN nfe_entrada.status='cancelada' THEN 'cancelada' ELSE 'completa' END`)
         .bind(x.chave, d.nsu, x.numero, x.serie, soDigitos(x.cnpjEmit), x.nomeEmit, fornecedorId, x.dhEmi, x.valor, x.tpNF, d.xml, hist, agora, agora));
       const custos = d.xml ? custosDoXml(d.xml) : {};
+      const fiscal = d.xml ? fiscalDoXml(d.xml) : {};
       for (const it of x.itens || []) {
         const c = custos[it.nItem] || { v_frete: 0, v_seg: 0, v_desc: 0, v_outro: 0, v_ipi: 0, v_st: 0, custo_unit: it.valorUnit };
         it.custoUnit = c.custo_unit;
         const pecaId = pecaPara(ctx, stmts, DB, it, fornecedorId, agora);
         stmts.push(DB.prepare(`INSERT OR REPLACE INTO nfe_entrada_itens (id,chave,n_item,codigo,ean,descricao,ncm,cest,cfop,unidade,qtde,valor_unit,valor_total,origem,peca_id,
-            v_frete,v_seg,v_desc,v_outro,v_ipi,v_st,custo_unit)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+            v_frete,v_seg,v_desc,v_outro,v_ipi,v_st,custo_unit,icms_cst,pis_cst)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
           .bind(`${x.chave}-${it.nItem}`, x.chave, it.nItem, it.codigo, it.ean, it.descricao, it.ncm, it.cest, it.cfop, it.unidade,
-            it.qtde, it.valorUnit, it.valorTotal, it.origem, pecaId, c.v_frete, c.v_seg, c.v_desc, c.v_outro, c.v_ipi, c.v_st, c.custo_unit));
+            it.qtde, it.valorUnit, it.valorTotal, it.origem, pecaId, c.v_frete, c.v_seg, c.v_desc, c.v_outro, c.v_ipi, c.v_st, c.custo_unit,
+            (fiscal[it.nItem] || {}).icms_cst || '-', (fiscal[it.nItem] || {}).pis_cst || null));
       }
     } else if (d.tipo === 'evento') {
       conta.eventos++;
@@ -431,13 +442,180 @@ async function entradaManual(DB, b) {
     let pecaId = i.peca_id && ctx.pecas.some(p => p.id === i.peca_id) ? i.peca_id : null;
     if (pecaId) stmts.push(DB.prepare('UPDATE pecas SET ncm=COALESCE(?,ncm), custo=? WHERE id=?').bind(it.ncm, it.custoUnit, pecaId));
     else pecaId = pecaPara(ctx, stmts, DB, it, fornecedorId, agora);
-    stmts.push(DB.prepare(`INSERT INTO nfe_entrada_itens (id,chave,n_item,codigo,ean,descricao,ncm,cest,cfop,unidade,qtde,valor_unit,valor_total,origem,peca_id,v_frete,custo_unit)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    stmts.push(DB.prepare(`INSERT INTO nfe_entrada_itens (id,chave,n_item,codigo,ean,descricao,ncm,cest,cfop,unidade,qtde,valor_unit,valor_total,origem,peca_id,v_frete,custo_unit,icms_cst)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'-')`)
       .bind(`${chave}-${it.nItem}`, chave, it.nItem, null, null, it.descricao, it.ncm, null, null, it.unidade, it.qtde, it.valorUnit, it.valorTotal, null, pecaId,
         Math.round(vFrete * 100) / 100, it.custoUnit));
   });
   await DB.batch(stmts);
   return { ok: true, chave };
+}
+
+
+// ---------- Regra fiscal de venda das peças ----------
+//
+// A 3M (Simples Nacional, CRT 1) vende peça sempre a consumidor final, dentro de GO.
+// A regra de cada item sai de duas fontes, nesta ordem:
+//   1. a nota de compra do fornecedor (vinda da SEFAZ): se o ICMS da substituição
+//      tributária já foi pago (CST 10/30/60/70 ou CSOSN 201/202/203/500), a venda é
+//      CSOSN 500; se não, CSOSN 102. Lubrificante usa o CFOP próprio (5656).
+//   2. a Lei 10.485/2002 (autopeças monofásicas de PIS/Cofins): NCM do Anexo I = CST 04
+//      (revenda a alíquota zero, art. 3º §2º); fora dela = CST 49 (Simples, outras saídas).
+// O que a fonte não decide sozinha (NCM com "Ex", Anexo II, compra de fora de GO,
+// fornecedor que tributou diferente) vira aviso "conferir" — nunca escolha silenciosa.
+// Conferido no Planalto e no Normas Legais em 26/10/2026 (texto compilado da Lei 10.485).
+
+const LEI_10485_ANEXO_I = ['4016.10.10', '4016.99.90*', '68.13', '7007.11.00', '7007.21.00', '7009.10.00', '7320.10.00*',
+  '8301.20.00', '8302.30.00', '8407.33.90', '8407.34.90', '8408.20', '8409.91', '8409.99', '8413.30', '8413.91.00*',
+  '8414.80.21', '8414.80.22', '8415.20', '8421.23.00', '8421.31.00', '8431.41.00', '8431.42.00', '8433.90.90',
+  '8481.80.99*', '8483.10', '8483.20.00', '8483.30', '8483.40', '8483.50', '8505.20', '8507.10.00', '85.11', '8512.20',
+  '8512.30.00', '8512.40', '8512.90.00', '8527.2', '8536.50.90*', '8539.10', '8544.30.00', '8706.00', '87.07', '87.08',
+  '9029.20.10', '9029.90.10', '9030.39.21', '9031.80.40', '9032.89.2', '9104.00.00', '9401.20.00'];
+// Anexo II: peças para tratores e máquinas (84.29, 84.32, 84.33, 87.01…). Na oficina de carros raramente vale.
+const LEI_10485_ANEXO_II = ['40.09', '8408.90.90', '8412.21.10', '8412.21.90', '8412.31.10', '8413.60.19', '8414.80.19',
+  '8414.90.39', '8432.40.00', '8432.80.00', '8432.90.00', '8481.10.00', '8481.20.90', '8481.80.92', '8483.60.1', '8501.10.19'];
+// Pneus e câmaras: revenda a alíquota zero (Lei 10.485, art. 5º, parágrafo único).
+const LEI_10485_ART5 = ['40.11', '40.13'];
+
+const prefixos = (lista) => lista.map(c => ({ p: c.replace(/[.*]/g, ''), ex: c.endsWith('*'), cod: c.replace('*', '') }));
+const ANEXO_I = prefixos(LEI_10485_ANEXO_I), ANEXO_II = prefixos(LEI_10485_ANEXO_II), ART5 = prefixos(LEI_10485_ART5);
+
+function monofasico(ncm) {
+  const n = soDigitos(ncm);
+  if (!n) return { mono: false, conferir: true, motivo: 'Peça sem NCM: não dá para saber se é monofásica.' };
+  const a1 = ANEXO_I.find(x => n.startsWith(x.p));
+  if (a1 && a1.ex) return { mono: true, conferir: true, motivo: `NCM ${a1.cod} está no Anexo I da Lei 10.485, mas só para alguns itens ("Ex"): confirmar se esta peça é um deles.` };
+  if (a1) return { mono: true, conferir: false, motivo: `NCM ${a1.cod} está no Anexo I da Lei 10.485 (autopeça monofásica): revenda a alíquota zero.` };
+  const p5 = ART5.find(x => n.startsWith(x.p));
+  if (p5) return { mono: true, conferir: false, motivo: `NCM ${p5.cod} (pneu/câmara): revenda a alíquota zero pelo art. 5º da Lei 10.485.` };
+  const a2 = ANEXO_II.find(x => n.startsWith(x.p));
+  if (a2) return { mono: false, conferir: true, motivo: `NCM ${a2.cod} está no Anexo II da Lei 10.485, que vale só para peças de tratores e máquinas: confirmar.` };
+  return { mono: false, conferir: false, motivo: 'NCM fora das listas da Lei 10.485: PIS/Cofins normal.' };
+}
+
+const CST_ICMS_COM_ST = ['10', '30', '60', '70', '201', '202', '203', '500'];
+const LUBRIFICANTE = (ncm, cfop) => /^271019/.test(soDigitos(ncm)) || /^[56]65\d$/.test(String(cfop || ''));
+
+/**
+ * Regra de venda de um item comprado. `it` = linha de nfe_entrada_itens (com icms_cst,
+ * pis_cst, cfop, cest, origem, ncm) e `nota` = a nota de compra (status, nome_emit, numero).
+ */
+function regraVenda(it, nota) {
+  const motivos = [], avisos = [];
+  const fonte = nota.status === 'manual' ? 'compra sem nota' : `nota ${nota.numero || ''} de ${nota.nome_emit || 'fornecedor'}`.trim();
+  const lub = LUBRIFICANTE(it.ncm, it.cfop);
+  let st = null;
+  if (nota.status === 'manual') {
+    avisos.push('Compra sem nota: não há como saber se o ICMS da substituição tributária foi pago. Usado o cálculo sem ST (paga ICMS no DAS) até o contador confirmar.');
+    st = false;
+  } else if (it.icms_cst) {
+    st = CST_ICMS_COM_ST.includes(String(it.icms_cst));
+    motivos.push(st
+      ? `Na ${fonte} o ICMS veio com CST ${it.icms_cst}: a substituição tributária já foi paga pelo fornecedor → CSOSN 500 (não paga ICMS de novo).`
+      : `Na ${fonte} o ICMS veio com CST ${it.icms_cst}, sem substituição tributária → CSOSN 102 (o ICMS entra no DAS).`);
+    // Em GO a maioria das autopeças vem sem ST mesmo tendo CEST: é nota, não aviso (o
+    // contador confirma uma vez na tela, para todas).
+    if (!st && it.cest) motivos.push(`Obs.: a peça tem CEST ${it.cest} (lista nacional de ST), mas em GO o fornecedor vendeu sem ST.`);
+    if (/^6/.test(String(it.cfop || ''))) avisos.push('Compra de fora de Goiás: a ST pode ter de ser paga por antecipação na entrada. Confirmar com o contador.');
+  } else {
+    st = false;
+    avisos.push(`Não foi possível ler o ICMS da ${fonte}. Usado o cálculo sem ST até conferir.`);
+  }
+  const cfop = lub ? '5656' : (st ? '5405' : '5102');
+  // Cliente de outro estado (raro): sem ST 6102, como o contador orientou; com ST já
+  // retida 6404; lubrificante 6656.
+  const cfopFora = lub ? '6656' : (st ? '6404' : '6102');
+  if (lub) motivos.push('Lubrificante: CFOP 5656 (venda de lubrificante comprado de terceiros a consumidor final).');
+  else motivos.push(`CFOP ${cfop}: venda a consumidor final dentro de GO ${st ? 'de mercadoria com ST já paga' : 'de mercadoria sem ST (5102/6102 e CSOSN 102 confirmados pelo contador em 26/10/2026)'}.`);
+  motivos.push(`Cliente de outro estado: CFOP ${cfopFora}.`);
+
+  const m = monofasico(it.ncm);
+  const pis = m.mono ? '04' : '49';
+  motivos.push(m.motivo + ` → PIS/Cofins CST ${pis}.`);
+  if (m.conferir) avisos.push(m.motivo);
+  const fornMono = String(it.pis_cst || '') === '04';
+  if (nota.status !== 'manual' && it.pis_cst && fornMono !== m.mono)
+    avisos.push(`O fornecedor usou PIS CST ${it.pis_cst}, e a lei indica ${pis}. O sistema segue a lei; vale o contador confirmar.`);
+
+  return { cfop, cfop_fora: cfopFora, csosn: st ? '500' : '102', pis_cst: pis, cofins_cst: pis, origem: it.origem ?? '0', st, mono: m.mono,
+    lubrificante: lub, motivos, avisos, conferir: avisos.length > 0, fonte };
+}
+
+/** Lê do XML da compra o ICMS (CST ou CSOSN) e o CST de PIS de cada item. */
+function fiscalDoXml(xml) {
+  const itens = {};
+  for (const d of xml.matchAll(/<det\s+nItem="(\d+)"\s*>([\s\S]*?)<\/det>/g)) {
+    const icms = (d[2].match(/<ICMS>([\s\S]*?)<\/ICMS>/) || [, ''])[1];
+    const pis = (d[2].match(/<PIS>([\s\S]*?)<\/PIS>/) || [, ''])[1];
+    itens[d[1]] = { icms_cst: (icms.match(/<(?:CST|CSOSN)>(\d+)<\//) || [])[1] || null, pis_cst: (pis.match(/<CST>(\d+)<\//) || [])[1] || null };
+  }
+  return itens;
+}
+
+/** Preenche ICMS/PIS da compra nos itens gravados antes desta regra (um lote por pedido). */
+async function recalcularFiscal(DB) {
+  await DB.prepare(`UPDATE nfe_entrada_itens SET icms_cst='-' WHERE icms_cst IS NULL
+    AND chave IN (SELECT chave FROM nfe_entrada WHERE status='manual')`).run();
+  const r = await DB.prepare(`SELECT n.chave, n.xml FROM nfe_entrada n WHERE n.xml IS NOT NULL
+    AND EXISTS (SELECT 1 FROM nfe_entrada_itens i WHERE i.chave=n.chave AND i.icms_cst IS NULL) LIMIT 40`).all();
+  const notas = r.results || [];
+  if (!notas.length) return;
+  const stmts = [];
+  for (const n of notas) {
+    for (const [nItem, f] of Object.entries(fiscalDoXml(n.xml)))
+      stmts.push(DB.prepare('UPDATE nfe_entrada_itens SET icms_cst=?, pis_cst=? WHERE id=?').bind(f.icms_cst || '-', f.pis_cst, `${n.chave}-${nItem}`));
+    stmts.push(DB.prepare("UPDATE nfe_entrada_itens SET icms_cst='-' WHERE chave=? AND icms_cst IS NULL").bind(n.chave));
+  }
+  await DB.batch(stmts);
+}
+const comRegra = (i, n) => ({ ...i, icms_cst: i.icms_cst === '-' ? null : i.icms_cst });
+
+/**
+ * Regras por peça: a de cada compra (a OS usa a da nota ligada) + a regra ajustada ou
+ * aprovada pelo contador, guardada em pecas.regra_fiscal.
+ */
+async function regrasPorPeca(DB) {
+  const [pec, its] = await Promise.all([
+    DB.prepare('SELECT id, codigo, nome, ncm, regra_fiscal FROM pecas').all(),
+    DB.prepare(`SELECT i.id, i.peca_id, i.descricao, i.ncm, i.cfop, i.cest, i.origem, i.icms_cst, i.pis_cst, i.qtde,
+        n.chave, n.status, n.nome_emit, n.numero, n.dh_emi FROM nfe_entrada_itens i JOIN nfe_entrada n ON n.chave=i.chave
+      WHERE n.status IN ('completa','manual') AND i.peca_id IS NOT NULL ORDER BY n.dh_emi DESC`).all(),
+  ]);
+  const porPeca = {};
+  for (const i of its.results || []) {
+    const r = regraVenda(comRegra(i), i);
+    (porPeca[i.peca_id] ||= []).push({ item_id: i.id, chave: i.chave, fornecedor: i.nome_emit, nf: i.numero, data: i.dh_emi, regra: r });
+  }
+  return (pec.results || []).filter(p => porPeca[p.id] || p.regra_fiscal).map(p => {
+    const compras = porPeca[p.id] || [];
+    const sugerida = compras[0] ? compras[0].regra : null;
+    const chaveRegra = (r) => r ? [r.cfop, r.csosn, r.pis_cst].join('/') : '';
+    const diferentes = [...new Set(compras.map(c => chaveRegra(c.regra)))];
+    let salva = null; try { salva = p.regra_fiscal ? JSON.parse(p.regra_fiscal) : null; } catch (e) { salva = null; }
+    const avisos = [...(sugerida ? sugerida.avisos : [])];
+    if (diferentes.length > 1) avisos.push(`Compras desta peça com regras diferentes (${diferentes.join(' · ')}). Em cada OS vale a regra da nota ligada à peça.`);
+    if (salva && salva.tipo === 'aprovada' && salva.base !== chaveRegra(sugerida)) avisos.push('A regra sugerida mudou desde a aprovação (nova compra). Conferir de novo.');
+    const status = salva && salva.tipo === 'ajustada' ? 'ajustada'
+      : (salva && salva.tipo === 'aprovada' && salva.base === chaveRegra(sugerida) ? 'aprovada' : (avisos.length ? 'conferir' : 'automatica'));
+    return { peca_id: p.id, codigo: p.codigo, nome: p.nome, ncm: p.ncm, sugerida, compras: compras.slice(0, 10), salva, avisos, status,
+      efetiva: salva && salva.tipo === 'ajustada' ? salva.regra : sugerida };
+  }).sort((a, b) => ({ conferir: 0, automatica: 1, ajustada: 2, aprovada: 3 }[a.status] - { conferir: 0, automatica: 1, ajustada: 2, aprovada: 3 }[b.status]) || String(a.nome).localeCompare(String(b.nome)));
+}
+
+async function salvarRegra(DB, b) {
+  const p = await DB.prepare('SELECT id FROM pecas WHERE id=?').bind(String(b.peca_id || '')).first();
+  if (!p) throw new Error('Peça não encontrada.');
+  let valor = null;
+  if (b.acao === 'aprovar') valor = { tipo: 'aprovada', base: String(b.base || ''), por: String(b.quem || ''), em: Date.now(), obs: String(b.obs || '') };
+  else if (b.acao === 'ajustar') {
+    const r = b.regra || {};
+    if (!/^\d{4}$/.test(r.cfop || '') || !/^\d{3}$/.test(r.csosn || '') || !/^\d{2}$/.test(r.pis_cst || '')) throw new Error('Informe CFOP (4 dígitos), CSOSN (3) e CST de PIS/Cofins (2).');
+    if (!String(b.obs || '').trim()) throw new Error('Escreva o motivo do ajuste (ex.: orientação do contador).');
+    valor = { tipo: 'ajustada', regra: { cfop: r.cfop, cfop_fora: r.cfop.replace(/^5/, '6'), csosn: r.csosn, pis_cst: r.pis_cst, cofins_cst: r.pis_cst, st: r.csosn === '500', mono: r.pis_cst === '04',
+      lubrificante: /^56/.test(r.cfop), motivos: ['Regra ajustada à mão: ' + String(b.obs).trim()], avisos: [] }, por: String(b.quem || ''), em: Date.now(), obs: String(b.obs).trim() };
+  }
+  await DB.prepare('UPDATE pecas SET regra_fiscal=? WHERE id=?').bind(valor ? JSON.stringify(valor) : null, p.id).run();
+  return { ok: true };
 }
 
 /** Saldo por peça, só das notas que contam no estoque, com as notas de onde vem. */
@@ -479,6 +657,7 @@ export async function onRequest(context) {
         DB.prepare('SELECT id,item_id,ordem_id,os_item_id,qtde,quem,criado FROM nfe_destinos').all(),
         DB.prepare("SELECT * FROM dfe_controle WHERE id='3m'").first(),
       ]);
+      const notaPorChave = {}; (notas.results || []).forEach(n => { notaPorChave[n.chave] = n; });
       const destPorItem = {};
       (dest.results || []).forEach(d => { (destPorItem[d.item_id] ||= []).push(d); });
       const porNota = {};
@@ -486,6 +665,7 @@ export async function onRequest(context) {
         const ds = destPorItem[i.id] || [];
         i.destinos = ds;
         i.saldo = (Number(i.qtde) || 0) - ds.reduce((s, d) => s + (Number(d.qtde) || 0), 0);
+        i.regra = notaPorChave[i.chave] ? regraVenda(comRegra(i), notaPorChave[i.chave]) : null;
         (porNota[i.chave] ||= []).push(i);
       });
       return jsonResp({
@@ -510,6 +690,7 @@ export async function onRequest(context) {
     if (request.method === 'POST' && acao === 'diagnostico') return jsonResp(await ponte(env, { diagnostico: true }));
 
     if (request.method === 'GET' && acao === 'estoque') return jsonResp({ pecas: await estoque(DB) });
+    if (request.method === 'GET' && acao === 'regras') return jsonResp({ pecas: await regrasPorPeca(DB) });
 
     if (request.method === 'POST') {
       const body = await request.json().catch(() => ({}));
@@ -528,6 +709,7 @@ export async function onRequest(context) {
         await DB.batch([DB.prepare('DELETE FROM nfe_entrada_itens WHERE chave=?').bind(chave), DB.prepare('DELETE FROM nfe_entrada WHERE chave=?').bind(chave)]);
         return jsonResp({ ok: true });
       }
+      if (acao === 'regra') return jsonResp(await salvarRegra(DB, body));
       if (acao === 'historico') {
         await DB.prepare('UPDATE nfe_entrada SET historico=? WHERE chave=?').bind(body.valor ? 1 : 0, soDigitos(body.chave)).run();
         return jsonResp({ ok: true });

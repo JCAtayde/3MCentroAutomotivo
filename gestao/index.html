@@ -609,6 +609,11 @@
     <div id="estoqueBox"></div>
   </section>
 
+  <section class="screen" data-screen="fiscal">
+    <div class="view-head"><div><h2>Fiscal</h2><p>Regra de cada peça na nota de venda e estimativa do Simples</p></div></div>
+    <div id="fiscalBox"></div>
+  </section>
+
   <section class="screen" data-screen="relatorios">
     <div class="view-head"><div><h2>Relatórios &amp; Dashboard</h2><p>Análises, comparações e melhorias</p></div></div>
     <div id="relBox"></div>
@@ -988,14 +993,14 @@ const VIEWS=[
 ];
 const TABS=['painel','ordens','clientes','financeiro','mais'];
 let histStack=[{screen:'painel',param:null}];
-function telaPai(name){ if(['veiculos','regras','equipe','config','boletos','fornecedores','notas_compra','estoque','relatorios','contas_pagar','auditoria'].includes(name)) return 'mais'; if(name==='servicos') return 'painel'; return name; }
+function telaPai(name){ if(['veiculos','regras','equipe','config','boletos','fornecedores','notas_compra','estoque','fiscal','relatorios','contas_pagar','auditoria'].includes(name)) return 'mais'; if(name==='servicos') return 'painel'; return name; }
 function showScreen(name){
   document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===name));
   const tabHi = TABS.includes(name)?name:telaPai(name);
   document.querySelectorAll('#topnav button,#tabbar button').forEach(b=>b.classList.toggle('active',b.dataset.go===tabHi));
 }
 const RENDER={painel:renderPainel,clientes:renderClientes,veiculos:renderVeiculos,ordens:renderOrdens,regras:renderRegras,config:carregarConfig,
-  financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos, boletos:renderBoletosReceber, fornecedores:renderFornecedores, notas_compra:renderNotasCompra, estoque:renderEstoque, relatorios:renderRelatorios, contas_pagar:renderContasPagar, auditoria:renderAuditoria,
+  financeiro:renderFinanceiroScreen, equipe:renderEquipe, mais:renderMais, servicos:renderServicos, boletos:renderBoletosReceber, fornecedores:renderFornecedores, notas_compra:renderNotasCompra, estoque:renderEstoque, fiscal:renderFiscal, relatorios:renderRelatorios, contas_pagar:renderContasPagar, auditoria:renderAuditoria,
   cliente:p=>renderClienteDet(p), veiculo:p=>renderVeiculoDet(p), os:p=>renderOsDet(p)};
 function render(screen,param,keepScroll){ const y=window.scrollY||window.pageYOffset||0; showScreen(screen); (RENDER[screen]||(()=>{}))(param); if(keepScroll){ window.scrollTo({top:y}); } else { window.scrollTo({top:0,behavior:'smooth'}); } }
 function goTab(name){ histStack=[{screen:name,param:null}]; render(name,null); }
@@ -3059,10 +3064,12 @@ function renderMais(){
     if(telaLiberada('fornecedores')) h+=item('🏭','Fornecedores','Lojistas e fornecedores (CNPJ)',`goTab("fornecedores")`);
     if(telaLiberada('fornecedores')) h+=item('🧾','Notas de compra','NF-e dos fornecedores (SEFAZ) e cadastro de peças',`goTab("notas_compra")`);
     if(telaLiberada('fornecedores')) h+=item('📦','Estoque de peças','O que sobrou das compras e de onde veio',`goTab("estoque")`);
+    if(telaLiberada('fornecedores')) h+=item('🧮','Fiscal','Regras das peças na nota e estimativa do Simples',`goTab("fiscal")`);
   }
   if(ehGestor()){
     h+=`<div class="lbl-sec-mais">Análise</div>`;
     h+=item('📊','Relatórios & Dashboard','Serviços, caixa, comparações e melhorias',`goTab("relatorios")`);
+    if(!telaLiberada('fornecedores')) h+=item('🧮','Fiscal','Estimativa do Simples (DAS)',`goTab("fiscal")`);
   }
   if(telaLiberada('boletos')||telaLiberada('financeiro')){
     h+=`<div class="lbl-sec-mais">Recebimentos &amp; Pagamentos</div>`;
@@ -3472,6 +3479,7 @@ function openNotaCompra(chave){
       <div class="t">${esc(i.descricao)}</div>
       <div style="font-size:15px;margin:4px 0"><b>Quantidade: ${nfeQtd(i.qtde)} ${esc(i.unidade||'un')}</b>${(i.destinos||[]).length?` · <span style="color:${i.saldo>0?'#D9A83E':'var(--green)'}">${i.saldo>0?('faltam '+nfeQtd(i.saldo)+' para destinar'):'todas já na OS'}</span>`:''}</div>
       <div class="s">${i.peca_codigo?('<b>'+esc(i.peca_codigo)+'</b> · '):''}${nfeComposicaoCusto(i)} · NCM ${esc(i.ncm||'—')} · cód. forn. ${esc(i.codigo||'—')}</div>
+      ${i.regra?`<div class="s">Na venda: <b>CFOP ${esc(i.regra.cfop)} · CSOSN ${esc(i.regra.csosn)} · PIS/Cofins ${esc(i.regra.pis_cst)}</b>${i.regra.conferir?' <span style="color:#E8B23A">⚠ conferir</span>':''}</div>`:''}
       <div class="s">${saldoTxt}</div>${dests}</div>
       ${podeDest&&i.saldo>0?`<button class="btn sm gold" onclick='abrirDestino("${chave}","${i.id}")'>Destinar</button>`:''}</div></div>`; }).join('');
   openModal(`<h3>${manual?'🧾 Compra sem nota · ':''}${esc(n.nome_emit||'Nota de compra')}</h3>
@@ -3639,6 +3647,202 @@ async function excluirEntradaManual(chave){
   confirmar('Excluir esta compra sem nota? As peças saem do estoque.', async function(){
     try{ await fiscalPost('excluir_manual',{chave}); logAcao('Excluiu compra sem nota', '', chave); toast('Entrada excluída');
       await carregarNotasCompra(); closeModal(); renderNotasCompra(); }catch(e){ alert(e.message); } }); }
+
+/* ==================================================================
+   FISCAL — regra de venda de cada peça e estimativa do Simples (DAS)
+   As regras vêm do servidor (nota de compra da SEFAZ + Lei 10.485); aqui só
+   se mostra, explica, aprova/ajusta e se calcula a estimativa do mês.
+================================================================== */
+let fiscalAba='regras', fiscalRegras=null, fiscalFiltro='', fiscalSoConferir=false, simplesMes='';
+const FISCAL_STATUS={conferir:['Conferir','#E8B23A'],automatica:['Automática','#9AA3AF'],aprovada:['Aprovada','#48B98A'],ajustada:['Ajustada','#7db4e6']};
+function fiscalChip(st){ const [t,c]=FISCAL_STATUS[st]||['—','#9AA3AF']; return `<span class="badge" style="color:${c};border-color:${c}">${t}</span>`; }
+function fiscalRegraTxt(r){ return r?`CFOP ${esc(r.cfop)} · CSOSN ${esc(r.csosn)} · PIS/Cofins ${esc(r.pis_cst)}`:'sem regra'; }
+async function carregarRegrasFiscais(){
+  const r=await fetch(API_FISCAL+'/regras'); const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||('http '+r.status));
+  fiscalRegras=d.pecas||[];
+}
+function renderFiscal(){
+  const box=document.getElementById('fiscalBox'); if(!box) return;
+  if(!telaLiberada('fornecedores')&&!ehGestor()){ box.innerHTML='<div class="note empty-note">Sem permissão.</div>'; return; }
+  const abas=[['regras','Regras das peças'],['simples','Simples (estimativa)']].filter(a=>a[0]!=='simples'||ehGestor());
+  if(!abas.some(a=>a[0]===fiscalAba)) fiscalAba='regras';
+  box.innerHTML=`<div class="seg" style="display:flex;gap:6px;margin:0 0 12px">${abas.map(a=>`<button class="btn sm ${fiscalAba===a[0]?'gold':''}" onclick="fiscalAba='${a[0]}'; renderFiscal()">${a[1]}</button>`).join('')}</div><div id="fiscalConteudo"><div class="note">Carregando…</div></div>`;
+  const pronto=()=>{ if(fiscalAba==='regras') desenharRegrasFiscais(); else desenharSimples(); };
+  const precisa=[]; if(!fiscalRegras) precisa.push(carregarRegrasFiscais()); if(fiscalAba==='simples'&&!notasCompra) precisa.push(carregarNotasCompra());
+  if(precisa.length) Promise.all(precisa).then(pronto).catch(e=>{ const c=document.getElementById('fiscalConteudo'); if(c) c.innerHTML='<div class="note">Erro ao carregar: '+esc(e.message)+'</div>'; });
+  else pronto();
+}
+
+/* ---- Regras das peças ---- */
+function desenharRegrasFiscais(){
+  const el=document.getElementById('fiscalConteudo'); if(!el) return;
+  const todas=fiscalRegras||[]; const q=(fiscalFiltro||'').trim().toLowerCase();
+  const lista=todas.filter(p=>(!fiscalSoConferir||p.status==='conferir')&&(!q||[p.nome,p.codigo,p.ncm].some(v=>String(v||'').toLowerCase().includes(q))));
+  const nConf=todas.filter(p=>p.status==='conferir').length;
+  el.innerHTML=`<div class="note" style="margin:0 0 12px;white-space:normal">Para cada peça, o sistema decide sozinho os códigos da nota de venda a partir de <b>como ela foi comprada</b> (nota do fornecedor na SEFAZ) e da <b>Lei 10.485</b> (peças monofásicas). Toque numa peça para ver o motivo. <b>${nConf}</b> peça(s) com dúvida para o contador conferir.
+    <div style="margin-top:8px">✓ <b>Peça sem ST</b>: CFOP 5102 (outro estado 6102) e CSOSN 102, confirmado pelo contador em 26/10/2026.<br>
+    ✓ <b>Peça comprada com ST já paga</b> (ex.: óleo): CSOSN 500, para o ICMS <b>não ser pago duas vezes</b> no DAS.</div></div>
+    <input id="fiscalBusca" placeholder="🔎 Buscar peça, código ou NCM" value="${esc(fiscalFiltro)}" oninput="fiscalFiltro=this.value; desenharRegrasFiscaisLista()" style="width:100%">
+    <label style="display:flex;gap:8px;align-items:center;justify-content:flex-start;text-align:left;font-size:13px;margin:8px 0;color:var(--muted);cursor:pointer"><input type="checkbox" style="width:18px;height:18px;flex:none;margin:0" ${fiscalSoConferir?'checked':''} onchange="fiscalSoConferir=this.checked; desenharRegrasFiscaisLista()"><span>Só as que precisam conferir</span></label>
+    <div class="rows" id="fiscalLista"></div>`;
+  desenharRegrasFiscaisLista();
+}
+function desenharRegrasFiscaisLista(){
+  const el=document.getElementById('fiscalLista'); if(!el) return;
+  const q=(fiscalFiltro||'').trim().toLowerCase();
+  const lista=(fiscalRegras||[]).filter(p=>(!fiscalSoConferir||p.status==='conferir')&&(!q||[p.nome,p.codigo,p.ncm].some(v=>String(v||'').toLowerCase().includes(q))));
+  el.innerHTML=lista.length?lista.map(p=>`<div class="row click" onclick='abrirRegraFiscal("${p.peca_id}")'><div class="main">
+      <div class="t">${p.codigo?('<b>'+esc(p.codigo)+'</b> · '):''}${esc(p.nome)} ${fiscalChip(p.status)}</div>
+      <div class="s">NCM ${esc(p.ncm||'—')} · ${fiscalRegraTxt(p.efetiva)}</div>
+      ${p.avisos.length?`<div class="s" style="color:#E8B23A">⚠ ${esc(p.avisos[0])}${p.avisos.length>1?(' (+'+(p.avisos.length-1)+')'):''}</div>`:''}</div>${chev()}</div>`).join('')
+    :emptyState('Nenhuma peça aqui','As peças aparecem quando entram por nota de compra ou compra sem nota.');
+}
+function abrirRegraFiscal(pid){
+  const p=(fiscalRegras||[]).find(x=>x.peca_id===pid); if(!p) return; const r=p.efetiva||{};
+  const s=p.salva;
+  const compras=p.compras.map(c=>`<tr><td>${esc(c.fornecedor||'—')}<div style="color:#999;font-size:11px">${c.nf?('NF '+esc(c.nf)):'sem nota'} · ${nfeFmtData(c.data)}</div></td><td>${fiscalRegraTxt(c.regra)}</td></tr>`).join('');
+  openModal(`<h3>${p.codigo?(esc(p.codigo)+' · '):''}${esc(p.nome)}</h3>
+    <div class="note" style="white-space:normal"><div style="font-size:15px;margin-bottom:4px"><b>${fiscalRegraTxt(r)}</b> ${fiscalChip(p.status)}</div>${r.cfop_fora?('Cliente de outro estado: CFOP '+esc(r.cfop_fora)+' · '):''}NCM ${esc(p.ncm||'—')} · ${r.st?'com ST (ICMS já pago)':'sem ST (ICMS no DAS)'} · ${r.mono?'monofásica (PIS/Cofins já pago)':'PIS/Cofins normal'}${r.lubrificante?' · lubrificante':''}</div>
+    <div class="section-label">Por que esta regra</div>
+    <div class="note" style="white-space:normal">${(r.motivos||[]).map(m=>'• '+esc(m)).join('<br>')}</div>
+    ${p.avisos.length?`<div class="section-label">Para o contador conferir</div><div class="note" style="white-space:normal;border-color:#E8B23A">${p.avisos.map(a=>'⚠ '+esc(a)).join('<br>')}</div>`:''}
+    ${s?`<div class="note" style="margin-top:8px;white-space:normal">${s.tipo==='aprovada'?'✓ Aprovada':'✎ Ajustada à mão'} por <b>${esc(s.por||'—')}</b> em ${new Date(s.em).toLocaleDateString('pt-BR')}${s.obs?(': '+esc(s.obs)):''}</div>`:''}
+    ${compras?`<div class="section-label">Compras desta peça</div><table style="width:100%;font-size:13px">${compras}</table>`:''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+      ${pode('editar')&&p.sugerida&&p.status!=='aprovada'?`<button class="btn gold" onclick='aprovarRegraFiscal("${pid}")'>✓ Aprovar regra</button>`:''}
+      ${pode('editar')?`<button class="btn" onclick='ajustarRegraFiscal("${pid}")'>Ajustar</button>`:''}
+      ${pode('editar')&&s?`<button class="btn" onclick='limparRegraFiscal("${pid}")'>Voltar ao automático</button>`:''}
+      <button class="btn" onclick="closeModal()">Fechar</button></div>`);
+}
+async function postRegraFiscal(corpo,msg,pid){
+  try{ const u=(typeof usuarioAtual!=='undefined'&&usuarioAtual)||{}; await fiscalPost('regra',{...corpo,peca_id:pid,quem:u.nome||''});
+    const p=(fiscalRegras||[]).find(x=>x.peca_id===pid); logAcao(msg, p?(p.codigo||p.nome):'', corpo.obs||'');
+    await carregarRegrasFiscais(); abrirRegraFiscal(pid); if(document.getElementById('fiscalLista')) desenharRegrasFiscaisLista(); toast(msg+' ✓'); }
+  catch(e){ alert(e.message); }
+}
+function aprovarRegraFiscal(pid){ const p=(fiscalRegras||[]).find(x=>x.peca_id===pid); if(!p||!p.sugerida) return;
+  const base=[p.sugerida.cfop,p.sugerida.csosn,p.sugerida.pis_cst].join('/');
+  confirmar('Aprovar '+base.replace(/\//g,' · ')+' para esta peça?\n\nUse depois de o contador confirmar. Se uma compra nova mudar a regra, ela volta para "Conferir".',
+    ()=>postRegraFiscal({acao:'aprovar',base},'Aprovou regra fiscal',pid),'Aprovar','green'); }
+function ajustarRegraFiscal(pid){ const p=(fiscalRegras||[]).find(x=>x.peca_id===pid); if(!p) return; const r=p.efetiva||{};
+  openModal(`<h3>Ajustar regra · ${esc(p.nome)}</h3>
+    <div class="note" style="white-space:normal">Use só com orientação do contador. A regra ajustada vale em toda venda desta peça até você voltar ao automático.</div>
+    <div style="display:flex;gap:8px"><div class="field" style="flex:1"><label>CFOP</label><input id="rfCfop" inputmode="numeric" value="${esc(r.cfop||'')}"></div>
+    <div class="field" style="flex:1"><label>CSOSN</label><input id="rfCsosn" inputmode="numeric" value="${esc(r.csosn||'')}"></div>
+    <div class="field" style="flex:1"><label>CST PIS/Cofins</label><input id="rfPis" inputmode="numeric" value="${esc(r.pis_cst||'')}"></div></div>
+    <div class="field"><label>Motivo (obrigatório)</label><input id="rfObs" placeholder="Ex.: contador orientou em 26/10"></div>
+    <div style="display:flex;gap:8px;margin-top:12px"><button class="btn gold" onclick='postRegraFiscal({acao:"ajustar",regra:{cfop:val("rfCfop").trim(),csosn:val("rfCsosn").trim(),pis_cst:val("rfPis").trim()},obs:val("rfObs")},"Ajustou regra fiscal","${pid}")'>Salvar</button>
+    <button class="btn" onclick='abrirRegraFiscal("${pid}")'>Voltar</button></div>`); }
+function limparRegraFiscal(pid){ confirmar('Voltar esta peça para a regra automática?', ()=>postRegraFiscal({acao:'limpar'},'Voltou regra fiscal ao automático',pid)); }
+
+/* ---- Estimativa do Simples Nacional ----
+   LC 123/2006, anexos com a redação da LC 155/2016 (conferidos no Planalto em 26/10/2026).
+   Alíquota efetiva = (RBT12 × alíquota nominal − parcela a deduzir) ÷ RBT12 (art. 18, §1º-A).
+   Separação de receitas (o que não se paga de novo no DAS):
+   • peça com ST já paga → sem a parte do ICMS;  • peça monofásica → sem a parte de PIS e Cofins. */
+const SIMPLES_ANEXOS={
+  I:{nome:'Anexo I (comércio, peças)', tributos:['IRPJ','CSLL','Cofins','PIS','CPP','ICMS'],
+    faixas:[[180000,4.00,0],[360000,7.30,5940],[720000,9.50,13860],[1800000,10.70,22500],[3600000,14.30,87300],[4800000,19.00,378000]],
+    rep:[[5.50,3.50,12.74,2.76,41.50,34.00],[5.50,3.50,12.74,2.76,41.50,34.00],[5.50,3.50,12.74,2.76,42.00,33.50],[5.50,3.50,12.74,2.76,42.00,33.50],[5.50,3.50,12.74,2.76,42.00,33.50],[13.50,10.00,28.27,6.13,42.10,0]]},
+  III:{nome:'Anexo III (serviço, mão de obra)', tributos:['IRPJ','CSLL','Cofins','PIS','CPP','ISS'],
+    faixas:[[180000,6.00,0],[360000,11.20,9360],[720000,13.50,17640],[1800000,16.00,35640],[3600000,21.00,125640],[4800000,33.00,648000]],
+    rep:[[4.00,3.50,12.82,2.78,43.40,33.50],[4.00,3.50,14.05,3.05,43.40,32.00],[4.00,3.50,13.64,2.96,43.40,32.50],[4.00,3.50,13.64,2.96,43.40,32.50],[4.00,3.50,12.82,2.78,43.40,33.50],[35.00,15.00,16.03,3.47,30.50,0]]}
+};
+function simplesFaixa(anexo,rbt12){ const A=SIMPLES_ANEXOS[anexo]; let i=A.faixas.findIndex(f=>rbt12<=f[0]); if(i<0) i=A.faixas.length-1;
+  const [,nom,pd]=A.faixas[i]; const ef=rbt12>0?Math.max(0,(rbt12*nom/100-pd)/rbt12*100):nom;
+  let rep=A.rep[i].slice();
+  // Anexo III, 5ª faixa: ISS limitado a 5% (nota (*) do anexo); a diferença vai para os federais.
+  if(anexo==='III'&&ef*rep[5]/100>5){ const x=ef-5; rep=[6.02,5.26,19.28,4.18,65.26].map(p=>p*x/ef); rep.push(5/ef*100); }
+  return {faixa:i+1, nominal:nom, deduzir:pd, efetiva:ef, rep}; }
+function simplesMesPadrao(){ const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()-1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function simplesMesesAntes(ym,n){ const [y,m]=ym.split('-').map(Number); const d=new Date(y,m-1-n,1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function simplesCfg(k){ try{ return JSON.parse(state.config[k]||'{}'); }catch(e){ return {}; } }
+function simplesSalvarCfg(k,mes,v){ const o=simplesCfg(k); if(v===''||v==null||isNaN(v)) delete o[mes]; else o[mes]=v; state.config[k]=JSON.stringify(o); salvar(); desenharSimples(); }
+// Regra de cada pedaço de uma peça vendida na OS: a da nota ligada; o resto, a regra da peça.
+function simplesRegrasDoItem(it){
+  const porItemNota={}; ((notasCompra&&notasCompra.notas)||[]).forEach(n=>n.itens.forEach(i=>{ porItemNota[i.id]=i.regra; }));
+  const porPeca={}; (fiscalRegras||[]).forEach(p=>{ porPeca[p.peca_id]=p; });
+  const q=Number(it.qtde)||1; const partes=[]; let ligada=0;
+  (it.origens||[]).forEach(o=>{ const r=porItemNota[o.item_id]||(porPeca[o.peca_id]&&porPeca[o.peca_id].efetiva); const qq=Math.min(Number(o.qtde)||0,q-ligada); if(qq>0){ partes.push({frac:qq/q, regra:r||null}); ligada+=qq; } });
+  if(ligada<q){ const pc=(it.peca_id&&porPeca[it.peca_id])||(fiscalRegras||[]).find(p=>(p.nome||'').trim().toLowerCase()===(it.nome||'').trim().toLowerCase());
+    const pAj=pc&&pc.salva&&pc.salva.tipo==='ajustada'?pc.salva.regra:null;
+    partes.push({frac:(q-ligada)/q, regra:pAj||(pc?pc.efetiva:null)}); }
+  // regra ajustada pelo contador vale também sobre a nota ligada
+  return partes.map(p=>{ const pc=it.peca_id&&porPeca[it.peca_id]; return (pc&&pc.salva&&pc.salva.tipo==='ajustada')?{...p,regra:pc.salva.regra}:p; });
+}
+function simplesApurar(mes){
+  const ini=mes+'-01', fim=mes+'-31';
+  const oss=(state.ordens||[]).filter(o=>osStatus(o)==='executado'&&o.data&&o.data>=ini&&o.data<=fim);
+  const grupos={servico:0,pecaSemST:0,pecaST:0,pecaMono:0,pecaMonoST:0,semRegra:0}; const semRegra=[];
+  oss.forEach(o=>{
+    const bruto=osTotalBruto(o); const geral=(o.descontos||[]).filter(d=>d.tipo!=='peca'&&d.tipo!=='mdo').reduce((s,d)=>s+(Number(d.valor)||0),0);
+    const fatorGeral=bruto>0?Math.max(0,1-geral/bruto):1;
+    (o.maodeobra||[]).forEach(m=>{ grupos.servico+=Math.max(0,(Number(m.valor)||0)-descontoAlvo(o,'mdo',m.id))*fatorGeral; });
+    (o.itens||[]).forEach(it=>{ const v=Math.max(0,(Number(it.valor)||0)*(Number(it.qtde)||1)-descontoAlvo(o,'peca',it.id))*fatorGeral; if(!v) return;
+      simplesRegrasDoItem(it).forEach(p=>{ const val=v*p.frac; const r=p.regra;
+        if(!r){ grupos.semRegra+=val; semRegra.push({o,it,val}); return; }
+        grupos[r.mono?(r.st?'pecaMonoST':'pecaMono'):(r.st?'pecaST':'pecaSemST')]+=val; }); });
+  });
+  return {oss,grupos,semRegra};
+}
+function desenharSimples(){
+  const el=document.getElementById('fiscalConteudo'); if(!el) return;
+  if(!simplesMes) simplesMes=simplesMesPadrao(); const mes=simplesMes;
+  const {oss,grupos,semRegra}=simplesApurar(mes);
+  // RBT12 do sistema: OS executadas nos 12 meses anteriores ao mês.
+  const de=simplesMesesAntes(mes,12)+'-01', ate=simplesMesesAntes(mes,1)+'-31';
+  const rbtSistema=(state.ordens||[]).filter(o=>osStatus(o)==='executado'&&o.data&&o.data>=de&&o.data<=ate).reduce((s,o)=>s+osTotal(o),0);
+  const primeira=(state.ordens||[]).filter(o=>osStatus(o)==='executado'&&o.data).map(o=>o.data).sort()[0]||'';
+  const historicoCurto=!primeira||primeira>de;
+  const rbtCont=simplesCfg('simples_rbt12')[mes]; const issCont=simplesCfg('simples_iss_contador')[mes];
+  const rbt=rbtCont!=null?Number(rbtCont):rbtSistema;
+  const A1=simplesFaixa('I',rbt), A3=simplesFaixa('III',rbt);
+  const pct=n=>(Number(n)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:4})+'%';
+  // tributos excluídos por grupo (índices do anexo I: 2 Cofins, 3 PIS, 5 ICMS)
+  const linhas=[
+    ['Mão de obra (serviço)','III',grupos.servico,[],'Anexo III, com ISS'],
+    ['Peças sem ST','I',grupos.pecaSemST,[],'Paga tudo, inclusive o ICMS'],
+    ['Peças com ST já paga','I',grupos.pecaST,[5],'Sem o ICMS (já pago pelo fornecedor)'],
+    ['Peças monofásicas','I',grupos.pecaMono,[2,3],'Sem PIS e Cofins (já pagos na fábrica)'],
+    ['Monofásicas com ST','I',grupos.pecaMonoST,[2,3,5],'Sem ICMS, PIS e Cofins'],
+    ['Peças sem regra','I',grupos.semRegra,[],'Calculado como "paga tudo" até ter regra'],
+  ].filter(l=>l[2]>0.004);
+  const porTributo={}; let total=0, totalSemSeparar=0;
+  const calc=linhas.map(([nome,anexo,rec,excl,obs])=>{ const F=anexo==='I'?A1:A3; const A=SIMPLES_ANEXOS[anexo];
+    let aliq=0; F.rep.forEach((p,ix)=>{ if(excl.includes(ix)) return; const v=rec*F.efetiva/100*p/100; aliq+=F.efetiva*p/100; const t=A.tributos[ix]; porTributo[t]=(porTributo[t]||0)+v; });
+    const das=rec*aliq/100; total+=das; totalSemSeparar+=rec*F.efetiva/100; return {nome,anexo,rec,aliq,das,obs}; });
+  const receita=linhas.reduce((s,l)=>s+l[2],0);
+  const issEf=A3.efetiva*A3.rep[5]/100;
+  el.innerHTML=`
+    <div class="note" style="white-space:normal;margin:0 0 12px">⚠️ <b>Estimativa.</b> O valor oficial é o que o contador apura no PGDAS-D. Esta conta usa as OS executadas do mês no sistema, as regras de cada peça e as tabelas da LC 123/2006, e serve para você conferir e não pagar nem a mais nem a menos.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+      <div class="field" style="margin:0"><label>Mês (competência)</label><input type="month" value="${mes}" onchange="simplesMes=this.value; desenharSimples()"></div></div>
+    <div class="section-label">Faturamento dos últimos 12 meses (RBT12)</div>
+    <div class="note" style="white-space:normal">Pelo sistema: <b>${moneyFmt(rbtSistema)}</b>${historicoCurto?' <span style="color:#E8B23A">· o sistema ainda não tem 12 meses de OS, então esse valor fica abaixo do real</span>':''}
+      <div class="field" style="margin:8px 0 0"><label>RBT12 informado pelo contador (está no extrato do PGDAS do mês)</label>
+      <input inputmode="decimal" placeholder="R$ 0,00" value="${rbtCont!=null?String(rbtCont).replace('.',','):''}" onchange="simplesSalvarCfg('simples_rbt12','${mes}',this.value===''?'':moneyParse(this.value))"></div>
+      <div style="margin-top:6px">Usado na conta: <b>${moneyFmt(rbt)}</b> ${rbtCont!=null?'(do contador)':'(do sistema)'}</div></div>
+    <table class="grade-fiscal" style="width:100%;font-size:13px;margin:10px 0;border-collapse:collapse">
+      <tr><th style="text-align:left">Anexo</th><th>Faixa</th><th>Alíquota nominal</th><th>Parcela a deduzir</th><th>Alíquota efetiva</th></tr>
+      ${[['I',A1],['III',A3]].map(([k,F])=>`<tr><td>${SIMPLES_ANEXOS[k].nome}</td><td style="text-align:center">${F.faixa}ª</td><td style="text-align:center">${pct(F.nominal)}</td><td style="text-align:center">${moneyFmt(F.deduzir)}</td><td style="text-align:center"><b>${pct(F.efetiva)}</b></td></tr>`).join('')}
+    </table>
+    <div class="note" style="white-space:normal">Alíquota de ISS da nota de serviço neste mês: <b>${pct(issEf)}</b> (parte do ISS na alíquota efetiva do Anexo III).
+      <div class="field" style="margin:8px 0 0"><label>Alíquota de ISS informada pelo contador</label>
+      <input inputmode="decimal" placeholder="Ex.: 2,01" value="${issCont!=null?String(issCont).replace('.',','):''}" onchange="simplesSalvarCfg('simples_iss_contador','${mes}',this.value===''?'':parseFloat(this.value.replace(',','.')))"></div>
+      ${issCont!=null?(Math.abs(issCont-issEf)<0.015?'<div style="color:var(--green);margin-top:4px">✓ Bate com a conta do sistema.</div>':`<div style="color:#E8B23A;margin-top:4px">⚠ Diferente da conta (${pct(issEf)}). Normal se o RBT12 usado não for o mesmo do contador: informe o RBT12 acima.</div>`):''}</div>
+    <div class="section-label">Receita de ${mes.split('-').reverse().join('/')} por tipo (${oss.length} OS executadas)</div>
+    <table style="width:100%;font-size:13px;border-collapse:collapse">
+      <tr style="color:#999;font-size:11px"><td><b>TIPO</b></td><td style="text-align:right"><b>RECEITA</b></td><td style="text-align:right"><b>ALÍQUOTA</b></td><td style="text-align:right"><b>DAS</b></td></tr>
+      ${calc.map(c=>`<tr style="border-top:1px solid var(--line)"><td>${esc(c.nome)}<div style="color:#999;font-size:11px">${esc(c.obs)}</div></td><td style="text-align:right">${moneyFmt(c.rec)}</td><td style="text-align:right">${pct(c.aliq)}</td><td style="text-align:right">${moneyFmt(c.das)}</td></tr>`).join('')||'<tr><td colspan="4" style="color:#999">Nenhuma OS executada neste mês.</td></tr>'}
+      <tr style="border-top:2px solid var(--line2)"><td><b>Total</b></td><td style="text-align:right"><b>${moneyFmt(receita)}</b></td><td style="text-align:right">${receita?pct(total/receita*100):'—'}</td><td style="text-align:right"><b style="font-size:16px">${moneyFmt(total)}</b></td></tr>
+    </table>
+    ${totalSemSeparar-total>0.01?`<div class="note" style="white-space:normal;margin-top:10px;border-color:var(--green)">💰 Sem separar ST e monofásicos, o DAS seria <b>${moneyFmt(totalSemSeparar)}</b>. A separação correta economiza <b>${moneyFmt(totalSemSeparar-total)}</b> neste mês. Confira com o contador se ele separa assim no PGDAS.</div>`:''}
+    <div class="section-label">Por tributo</div>
+    <table style="width:100%;font-size:13px;border-collapse:collapse">${Object.entries(porTributo).filter(([,v])=>v>0.004).map(([t,v])=>`<tr style="border-top:1px solid var(--line)"><td>${esc(t)}</td><td style="text-align:right">${moneyFmt(v)}</td></tr>`).join('')}</table>
+    ${semRegra.length?`<div class="section-label">Peças sem regra (${semRegra.length})</div><div class="note" style="white-space:normal">Estas peças não estão ligadas a nenhuma nota de compra e não foram achadas no cadastro com nota. Entram na conta como "paga tudo", que é o caso mais caro. Ligue a nota em Notas de compra → Destinar.</div>
+      <div class="rows">${semRegra.slice(0,30).map(x=>`<div class="row click" onclick='go("os","${x.o.id}")'><div class="main"><div class="t">${esc(x.it.nome)}</div><div class="s">${esc(nfeOsRotulo(x.o))} · ${moneyFmt(x.val)}</div></div>${chev()}</div>`).join('')}</div>`:''}
+    <div class="note" style="white-space:normal;margin-top:12px;font-size:12px;color:var(--muted)">Como a conta é feita: alíquota efetiva = (RBT12 × alíquota nominal − parcela a deduzir) ÷ RBT12 (LC 123/2006, art. 18). Mão de obra no Anexo III; peças no Anexo I. Peça com ST tira a parte do ICMS; peça monofásica tira PIS e Cofins. Descontos da OS já descontados da receita. Não entram: receitas fora das OS, ISS retido pelo cliente e ajustes que só o contador vê.</div>`;
+}
 
 /* ---- Estoque de peças (saldo das notas que contam no estoque) ---- */
 let estoqueDados=null;
