@@ -492,12 +492,34 @@ const LEI_10485_ART5 = ['40.11', '40.13'];
 const prefixos = (lista) => lista.map(c => ({ p: c.replace(/[.*]/g, ''), ex: c.endsWith('*'), cod: c.replace('*', '') }));
 const ANEXO_I = prefixos(LEI_10485_ANEXO_I), ANEXO_II = prefixos(LEI_10485_ANEXO_II), ART5 = prefixos(LEI_10485_ART5);
 
-function monofasico(ncm) {
+// O que cada "Ex" do Anexo I cobre (texto da TIPI a que a lei se refere). Com o texto
+// conhecido, o sistema compara com a descrição da peça e decide, mostrando a fonte; sem
+// texto de fonte confiável, a peça fica em "Conferir" — nunca se chuta.
+const EX_LEI_10485 = {
+  '40169990': { ex: 'Ex 03 e Ex 05', texto: 'Ex 03 — tapetes próprios para ônibus ou caminhões; Ex 05 — tapetes próprios para veículos automóveis, exceto ônibus ou caminhões',
+    cobre: (d) => /\btapete/i.test(d), fonte: 'TIPI (Decreto 4.542/2002), citada no Anexo I da Lei 10.485' },
+  '85365090': { ex: 'Ex 01', texto: 'Ex 01 — interruptor de embutir ou sobrepor (rotativo ou de alavanca) para sistema elétrico de 24 V, próprio para ônibus ou caminhões',
+    cobre: (d) => /interrupt|comutador|chave/i.test(d) && /24\s*v|onibus|ônibus|caminh/i.test(d), fonte: 'Decreto 4.542/2002, art. 6º, e Decreto 6.006/2006 (Anexo I da Lei 10.485)' },
+  // 7320.10.00 Ex 01, 8413.91.00 Ex 01 e 8481.80.99 Ex 01/02: texto não localizado em fonte oficial (26/10/2026).
+};
+
+function monofasico(ncm, descricao) {
   const n = soDigitos(ncm);
   if (!n) return { mono: false, conferir: true, motivo: 'Peça sem NCM: não dá para saber se é monofásica.' };
   const a1 = ANEXO_I.find(x => n.startsWith(x.p));
-  if (a1 && a1.ex) return { mono: true, conferir: true, motivo: `NCM ${a1.cod} está no Anexo I da Lei 10.485, mas só para alguns itens ("Ex"): confirmar se esta peça é um deles.` };
+  if (a1 && a1.ex) {
+    const ex = EX_LEI_10485[a1.p];
+    if (!ex) return { mono: true, conferir: true, motivo: `NCM ${a1.cod} está no Anexo I da Lei 10.485 só para alguns itens ("Ex"), e o texto desse "Ex" não foi localizado em fonte oficial: confirmar se esta peça é um deles.` };
+    const desc = String(descricao || '');
+    if (!desc.trim()) return { mono: false, conferir: true, motivo: `NCM ${a1.cod}: a lei só inclui ${ex.ex} (${ex.texto}). Sem a descrição da peça, confirmar se ela é um desses itens.` };
+    const cobre = ex.cobre(desc);
+    return { mono: cobre, conferir: false, ex,
+      motivo: `NCM ${a1.cod}: a Lei 10.485 só inclui o ${ex.ex} (${ex.texto}). "${desc.slice(0, 60)}" ${cobre ? 'é um desses itens → monofásica' : 'não é um desses itens → não é monofásica'}. Fonte: ${ex.fonte}.` };
+  }
   if (a1) return { mono: true, conferir: false, motivo: `NCM ${a1.cod} está no Anexo I da Lei 10.485 (autopeça monofásica): revenda a alíquota zero.` };
+  // NCM 2022 desdobrou alguns códigos da lei (ex.: 8413.91.00 → 8413.91.10/90): mesmo começo, outro final.
+  const a1n = ANEXO_I.find(x => x.p.length === 8 && x.p.endsWith('00') && n.length === 8 && n.slice(0, 6) === x.p.slice(0, 6));
+  if (a1n) return { mono: true, conferir: true, motivo: `NCM ${n.replace(/^(\d{4})(\d{2})(\d{2})$/, '$1.$2.$3')} parece um desdobramento do código ${a1n.cod} da Lei 10.485 (a NCM mudou depois da lei): confirmar se continua monofásica.` };
   const p5 = ART5.find(x => n.startsWith(x.p));
   if (p5) return { mono: true, conferir: false, motivo: `NCM ${p5.cod} (pneu/câmara): revenda a alíquota zero pelo art. 5º da Lei 10.485.` };
   const a2 = ANEXO_II.find(x => n.startsWith(x.p));
@@ -541,7 +563,7 @@ function regraVenda(it, nota) {
   else motivos.push(`CFOP ${cfop}: venda a consumidor final dentro de GO ${st ? 'de mercadoria com ST já paga' : 'de mercadoria sem ST (5102/6102 e CSOSN 102 confirmados pelo contador em 26/10/2026)'}.`);
   motivos.push(`Cliente de outro estado: CFOP ${cfopFora}.`);
 
-  const m = monofasico(it.ncm);
+  const m = monofasico(it.ncm, it.descricao);
   const pis = m.mono ? '04' : '49';
   motivos.push(m.motivo + ` → PIS/Cofins CST ${pis}.`);
   if (m.conferir) avisos.push(m.motivo);
@@ -950,7 +972,7 @@ export async function onRequest(context) {
     if (request.method === 'GET' && acao === 'regras') return jsonResp({ pecas: await regrasPorPeca(DB) });
     if (request.method === 'GET' && acao === 'regra_ncm') {
       const st = url.searchParams.get('st') === '1';
-      const r = regraVenda({ ncm: url.searchParams.get('ncm'), icms_cst: st ? '60' : '00', cfop: '' }, { status: 'completa', numero: '', nome_emit: 'informação manual' });
+      const r = regraVenda({ ncm: url.searchParams.get('ncm'), descricao: url.searchParams.get('desc') || '', icms_cst: st ? '60' : '00', cfop: '' },{ status: 'completa', numero: '', nome_emit: 'informação manual' });
       r.motivos = r.motivos.map(m => m.replace(/^Na nota\s+de informação manual/, 'Informado à mão'));
       return jsonResp({ regra: r });
     }

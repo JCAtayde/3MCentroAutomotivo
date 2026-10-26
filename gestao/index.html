@@ -3928,7 +3928,7 @@ function emissaoSet(k,v){ emissaoCtx.dest[k]=v; }
 async function regraManualLinha(ix){
   const l=emissaoCtx.linhas[ix]; const ncm=normDoc(val('emNcm'+ix)); const st=val('emSt'+ix);
   l.ncm=ncm; l.st=st; if(ncm.length!==8||!st){ l.regra=null; renderEmissaoNota(); return; }
-  try{ const r=await fetch(API_FISCAL+'/regra_ncm?ncm='+ncm+'&st='+(st==='sim'?1:0)); const d=await r.json(); l.regra=d.regra; }catch(e){ l.regra=null; }
+  try{ const r=await fetch(API_FISCAL+'/regra_ncm?ncm='+ncm+'&st='+(st==='sim'?1:0)+'&desc='+encodeURIComponent(l.nome||'')); const d=await r.json(); l.regra=d.regra; }catch(e){ l.regra=null; }
   renderEmissaoNota();
 }
 function renderEmissaoNota(){
