@@ -1,7 +1,8 @@
 /**
  * API do sistema da oficina (Cloudflare Pages Function + D1).
  * Rota: /gestao/api/*   |   Binding do banco: DB (D1)
- * Protegida pelo Cloudflare Access (mesmo login do /gestao).
+ * Só responde com sessão de login (functions/gestao/api/_middleware.js); o usuário
+ * da sessão chega em context.data.usuario.
  */
 
 const SCHEMA = {
@@ -11,7 +12,8 @@ const SCHEMA = {
   regras:   { cols:['id','nome','km','meses','ordem','preco'], json:[] },
   mecanicos:{ cols:['id','nome','percentual','ativo','telefone','salario','funcao','socio','assiduidade','folha_mensal','criado','atualizado'], json:['folha_mensal'] },
   caixa:    { cols:['id','tipo','data','valor','forma','taxa','liquido','descricao','ordem_id','parcelas','categoria','funcionario_id','cartao_tipo','socio','conta','vencimento','pagamento','fornecedor_id','parcela_grupo','nota','criado','atualizado'], json:[] },
-  usuarios: { cols:['id','nome','login','senha_hash','salt','status','papel','email','perms','reset','mecanico_id','modo_mec','perfil','criado','atualizado'], json:['perms'] },
+  // senha_hash e salt ficam de fora de propósito: senha só muda pelas rotas /gestao/api/auth/*.
+  usuarios: { cols:['id','nome','login','status','papel','email','perms','reset','mecanico_id','modo_mec','perfil','criado','atualizado'], json:['perms'] },
   pecas:    { cols:['id','nome','preco','criado','atualizado'], json:[] },
   fornecedores: { cols:['id','nome','cnpj','telefone','obs','criado','atualizado'], json:[] },
 };
@@ -62,12 +64,13 @@ export async function onRequest(context) {
         veiculos: (vei.results || []).map(r => ({ ...r, entrevista: parse(r.entrevista, null), inspecao: parse(r.inspecao, {}) })),
         ordens:   (ord.results || []).map(r => ({ ...r, itens: parse(r.itens, []), maodeobra: parse(r.maodeobra, []), midias: parse(r.midias, []), pecas_prev: parse(r.pecas_prev, []), descontos: parse(r.descontos, []), faltou: parse(r.faltou, null) })),
         regras:   (reg.results || []),
-        usuarios: (usu.results || []).map(r => ({ ...r, perms: parse(r.perms, null) })),
+        usuarios: (usu.results || []).map(({ senha_hash, salt, ...r }) => ({ ...r, perms: parse(r.perms, null) })),
         mecanicos:(mec.results || []).map(r => ({ ...r, folha_mensal: parse(r.folha_mensal, {}) })),
         caixa:    (cxa.results || []),
         pecas:    (pec.results || []),
         fornecedores: (forn.results || []),
         logs: (lgs.results || []),
+        sessao: context.data.usuario ? context.data.usuario.id : null, // quem o servidor diz que está logado
         app_versao: '2026-10-10.1',
         config,
       });
@@ -85,10 +88,21 @@ export async function onRequest(context) {
 
     if (request.method === 'POST') {
       const body = await request.json().catch(() => ({}));
+      // Usuários, perfis e permissões: só o administrador muda. Para os outros a escrita é
+      // ignorada (sem erro, para a sincronização do navegador não travar nas demais tabelas).
+      const admin = context.data.usuario && context.data.usuario.papel === 'admin';
+      if ((acao === 'upsert' || acao === 'delete') && body.table === 'usuarios' && !admin) return jsonResp({ ok: true, ignorado: true });
       if (acao === 'upsert')  { await upsertRows(DB, body.table, body.rows || []); return jsonResp({ ok: true }); }
       if (acao === 'delete')  { await deleteRows(DB, body.table, body.ids || []);  return jsonResp({ ok: true }); }
-      if (acao === 'config')  { await saveConfig(DB, body.config || {});           return jsonResp({ ok: true }); }
-      if (acao === 'replace') { await replaceAll(DB, body);                          return jsonResp({ ok: true }); }
+      if (acao === 'config')  {
+        const cfg = { ...(body.config || {}) };
+        if (!admin) delete cfg.perfis_json;
+        await saveConfig(DB, cfg); return jsonResp({ ok: true });
+      }
+      if (acao === 'replace') {
+        if (!admin) return jsonResp({ error: 'Só o administrador pode substituir a base inteira.' }, 403);
+        await replaceAll(DB, body); return jsonResp({ ok: true });
+      }
     }
 
     return jsonResp({ error: 'rota não encontrada' }, 404);

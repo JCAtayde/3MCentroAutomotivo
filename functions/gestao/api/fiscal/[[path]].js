@@ -3,7 +3,7 @@
  * CNPJ da 3M (Distribuição de DF-e), faz a Ciência da Operação e monta o
  * cadastro de peças e fornecedores a partir dos itens.
  *
- * Rota: /gestao/api/fiscal/*   |   Binding: DB (D1)   |   Protegida pelo Cloudflare Access.
+ * Rota: /gestao/api/fiscal/*   |   Binding: DB (D1)   |   Só com login (gestao/api/_middleware.js).
  * Quem fala com a SEFAZ é a ponte fiscal (ponte-fiscal/, Fly.io), que guarda o
  * certificado A1. Segredos (Cloudflare): PONTE_FISCAL_URL, PONTE_FISCAL_TOKEN.
  *
@@ -1011,7 +1011,11 @@ export async function onRequest(context) {
         return jsonResp({ ok: true });
       }
       if (acao === 'regra') return jsonResp(await salvarRegra(DB, body));
-      if (acao === 'emissao_config') return jsonResp(await salvarConfigEmissao(DB, body));
+      if (acao === 'emissao_config') {
+        // Trocar para produção ou mexer na numeração: só o administrador.
+        if (!(context.data.usuario && context.data.usuario.papel === 'admin')) return jsonResp({ error: 'Só o administrador muda o ambiente e a numeração das notas.' }, 403);
+        return jsonResp(await salvarConfigEmissao(DB, body));
+      }
       if (acao === 'nfe_status') return jsonResp(await ponte(env, { acao: 'nfe_status', tpAmb: (await configEmissao(DB)).tpAmb }));
       if (acao === 'emitir') return jsonResp(await emitirNota(DB, env, body));
       if (acao === 'cancelar_nota') return jsonResp(await cancelarNota(DB, env, body));

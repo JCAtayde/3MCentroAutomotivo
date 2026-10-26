@@ -2,7 +2,7 @@
 // Binding necessário no Pages: R2 bucket binding "MEDIA" -> oficina-3m-midia
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
+  'Access-Control-Allow-Methods': 'GET,OPTIONS', // ler é público (página /os); enviar e apagar exigem login (_middleware.js)
   'Access-Control-Allow-Headers': 'Content-Type, X-Tipo, X-Nome',
 };
 

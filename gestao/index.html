@@ -814,11 +814,14 @@ async function enviarMudancas(){
   if(syncPend){ syncPend=false; agendarSync(); }
 }
 async function sincronizar(){
+  if(!sessionStorage.getItem(AUTH_KEY)) return; // sem login o servidor não responde
   try{
     // Mudança salva que ainda não subiu: envia antes de recarregar, senão o recarregamento a apagaria.
     if(syncAgendado){ clearTimeout(syncTimer); await enviarMudancas(); }
     if(syncing||syncAgendado||syncPend) return;
     const data=await apiGet();
+    // O cookie de sessão é do navegador inteiro: se outro usuário entrou em outra aba, vale o do servidor.
+    if(data.sessao && data.sessao!==sessionStorage.getItem(AUTH_KEY)) sessionStorage.setItem(AUTH_KEY,data.sessao);
     state.clientes=(data.clientes||[]).map(normCliente);
     state.veiculos=(data.veiculos||[]).map(normVeiculo);
     state.ordens=(data.ordens||[]).map(normOrdem);
@@ -4665,10 +4668,14 @@ async function salvarMecanico(id){ const nome=tc(val('mNome').trim()); if(!nome)
     let u=(state.usuarios||[]).find(x=>x.mecanico_id===mecId);
     const outro=usuarioPorLogin(login);
     if(outro && (!u || outro.id!==u.id)){ toast('Esse login já existe'); return; }
-    if(u){ u.login=login; u.nome=nome; u.perfil=perfil; u.papel=(perfil==='admin'?'admin':'operador'); u.modo_mec=((pf&&pf.flags.modo_mec)?'1':'0'); u.status='ativo'; u.atualizado=Date.now();
-      if(senha){ const salt=randSalt(); u.salt=salt; u.senha_hash=await hashSenha(senha,salt); } }
-    else { if(!senha){ toast('Defina a senha do novo acesso'); return; } const salt=randSalt(); const hash=await hashSenha(senha,salt);
-      state.usuarios.push({id:uid(),nome,login,email:'',senha_hash:hash,salt,status:'ativo',papel:(perfil==='admin'?'admin':'operador'),perfil,perms:permsPadrao(),reset:'',mecanico_id:mecId,modo_mec:((pf&&pf.flags.modo_mec)?'1':'0'),criado:Date.now()}); }
+    if(senha && senha.length<4){ toast('A senha precisa ter pelo menos 4 caracteres'); return; }
+    if(u){ u.login=login; u.nome=nome; u.perfil=perfil; u.papel=(perfil==='admin'?'admin':'operador'); u.modo_mec=((pf&&pf.flags.modo_mec)?'1':'0'); u.status='ativo'; u.atualizado=Date.now(); }
+    else { if(!senha){ toast('Defina a senha do novo acesso'); return; }
+      u={id:uid(),nome,login,email:'',status:'ativo',papel:(perfil==='admin'?'admin':'operador'),perfil,perms:permsPadrao(),reset:'',mecanico_id:mecId,modo_mec:((pf&&pf.flags.modo_mec)?'1':'0'),criado:Date.now()};
+      state.usuarios.push(u); }
+    salvar(); closeModal(); renderMecanicos();
+    if(senha){ try{ await definirSenhaServidor(u.id,senha); }catch(e){ alert('Funcionário salvo, mas a senha do acesso não foi gravada: '+e.message); return; } }
+    toast('Funcionário salvo'); return;
   }
   salvar(); closeModal(); renderMecanicos(); toast('Funcionário salvo'); }
 function toggleMecanico(id){ const m=state.mecanicos.find(x=>x.id===id); if(!m) return; m.ativo=(m.ativo!==0&&m.ativo!==false)?0:1; m.atualizado=Date.now(); salvar(); renderMecanicos(); }
@@ -4758,6 +4765,57 @@ function mostrarGate(html){ const g=gateEl(); g.innerHTML=`<div class="garage"><
 function esconderGate(){ gateEl().style.display='none'; }
 function authMsg(txt,pref){ const el=document.getElementById((pref||'')+'authMsg'); if(el) el.textContent=txt||''; }
 
+// Login no servidor (functions/gestao/api/_middleware.js): a API só responde com sessão.
+// Se qualquer chamada voltar 401, a sessão acabou: volta para a tela de login.
+const _fetchOriginal=window.fetch.bind(window);
+window.fetch=async function(entrada,opcoes){
+  const r=await _fetchOriginal(entrada,opcoes);
+  try{ const url=typeof entrada==='string'?entrada:((entrada&&entrada.url)||'');
+    if(r.status===401&&/\/gestao\/api\//.test(url)&&!/\/gestao\/api\/auth\//.test(url)) sessaoExpirada(); }catch(e){}
+  return r;
+};
+function sessaoExpirada(){
+  if(!usuarioAtual) return;
+  sessionStorage.removeItem(AUTH_KEY); usuarioAtual=null; atualizarHeaderUser(); mostrarLogin('Sua sessão terminou. Entre de novo.');
+}
+async function authPost(rota,corpo){
+  const r=await _fetchOriginal(API+'/auth/'+rota,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(corpo||{})});
+  const d=await r.json().catch(()=>({})); return {r,d};
+}
+async function iniciarSessao(){
+  try{
+    const r=await _fetchOriginal(API+'/auth/eu',{headers:{accept:'application/json'}});
+    if(r.ok){ const d=await r.json(); sessionStorage.setItem(AUTH_KEY,d.usuario.id);
+      if(!getUsuario(d.usuario.id)) await sincronizar();
+      verificarAuth(); sincronizar(); return; }
+    if(r.status===401){ sessionStorage.removeItem(AUTH_KEY); usuarioAtual=null; atualizarHeaderUser(); mostrarLogin(); return; }
+  }catch(e){}
+  verificarAuth(); // sem internet: usa o que já está no aparelho
+}
+// Senha definida no servidor (o usuário precisa já ter subido para o banco).
+async function definirSenhaServidor(usuarioId,nova){
+  clearTimeout(syncTimer);
+  for(let i=0;i<40&&syncing;i++) await new Promise(r=>setTimeout(r,250));
+  await enviarMudancas();
+  const {r,d}=await authPost('senha',{usuario_id:usuarioId,nova});
+  if(!r.ok) throw new Error(d.error||('http '+r.status));
+}
+function trocarMinhaSenha(){
+  openModal(`<h3>Trocar minha senha</h3>
+    <div class="field"><label>Senha atual</label><input id="tsAtual" type="password" autocomplete="current-password"></div>
+    <div class="field"><label>Nova senha</label><input id="tsNova" type="password" autocomplete="new-password"></div>
+    <div class="field"><label>Repita a nova senha</label><input id="tsNova2" type="password" autocomplete="new-password"></div>
+    <div class="form-actions"><button class="btn gold" onclick="salvarMinhaSenha()">Salvar</button><button class="btn ghost" onclick="closeModal()">Cancelar</button></div>`);
+}
+async function salvarMinhaSenha(){
+  const atual=val('tsAtual'), nova=val('tsNova');
+  if(nova.length<4){ toast('A nova senha precisa ter pelo menos 4 caracteres'); return; }
+  if(nova!==val('tsNova2')){ toast('As duas senhas não conferem'); return; }
+  const {r,d}=await authPost('senha',{atual,nova});
+  if(!r.ok){ toast(d.error||'Não foi possível trocar a senha'); return; }
+  closeModal(); toast('Senha trocada ✓');
+}
+
 function verificarAuth(){
   const id=sessionStorage.getItem(AUTH_KEY);
   const u=id?getUsuario(id):null;
@@ -4770,7 +4828,9 @@ function revalidarAposSync(){
   const id=sessionStorage.getItem(AUTH_KEY); const u=id?getUsuario(id):null;
   if(!u){ if(usuarioAtual){ fazerLogout(); } return; }
   if(u.status!=='ativo'){ usuarioAtual=null; atualizarHeaderUser(); mostrarEspera(u); return; }
+  const trocou=!usuarioAtual||usuarioAtual.id!==u.id;
   usuarioAtual=u;
+  if(trocou){ atualizarHeaderUser(); aplicarPermissoesUI(); closeModal(); refreshAtual(); return; } // outro usuário entrou neste navegador
   const overAberto=(document.getElementById('overlay')||{}).classList && document.getElementById('overlay').classList.contains('open');
   const ae=document.activeElement; const editando = ae && (ae.tagName==='INPUT'||ae.tagName==='TEXTAREA'||ae.tagName==='SELECT');
   if(overAberto || editando || modalMinimizado) return; // não redesenha enquanto edita
@@ -4794,39 +4854,33 @@ function checarPendencias(){
 }
 function pendLiberar(id){ const u=getUsuario(id); if(!u) return; u.status='ativo'; u.perms=u.perms||permsPadrao(); u.atualizado=Date.now(); salvar(); toast(u.nome+' liberado'); pendJaMostrada=false; checarPendencias(); if(document.querySelector('[data-screen="equipe"].active')) renderUsuariosAdmin(); }
 function pendExcluir(id){ const u=getUsuario(id); if(!u) return; state.usuarios=state.usuarios.filter(x=>x.id!==id); salvar(); toast('Cadastro recusado'); pendJaMostrada=false; checarPendencias(); }
-function mostrarLogin(){
+function mostrarLogin(msg){
   mostrarGate(`<div class="auth-card">
     <div class="logo">3M</div><h2>Gestão da Oficina</h2><p class="sub">Acesso restrito · Centro Automotivo</p>
     <div class="field"><label>Usuário (login)</label><input id="authLogin" autocomplete="username" placeholder="seu login"></div>
     <div class="field"><label>Senha</label><div class="pass-wrap"><input id="authSenha" type="password" autocomplete="current-password" placeholder="sua senha" onkeydown="if(event.key==='Enter')fazerLogin()"><button type="button" class="pass-eye" onclick="toggleSenha('authSenha',this)" aria-label="Ver senha">👁️</button></div></div>
-    <div class="auth-msg" id="authMsg"></div>
+    <div class="auth-msg" id="authMsg">${msg?esc(msg):''}</div>
     <button class="btn gold" onclick="fazerLogin()">Entrar</button>
     <div class="auth-alt"><a onclick="mostrarReset()">Esqueci minha senha</a></div>
     <div class="auth-alt">Não tem acesso? <a onclick="mostrarCadastro()">Cadastre-se</a></div>
     ${appInstalado()?'':'<button type="button" class="inst-btn" onclick="instalarApp()">📲 Instalar app no celular</button>'}
   </div>`);
 }
+// Esqueci a senha: só pede. Quem define a nova é o administrador (Equipe → Redefinir senha).
 function mostrarReset(){
   mostrarGate(`<div class="auth-card">
-    <div class="logo">3M</div><h2>Redefinir senha</h2><p class="sub">Informe seu login e crie uma nova senha.</p>
-    <div class="field"><label>Seu login ou e-mail</label><input id="resLogin" placeholder="login ou e-mail"></div>
-    <div class="field"><label>Nova senha</label><div class="pass-wrap"><input id="resNova" type="password" placeholder="nova senha"><button type="button" class="pass-eye" onclick="toggleSenha('resNova',this)" aria-label="Ver senha">👁️</button></div></div>
-    <div class="field"><label>Repita a nova senha</label><div class="pass-wrap"><input id="resNova2" type="password" placeholder="repita a nova senha" onkeydown="if(event.key==='Enter')fazerReset()"><button type="button" class="pass-eye" onclick="toggleSenha('resNova2',this)" aria-label="Ver senha">👁️</button></div></div>
+    <div class="logo">3M</div><h2>Esqueci minha senha</h2><p class="sub">Informe seu login. O responsável pela oficina vai definir uma nova senha para você.</p>
+    <div class="field"><label>Seu login ou e-mail</label><input id="resLogin" placeholder="login ou e-mail" onkeydown="if(event.key==='Enter')fazerReset()"></div>
     <div class="auth-msg" id="resauthMsg" style="color:var(--muted)"></div>
-    <button class="btn gold" onclick="fazerReset()">Salvar nova senha</button>
+    <button class="btn gold" onclick="fazerReset()">Pedir nova senha</button>
     <div class="auth-alt"><a onclick="mostrarLogin()">Voltar ao login</a></div>
   </div>`);
 }
 async function fazerReset(){
-  const q=(val('resLogin')||'').trim().toLowerCase();
-  const nova=val('resNova'), nova2=val('resNova2');
-  const u=state.usuarios.find(x=>(x.login||'').toLowerCase()===q||(x.email||'').toLowerCase()===q);
-  if(!u){ authMsg('Login ou e-mail não encontrado','res'); return; }
-  if(!nova || nova.length<4){ authMsg('A senha precisa ter pelo menos 4 caracteres','res'); return; }
-  if(nova!==nova2){ authMsg('As duas senhas não conferem','res'); return; }
-  const salt=randSalt(); u.salt=salt; u.senha_hash=await hashSenha(nova,salt); u.reset=''; u.atualizado=Date.now(); salvar();
-  authMsg('✅ Senha alterada! Já pode entrar com a nova senha.','res');
-  setTimeout(()=>mostrarLogin(), 1400);
+  const login=(val('resLogin')||'').trim();
+  if(!login){ authMsg('Informe seu login','res'); return; }
+  try{ await authPost('pedir_senha',{login}); }catch(e){}
+  authMsg('✅ Pedido enviado. Avise o responsável: ele define a nova senha e te passa.','res');
 }
 function mostrarCadastro(){
   mostrarGate(`<div class="auth-card">
@@ -4846,37 +4900,45 @@ function mostrarEspera(u){
     <div class="ico">${bloqueado?'🔒':'⏳'}</div>
     <h2>${bloqueado?'Acesso bloqueado':'Aguardando liberação'}</h2>
     <p class="sub">Olá, ${esc(u.nome||'')}. ${bloqueado?'Seu acesso está desativado. Fale com o responsável da oficina.':'Seu cadastro foi enviado! O responsável precisa liberar seu acesso. Assim que liberar, é só entrar.'}</p>
-    <button class="btn gold" onclick="verificarAuth()">Já fui liberado — tentar entrar</button>
+    <button class="btn gold" onclick="mostrarLogin()">Já fui liberado — entrar</button>
     <div class="auth-alt"><a onclick="fazerLogout()">Sair / trocar de usuário</a></div>
   </div>`);
+}
+async function entrouNoServidor(usuario){
+  sessionStorage.setItem(AUTH_KEY,usuario.id);
+  await sincronizar();
+  usuarioAtual=getUsuario(usuario.id)||usuario; esconderGate(); atualizarHeaderUser(); aplicarPermissoesUI(); refreshAtual(); checarPendencias();
 }
 async function fazerLogin(){
   const login=val('authLogin').trim(), senha=val('authSenha');
   if(!login||!senha){ authMsg('Preencha usuário e senha'); return; }
-  const u=usuarioPorLogin(login);
-  if(!u){ authMsg('Usuário não encontrado'); return; }
-  const h=await hashSenha(senha,u.salt);
-  if(h!==u.senha_hash){ authMsg('Senha incorreta'); return; }
-  sessionStorage.setItem(AUTH_KEY,u.id);
-  if(u.status!=='ativo'){ mostrarEspera(u); return; }
-  usuarioAtual=u; esconderGate(); atualizarHeaderUser(); aplicarPermissoesUI(); refreshAtual(); checarPendencias();
+  authMsg('Entrando…');
+  try{
+    const {r,d}=await authPost('login',{login,senha});
+    if(d.espera){ mostrarEspera(d.usuario); return; }
+    if(!r.ok||!d.ok){ authMsg(d.error||'Não foi possível entrar'); return; }
+    await entrouNoServidor(d.usuario);
+  }catch(e){ authMsg('Sem conexão com o servidor. Tente de novo.'); }
 }
 async function fazerCadastro(){
   const nome=val('regNome').trim(), login=val('regLogin').trim(), senha=val('regSenha');
   if(!nome||!login||!senha){ authMsg('Preencha nome, login e senha','reg'); return; }
-  if(usuarioPorLogin(login)){ authMsg('Esse login já existe','reg'); return; }
-  const salt=randSalt(), hash=await hashSenha(senha,salt);
-  const primeiro = state.usuarios.length===0;
-  const u={id:uid(),nome,login,email:val('regEmail').trim(),senha_hash:hash,salt,status:primeiro?'ativo':'pendente',papel:primeiro?'admin':'operador',perms:permsPadrao(),reset:'',criado:Date.now()};
-  state.usuarios.push(u); salvar();
-  sessionStorage.setItem(AUTH_KEY,u.id);
-  if(primeiro){ usuarioAtual=u; esconderGate(); atualizarHeaderUser(); aplicarPermissoesUI(); refreshAtual(); toast('Bem-vindo! Você é o administrador.'); }
-  else { mostrarEspera(u); }
+  try{
+    const {r,d}=await authPost('cadastro',{nome,login,email:val('regEmail').trim(),senha});
+    if(d.espera){ mostrarEspera(d.usuario); return; }
+    if(!r.ok||!d.ok){ authMsg(d.error||'Não foi possível cadastrar','reg'); return; }
+    await entrouNoServidor(d.usuario); toast('Bem-vindo! Você é o administrador.');
+  }catch(e){ authMsg('Sem conexão com o servidor. Tente de novo.','reg'); }
 }
-function fazerLogout(){ sessionStorage.removeItem(AUTH_KEY); usuarioAtual=null; pendJaMostrada=false; if(inatividadeTimer) clearTimeout(inatividadeTimer); document.body.classList.remove('sem-valores'); atualizarHeaderUser(); mostrarLogin(); }
+async function fazerLogout(){
+  try{ if(syncAgendado){ clearTimeout(syncTimer); await enviarMudancas(); } }catch(e){}
+  try{ await _fetchOriginal(API+'/auth/sair',{method:'POST'}); }catch(e){}
+  try{ localStorage.removeItem(CACHE_KEY); }catch(e){} // dados da oficina não ficam no aparelho depois de sair
+  try{ closeModal(); }catch(e){}
+  sessionStorage.removeItem(AUTH_KEY); usuarioAtual=null; pendJaMostrada=false; if(inatividadeTimer) clearTimeout(inatividadeTimer); document.body.classList.remove('sem-valores'); atualizarHeaderUser(); mostrarLogin(); }
 function atualizarHeaderUser(){
   const el=document.getElementById('authUser'); if(!el) return;
-  if(usuarioAtual){ el.innerHTML=`<b>${esc(usuarioAtual.nome.split(' ')[0])}</b>${usuarioAtual.papel==='admin'?' · admin':''} <a onclick="fazerLogout()" style="color:var(--gold);cursor:pointer;font-weight:600">Sair</a>`; }
+  if(usuarioAtual){ el.innerHTML=`<b>${esc(usuarioAtual.nome.split(' ')[0])}</b>${usuarioAtual.papel==='admin'?' · admin':''} <a onclick="trocarMinhaSenha()" style="color:var(--muted);cursor:pointer">Senha</a> <a onclick="fazerLogout()" style="color:var(--gold);cursor:pointer;font-weight:600">Sair</a>`; }
   else el.innerHTML='';
 }
 
@@ -4933,10 +4995,13 @@ async function salvarNovoUsuario(){
   const nome=val('nuNome').trim(), login=val('nuLogin').trim(), senha=val('nuSenha');
   if(!nome||!login||!senha){ toast('Preencha nome, login e senha'); return; }
   if(usuarioPorLogin(login)){ toast('Esse login já existe'); return; }
-  const salt=randSalt(), hash=await hashSenha(senha,salt); const mecId=val('nuMec')||'';
+  if(senha.length<4){ toast('A senha precisa ter pelo menos 4 caracteres'); return; }
+  const mecId=val('nuMec')||''; const novoId=uid();
   const perfil=val('nuPerfil')||'atendente'; const pf=getPerfil(perfil);
-  state.usuarios.push({id:uid(),nome,login,email:val('nuEmail').trim(),senha_hash:hash,salt,status:'ativo',papel:(perfil==='admin'?'admin':'operador'),perfil,perms:permsPadrao(),reset:'',mecanico_id:mecId,modo_mec:((pf&&pf.flags.modo_mec)?'1':'0'),criado:Date.now()});
-  salvar(); closeModal(); renderUsuariosAdmin(); toast('Usuário cadastrado');
+  state.usuarios.push({id:novoId,nome,login,email:val('nuEmail').trim(),status:'ativo',papel:(perfil==='admin'?'admin':'operador'),perfil,perms:permsPadrao(),reset:'',mecanico_id:mecId,modo_mec:((pf&&pf.flags.modo_mec)?'1':'0'),criado:Date.now()});
+  salvar(); closeModal(); renderUsuariosAdmin();
+  try{ await definirSenhaServidor(novoId,senha); toast('Usuário cadastrado'); }
+  catch(e){ alert('Usuário criado, mas a senha não foi gravada: '+e.message+'\nUse "Redefinir senha" nele.'); }
 }
 function adminPermissoes(id){
   const u=getUsuario(id); if(!u) return; const p=u.perms||permsPadrao();
@@ -4963,12 +5028,13 @@ function salvarVincMec(id){ const u=getUsuario(id); if(!u) return; const mid=val
 async function adminRedefinirSenha(id){
   const u=getUsuario(id); if(!u) return;
   const nova=prompt('Nova senha para '+u.nome+':'); if(nova==null||!nova.trim()) return;
-  const salt=randSalt(); u.salt=salt; u.senha_hash=await hashSenha(nova.trim(),salt); u.reset=''; u.atualizado=Date.now();
-  salvar(); renderUsuariosAdmin(); toast('Senha redefinida');
+  if(nova.trim().length<4){ toast('A senha precisa ter pelo menos 4 caracteres'); return; }
+  try{ await definirSenhaServidor(id,nova.trim()); u.reset=''; renderUsuariosAdmin(); toast('Senha redefinida'); }
+  catch(e){ alert('Não foi possível redefinir: '+e.message); }
 }
 
 /* boot */
-montarNav(); renderPainel(); verificarAuth(); sincronizar();
+montarNav(); renderPainel(); iniciarSessao();
 window.addEventListener('focus', ()=>{ if(!syncing) sincronizar(); });
 setInterval(()=>{ if(!syncing && document.visibilityState==='visible') sincronizar(); }, 60000);
 

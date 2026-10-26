@@ -8,6 +8,8 @@
 //   GET  dados                                      -> ficha + histórico (exige sessão)
 //   POST sair                                       -> encerra sessão
 
+import { usuarioDaSessao, garantirTabelasAuth, bloqueado, registrarFalha, limparFalhas } from '../../_lib/auth-gestao.js';
+
 const SITE = 'https://3mcentroautomotivo.com.br';
 const FASES = { agendamento:'Agendado', aguardando:'Aguardando orçamento', andamento:'Em andamento', liberado:'Carro liberado', executado:'Serviço concluído', rejeitado:'Não aprovado' };
 
@@ -55,6 +57,9 @@ export async function onRequest(context){
     const secret = await getSecret(env);
 
     if(rota==='convite' && request.method==='POST'){
+      // Rota da equipe: só com login da gestão.
+      await garantirTabelasAuth(env.DB);
+      if(!(await usuarioDaSessao(env.DB, request))) return json({ error:'Faça login na gestão para gerar o convite.' }, 401);
       const b = await readBody(request);
       const cli = await env.DB.prepare('SELECT id, nome, cpf FROM clientes WHERE id=?').bind(b.cliente_id||'').first();
       if(!cli) return json({ error:'Cliente não encontrado' }, 404);
@@ -99,10 +104,15 @@ export async function onRequest(context){
 
     if(rota==='login' && request.method==='POST'){
       const b = await readBody(request);
+      // Senha de 4 dígitos: sem limite, dava para testar todas. Limite por CPF e por IP.
+      await garantirTabelasAuth(env.DB);
+      const chaves = ['cli:'+dig(b.cpf), 'cliip:'+(request.headers.get('CF-Connecting-IP')||'')];
+      if(await bloqueado(env.DB, chaves)) return json({ error:'Muitas tentativas erradas. Espere 15 minutos e tente de novo.' }, 429);
       const conta = await env.DB.prepare('SELECT * FROM portal_contas WHERE cpf=? AND ativo=1').bind(dig(b.cpf)).first();
-      if(!conta) return json({ error:'CPF ou senha incorretos.' }, 401);
+      if(!conta){ await registrarFalha(env.DB, chaves); return json({ error:'CPF ou senha incorretos.' }, 401); }
       const h = await pbkdf2(String(b.senha||''), conta.salt);
-      if(h!==conta.senha_hash) return json({ error:'CPF ou senha incorretos.' }, 401);
+      if(h!==conta.senha_hash){ await registrarFalha(env.DB, chaves); return json({ error:'CPF ou senha incorretos.' }, 401); }
+      await limparFalhas(env.DB, chaves);
       const cli = await env.DB.prepare('SELECT nome FROM clientes WHERE id=?').bind(conta.cliente_id).first();
       await registrarLogin(env, conta.cliente_id);
       const tok = await makeSession(conta.cliente_id, secret);
