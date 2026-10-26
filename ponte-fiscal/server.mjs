@@ -9,14 +9,25 @@
 //   { acao: "ciencia",   chave }    evento 210210 (Ciência da Operação), assinado aqui
 //   { diagnostico: true }           confere certificado e conexão (não grava nada)
 //
+// Emissão na SEFAZ-GO (NF-e modelo 55 e NFC-e modelo 65), sempre do CNPJ da 3M:
+//   { acao: "nfe_status", tpAmb }                    status do serviço de autorização
+//   { acao: "nfe_autorizar", infNFe }                assina o <infNFe> montado pelo sistema,
+//                                                    põe o QR Code (NFC-e, com o CSC) e envia
+//   { acao: "nfe_cancelar", chave, nProt, xJust, tpAmb }  evento 110111
+//
 // Segredos (fly secrets):
 //   PONTE_TOKEN        senha compartilhada com o sistema (cabeçalho x-ponte-token);
 //   CERT_CADEIA_B64    certificado + cadeia em PEM, em base64 (conexão);
-//   CERT_CHAVE_B64     chave privada PKCS#8 em PEM, em base64 (conexão e assinatura).
-// Variáveis (fly.toml): CNPJ, UF (código IBGE), AMBIENTE (1 produção, 2 homologação).
+//   CERT_CHAVE_B64     chave privada PKCS#8 em PEM, em base64 (conexão e assinatura);
+//   CSC_ID, CSC        Código de Segurança do Contribuinte da NFC-e (produção);
+//   CSC_HOM_ID, CSC_HOM  o de homologação (se não houver, usa o de produção).
+// Variáveis (fly.toml): CNPJ, UF (código IBGE), AMBIENTE (1 produção, 2 homologação) —
+// AMBIENTE vale só para a Distribuição de DF-e; a emissão usa o tpAmb da própria nota.
 
 import http from "node:http";
 import https from "node:https";
+import tls from "node:tls";
+import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { createSign, createHash, timingSafeEqual, X509Certificate } from "node:crypto";
 import { pathToFileURL } from "node:url";
@@ -54,8 +65,12 @@ const TEM_CERTIFICADO = CADEIA.includes("BEGIN CERTIFICATE") && CHAVE.includes("
 const CERT_PEM = (CADEIA.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/) ?? [""])[0];
 const CERT_CORPO = CERT_PEM.replace(/-----(BEGIN|END) CERTIFICATE-----|\s/g, "");
 
+// O servidor de produção da SEFAZ-GO usa certificado ICP-Brasil (Raiz v10), que o Node
+// não conhece: as autoridades públicas + a cadeia ICP-Brasil (icp-brasil.pem, pública).
+let ICP_BRASIL = "";
+try { ICP_BRASIL = readFileSync(new URL("./icp-brasil.pem", import.meta.url), "utf8"); } catch { /* sem o arquivo: só as públicas */ }
 const agente = TEM_CERTIFICADO
-  ? new https.Agent({ cert: CADEIA, key: CHAVE, keepAlive: true, maxSockets: 4 })
+  ? new https.Agent({ cert: CADEIA, key: CHAVE, ca: [...tls.rootCertificates, ICP_BRASIL].filter(Boolean), keepAlive: true, maxSockets: 4 })
   : null;
 
 function autorizado(req) {
@@ -256,9 +271,9 @@ function dataHoraBrasilia() {
  * ordem certa e elementos vazios abertos e fechados — por isso não há
  * biblioteca de canonicalização.
  */
-function assinar(infEvento, id) {
-  // Na forma canônica o infEvento herda o xmlns do <evento>.
-  const canonico = infEvento.replace("<infEvento ", `<infEvento xmlns="${NS_NFE}" `);
+function assinar(elemento, id) {
+  // Na forma canônica o elemento (infEvento, infNFe) herda o xmlns do pai (<evento>, <NFe>).
+  const canonico = elemento.replace(/^<(\w+) /, `<$1 xmlns="${NS_NFE}" `);
   const digest = createHash("sha1").update(canonico, "utf8").digest("base64");
   const signedInfo =
     `<SignedInfo>` +
@@ -301,6 +316,110 @@ async function ciencia(chave) {
   if (!ret) throw erroSoap(r);
   // cStat do lote fica fora do retEvento; o que importa é o do evento.
   return { cStat: tag(ret, "cStat"), xMotivo: tag(ret, "xMotivo"), nProt: tag(ret, "nProt") };
+}
+
+// ---------- Emissão na SEFAZ-GO (NF-e 55 e NFC-e 65) ----------
+
+const SEFAZ_GO = { 1: "https://nfe.sefaz.go.gov.br/nfe/services/", 2: "https://homolog.sefaz.go.gov.br/nfe/services/" };
+// QR Code da NFC-e: endereços do Informe Técnico SEFAZ-GO 2025.003 (HTTPS desde 16/06/2025).
+const QR_GO = { 1: "https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfce/danfeNFCe", 2: "https://nfewebhomolog.sefaz.go.gov.br/nfeweb/sites/nfce/danfeNFCe" };
+const URL_CHAVE_GO = { 1: "www.sefaz.go.gov.br/nfce/consulta", 2: "www.sefaz.go.gov.br/nfce/consulta" };
+
+function csc(tpAmb) {
+  const prod = { id: process.env.CSC_ID ?? "", csc: process.env.CSC ?? "" };
+  const hom = { id: process.env.CSC_HOM_ID ?? "", csc: process.env.CSC_HOM ?? "" };
+  return tpAmb === 2 && hom.id && hom.csc ? hom : prod;
+}
+
+/** QR Code da NFC-e, versão 2, emissão on-line (NT 2015.002): p=chave|2|tpAmb|idCSC|hash. */
+function infNFeSupl(chave, tpAmb) {
+  const c = csc(tpAmb);
+  if (!c.id || !c.csc) throw new Error("CSC da NFC-e não configurado na ponte (CSC_ID / CSC).");
+  const id = String(Number(c.id)); // sem zeros à esquerda
+  const base = `${chave}|2|${tpAmb}|${id}`;
+  const hash = createHash("sha1").update(base + c.csc, "utf8").digest("hex").toUpperCase();
+  const qr = `${QR_GO[tpAmb]}?p=${base}|${hash}`;
+  return { xml: `<infNFeSupl><qrCode>${qr}</qrCode><urlChave>${URL_CHAVE_GO[tpAmb]}</urlChave></infNFeSupl>`, qrCode: qr, urlChave: URL_CHAVE_GO[tpAmb] };
+}
+
+async function soapGo(tpAmb, servico, conteudo) {
+  const wsdl = `http://www.portalfiscal.inf.br/nfe/wsdl/${servico}`;
+  const r = await chamarSoap(SEFAZ_GO[tpAmb] + servico, envelope(wsdl, `<nfeDadosMsg xmlns="{{WSDL}}">${conteudo}</nfeDadosMsg>`));
+  if (r.status !== 200) throw erroSoap(r);
+  return r.corpo;
+}
+
+async function statusGo(tpAmb) {
+  const corpo = await soapGo(tpAmb, "NFeStatusServico4",
+    `<consStatServ xmlns="${NS_NFE}" versao="4.00"><tpAmb>${tpAmb}</tpAmb><cUF>${UF}</cUF><xServ>STATUS</xServ></consStatServ>`);
+  return { cStat: tag(corpo, "cStat"), xMotivo: tag(corpo, "xMotivo"), tMed: tag(corpo, "tMed") };
+}
+
+/**
+ * Recebe o <infNFe> já montado pelo sistema (forma canônica), confere que é da 3M, assina,
+ * põe o QR Code (NFC-e) e envia em modo síncrono. Devolve o protocolo e o nfeProc.
+ */
+async function autorizarGo(infNFe) {
+  const m = infNFe.match(/^<infNFe Id="NFe(\d{44})" versao="4\.00">/);
+  if (!m) throw new Error("infNFe inválido.");
+  const chave = m[1];
+  const emit = tag(infNFe, "emit") ?? "";
+  if ((tag(emit, "CNPJ") ?? "") !== CNPJ) throw new Error("A nota não é do CNPJ da 3M.");
+  const mod = tag(infNFe, "mod"), tpAmb = Number(tag(infNFe, "tpAmb"));
+  if (!["55", "65"].includes(mod) || ![1, 2].includes(tpAmb)) throw new Error("Modelo ou ambiente inválido.");
+  if (chave.slice(0, 2) !== UF || chave.slice(6, 20) !== CNPJ) throw new Error("Chave de acesso não confere com a 3M.");
+
+  const supl = mod === "65" ? infNFeSupl(chave, tpAmb) : null;
+  const nfe = `<NFe xmlns="${NS_NFE}">${infNFe}${supl ? supl.xml : ""}${assinar(infNFe, "NFe" + chave)}</NFe>`;
+  const corpo = await soapGo(tpAmb, "NFeAutorizacao4",
+    `<enviNFe xmlns="${NS_NFE}" versao="4.00"><idLote>${Date.now()}</idLote><indSinc>1</indSinc>${nfe}</enviNFe>`);
+  const ret = tag(corpo, "retEnviNFe") ?? corpo;
+  let lote = { cStat: tag(ret, "cStat"), xMotivo: tag(ret, "xMotivo") };
+  let protXml = (corpo.match(/<protNFe[\s\S]*?<\/protNFe>/) ?? [])[0] ?? null;
+
+  // Lote assíncrono (103): consulta o recibo algumas vezes.
+  if (!protXml && lote.cStat === "103") {
+    const nRec = tag(ret, "nRec");
+    for (let i = 0; i < 6 && !protXml; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const c = await soapGo(tpAmb, "NFeRetAutorizacao4",
+        `<consReciNFe xmlns="${NS_NFE}" versao="4.00"><tpAmb>${tpAmb}</tpAmb><nRec>${nRec}</nRec></consReciNFe>`);
+      protXml = (c.match(/<protNFe[\s\S]*?<\/protNFe>/) ?? [])[0] ?? null;
+      if (!protXml) lote = { cStat: tag(c, "cStat"), xMotivo: tag(c, "xMotivo") };
+    }
+  }
+  if (!protXml) return { chave, cStat: lote.cStat, xMotivo: lote.xMotivo, autorizada: false };
+
+  const inf = tag(protXml, "infProt") ?? "";
+  const cStat = tag(inf, "cStat");
+  const autorizada = cStat === "100" || cStat === "150";
+  // nfeProc: o arquivo que vale como nota (XML assinado + protocolo da SEFAZ).
+  const prot = protXml.includes("xmlns=") ? protXml : protXml.replace("<protNFe ", `<protNFe xmlns="${NS_NFE}" `);
+  return {
+    chave, cStat, xMotivo: tag(inf, "xMotivo"), nProt: tag(inf, "nProt"), dhRecbto: tag(inf, "dhRecbto"), autorizada,
+    qrCode: supl ? supl.qrCode : null, urlChave: supl ? supl.urlChave : null,
+    xml: autorizada ? `<?xml version="1.0" encoding="UTF-8"?><nfeProc xmlns="${NS_NFE}" versao="4.00">${nfe}${prot}</nfeProc>` : null,
+  };
+}
+
+/** Cancelamento (evento 110111) na SEFAZ-GO. */
+async function cancelarGo(chave, nProt, xJust, tpAmb) {
+  const id = `ID110111${chave}01`;
+  const just = String(xJust).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[<>&"']/g, " ").trim();
+  const infEvento =
+    `<infEvento Id="${id}"><cOrgao>${UF}</cOrgao><tpAmb>${tpAmb}</tpAmb><CNPJ>${CNPJ}</CNPJ>` +
+    `<chNFe>${chave}</chNFe><dhEvento>${dataHoraBrasilia()}</dhEvento><tpEvento>110111</tpEvento>` +
+    `<nSeqEvento>1</nSeqEvento><verEvento>1.00</verEvento>` +
+    `<detEvento versao="1.00"><descEvento>Cancelamento</descEvento><nProt>${nProt}</nProt><xJust>${just}</xJust></detEvento></infEvento>`;
+  const evento = `<evento xmlns="${NS_NFE}" versao="1.00">${infEvento}${assinar(infEvento, id)}</evento>`;
+  const corpo = await soapGo(tpAmb, "NFeRecepcaoEvento4",
+    `<envEvento xmlns="${NS_NFE}" versao="1.00"><idLote>${Date.now()}</idLote>${evento}</envEvento>`);
+  const ret = tag(corpo, "retEvento") ?? tag(corpo, "retEnvEvento") ?? corpo;
+  const cStat = tag(ret, "cStat");
+  const ok = ["135", "155"].includes(cStat);
+  const retXml = (corpo.match(/<retEvento[\s\S]*?<\/retEvento>/) ?? [])[0] ?? "";
+  return { cStat, xMotivo: tag(ret, "xMotivo"), nProt: tag(ret, "nProt"), cancelada: ok,
+    xml: ok ? `<?xml version="1.0" encoding="UTF-8"?><procEventoNFe xmlns="${NS_NFE}" versao="1.00">${evento}${retXml}</procEventoNFe>` : null };
 }
 
 // ---------- Servidor ----------
@@ -349,6 +468,15 @@ const servidor = http.createServer(async (req, res) => {
         if (pedido.acao === "ciencia") return responder(res, 200, await ciencia(chave));
         return responder(res, 200, await distribuicao(`<consChNFe><chNFe>${chave}</chNFe></consChNFe>`));
       }
+      if (pedido.acao === "nfe_status") return responder(res, 200, await statusGo(Number(pedido.tpAmb) === 1 ? 1 : 2));
+      if (pedido.acao === "nfe_autorizar") return responder(res, 200, await autorizarGo(String(pedido.infNFe ?? "")));
+      if (pedido.acao === "nfe_cancelar") {
+        const chave = String(pedido.chave ?? "");
+        if (!CHAVE_NFE.test(chave) || chave.slice(6, 20) !== CNPJ) return responder(res, 400, { erro: "chave de acesso inválida" });
+        if (!/^\d{15}$/.test(String(pedido.nProt ?? ""))) return responder(res, 400, { erro: "protocolo inválido" });
+        if (String(pedido.xJust ?? "").trim().length < 15) return responder(res, 400, { erro: "justificativa com menos de 15 letras" });
+        return responder(res, 200, await cancelarGo(chave, String(pedido.nProt), String(pedido.xJust), Number(pedido.tpAmb) === 1 ? 1 : 2));
+      }
       return responder(res, 400, { erro: "ação desconhecida" });
     } catch (e) {
       return responder(res, 502, { erro: e instanceof Error ? e.message : String(e) });
@@ -363,4 +491,4 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) servidor.list
   console.log(`ponte fiscal da 3M no ar (região ${process.env.FLY_REGION ?? "local"}, ambiente ${AMBIENTE}, certificado: ${TEM_CERTIFICADO})`);
 });
 
-export { eventoCiencia, lerDocumento };
+export { eventoCiencia, lerDocumento, assinar, infNFeSupl };

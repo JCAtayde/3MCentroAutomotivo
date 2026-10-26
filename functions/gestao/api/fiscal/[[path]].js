@@ -26,6 +26,17 @@
  * Regra fiscal de venda das peças (ver "Regra fiscal de venda das peças" abaixo):
  *   GET  regras             regra sugerida/ajustada/aprovada por peça, com o motivo e os avisos
  *   POST regra              { peca_id, acao: 'aprovar'|'ajustar'|'limpar', base?, regra?, obs, quem }
+ *   GET  regra_ncm?ncm=&st=  regra para peça sem nota ligada (NCM e ST informados à mão)
+ *
+ * Emissão de nota de peça (NF-e 55 / NFC-e 65) na SEFAZ-GO, pela ponte:
+ *   GET  emissao_config      ambiente (1 produção / 2 homologação), séries, próximos números
+ *   POST emissao_config      { tpAmb?, proximo?: {id, valor}, respTec? }
+ *   POST nfe_status          status do serviço da SEFAZ-GO no ambiente atual
+ *   POST emitir              { ordem_id, os, modelo, dest, itens[{nome,codigo,ncm,cest,origem,qtde,valorUnit,desconto,regra}], pagamento, quem }
+ *   POST cancelar_nota       { id, xJust }
+ *   GET  saidas?ordem_id=    notas emitidas (sem o XML)
+ *   GET  danfe?id=           DANFE em HTML (imprimir / salvar PDF)
+ *   GET  xml_saida?id=       XML autorizado (e o do cancelamento, se houver)
  *
  * Notas anteriores à ativação do estoque (dfe_controle.estoque_desde) ficam como
  * histórico: dá para ligar as peças às OS (rastreio/garantia), mas não somam no estoque.
@@ -98,6 +109,7 @@ async function garantirTabelas(DB) {
   }
   try { await DB.prepare('ALTER TABLE pecas ADD COLUMN regra_fiscal TEXT').run(); } catch (e) { /* coluna já existe */ }
   await recalcularFiscal(DB);
+  await garantirTabelasEmissao(DB);
 
   // Código próprio (P0001…) para toda peça que já apareceu numa nota.
   const semCodigo = await DB.prepare(`SELECT DISTINCT p.id FROM pecas p JOIN nfe_entrada_itens i ON i.peca_id=p.id
@@ -538,6 +550,7 @@ function regraVenda(it, nota) {
     avisos.push(`O fornecedor usou PIS CST ${it.pis_cst}, e a lei indica ${pis}. O sistema segue a lei; vale o contador confirmar.`);
 
   return { cfop, cfop_fora: cfopFora, csosn: st ? '500' : '102', pis_cst: pis, cofins_cst: pis, origem: it.origem ?? '0', st, mono: m.mono,
+    ncm: soDigitos(it.ncm) || null, cest: soDigitos(it.cest) || null,
     lubrificante: lub, motivos, avisos, conferir: avisos.length > 0, fonte };
 }
 
@@ -618,6 +631,250 @@ async function salvarRegra(DB, b) {
   return { ok: true };
 }
 
+
+// ---------- Emissão de NF-e (55) e NFC-e (65) de peças ----------
+//
+// O sistema monta o <infNFe> no mesmo formato da NF-e 353 (aceita pela SEFAZ-GO em
+// 23/10/2026), já na forma canônica; a ponte assina, põe o QR Code (NFC-e) e envia.
+// A numeração só avança quando a SEFAZ autoriza (ou acusa duplicidade).
+
+const EMITENTE = {
+  CNPJ: '49958723000197', xNome: 'JCMA CENTRO AUTOMOTIVO LTDA', xFant: '3M CENTRO AUTOMOTIVO', IE: '200201557', CRT: '1',
+  xLgr: 'AV MADRI', nro: '101', xCpl: 'QD 174 LT 22', xBairro: 'JARDIM EUROPA', cMun: '5208707', xMun: 'Goiania', UF: 'GO', CEP: '74330550', fone: '6231000115',
+};
+const TEXTO_SIMPLES = 'EMPRESA OPTANTE PELO SIMPLES NACIONAL, NÃO GERA DIREITO A CRÉDITO DO ICMS E IPI.';
+const HOMOLOG_NOME = 'NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL';
+const HOMOLOG_ITEM = 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL';
+// Próximo número em produção quando ainda não há controle: NF-e série 1 continua da 353.
+const NUMERO_INICIAL = { '1-55-1': 354 };
+
+const xmlTexto = (s, max) => String(s ?? '').replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim()
+  .slice(0, max || 500).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const el = (nome, valor) => `<${nome}>${valor}</${nome}>`;
+const dec = (n, c) => (Math.round((Number(n) || 0) * 10 ** c) / 10 ** c).toFixed(c);
+const dataHoraGO = (t = Date.now()) => new Date(t - 3 * 3600000).toISOString().slice(0, 19) + '-03:00';
+
+function dvChave(c43) {
+  let soma = 0, peso = 2;
+  for (let i = c43.length - 1; i >= 0; i--) { soma += Number(c43[i]) * peso; peso = peso === 9 ? 2 : peso + 1; }
+  const r = soma % 11; return r < 2 ? 0 : 11 - r;
+}
+
+/** Monta o infNFe (forma canônica) a partir da OS conferida na tela. */
+function montarInfNFe(n) {
+  const mod = String(n.modelo), tpAmb = Number(n.tpAmb), serie = String(n.serie), nNF = String(n.numero);
+  const dhEmi = dataHoraGO();
+  const aamm = dhEmi.slice(2, 4) + dhEmi.slice(5, 7);
+  const cNF = String(n.cNF).padStart(8, '0');
+  const c43 = '52' + aamm + EMITENTE.CNPJ + mod.padStart(2, '0') + serie.padStart(3, '0') + nNF.padStart(9, '0') + '1' + cNF;
+  const cDV = dvChave(c43), chave = c43 + cDV;
+  const nfce = mod === '65';
+  const d = n.dest || {};
+  const foraGO = !nfce && d.UF && d.UF !== 'GO';
+
+  const ide = el('cUF', '52') + el('cNF', cNF) + el('natOp', 'VENDA') + el('mod', mod) + el('serie', serie) + el('nNF', nNF) +
+    el('dhEmi', dhEmi) + el('tpNF', '1') + el('idDest', foraGO ? '2' : '1') + el('cMunFG', EMITENTE.cMun) + el('tpImp', nfce ? '4' : '1') +
+    el('tpEmis', '1') + el('cDV', String(cDV)) + el('tpAmb', String(tpAmb)) + el('finNFe', '1') + el('indFinal', '1') + el('indPres', '1') +
+    el('procEmi', '0') + el('verProc', '3M-Gestao-1.0');
+  const E = EMITENTE;
+  const emit = el('CNPJ', E.CNPJ) + el('xNome', xmlTexto(E.xNome, 60)) + el('xFant', xmlTexto(E.xFant, 60)) +
+    el('enderEmit', el('xLgr', E.xLgr) + el('nro', E.nro) + el('xCpl', E.xCpl) + el('xBairro', E.xBairro) + el('cMun', E.cMun) + el('xMun', E.xMun) +
+      el('UF', E.UF) + el('CEP', E.CEP) + el('cPais', '1058') + el('xPais', 'BRASIL') + el('fone', E.fone)) + el('IE', E.IE) + el('CRT', E.CRT);
+
+  let dest = '';
+  const doc = soDigitos(d.doc);
+  if (doc || !nfce) {
+    if (!(doc.length === 11 || doc.length === 14)) throw new Error('Informe o CPF ou CNPJ do cliente.');
+    const nome = tpAmb === 2 ? HOMOLOG_NOME : xmlTexto(d.nome, 60);
+    dest = el(doc.length === 14 ? 'CNPJ' : 'CPF', doc) + (nome ? el('xNome', nome) : '');
+    if (!nfce) {
+      for (const [k, rot] of [['xLgr', 'rua'], ['nro', 'número'], ['xBairro', 'bairro'], ['cMun', 'código do município'], ['xMun', 'cidade'], ['UF', 'UF'], ['CEP', 'CEP']])
+        if (!String(d[k] || '').trim()) throw new Error(`Endereço do cliente incompleto: falta ${rot}.`);
+      dest += el('enderDest', el('xLgr', xmlTexto(d.xLgr, 60)) + el('nro', xmlTexto(d.nro, 60)) + (d.xCpl ? el('xCpl', xmlTexto(d.xCpl, 60)) : '') +
+        el('xBairro', xmlTexto(d.xBairro, 60)) + el('cMun', soDigitos(d.cMun)) + el('xMun', xmlTexto(d.xMun, 60)) + el('UF', xmlTexto(d.UF, 2)) +
+        el('CEP', soDigitos(d.CEP)) + el('cPais', '1058') + el('xPais', 'BRASIL') + (soDigitos(d.fone).length >= 10 ? el('fone', soDigitos(d.fone)) : ''));
+    }
+    const ie = soDigitos(d.IE);
+    const indIE = !nfce && doc.length === 14 && ie ? '1' : '9';
+    dest += el('indIEDest', indIE) + (indIE === '1' ? el('IE', ie) : '') + (!nfce && d.email ? el('email', xmlTexto(d.email, 60)) : '');
+    dest = el('dest', dest);
+  }
+
+  let vProdT = 0, vDescT = 0, det = '';
+  n.itens.forEach((it, ix) => {
+    const r = it.regra || {};
+    if (!/^\d{8}$/.test(soDigitos(it.ncm))) throw new Error(`Peça "${it.nome}" sem NCM.`);
+    if (!/^\d{4}$/.test(r.cfop || '') || !/^(102|500)$/.test(r.csosn || '') || !/^(04|49)$/.test(r.pis_cst || '')) throw new Error(`Peça "${it.nome}" sem regra fiscal completa.`);
+    const q = Number(it.qtde), vUn = Number(it.valorUnit);
+    if (!(q > 0) || !(vUn > 0)) throw new Error(`Peça "${it.nome}" com quantidade ou valor zerado.`);
+    const vProd = Math.round(q * vUn * 100) / 100, vDesc = Math.round((Number(it.desconto) || 0) * 100) / 100;
+    vProdT += vProd; vDescT += vDesc;
+    const cfop = foraGO ? (r.cfop_fora || r.cfop.replace(/^5/, '6')) : r.cfop;
+    const xProd = tpAmb === 2 && nfce && ix === 0 ? HOMOLOG_ITEM : xmlTexto(it.nome, 120);
+    const prod = el('cProd', xmlTexto(it.codigo || String(ix + 1).padStart(4, '0'), 60)) + el('cEAN', 'SEM GTIN') + el('xProd', xProd) +
+      el('NCM', soDigitos(it.ncm)) + (/^\d{7}$/.test(soDigitos(it.cest)) ? el('CEST', soDigitos(it.cest)) : '') + el('CFOP', cfop) +
+      el('uCom', 'UN') + el('qCom', dec(q, 4)) + el('vUnCom', dec(vUn, 10)) + el('vProd', dec(vProd, 2)) + el('cEANTrib', 'SEM GTIN') +
+      el('uTrib', 'UN') + el('qTrib', dec(q, 4)) + el('vUnTrib', dec(vUn, 10)) + (vDesc > 0 ? el('vDesc', dec(vDesc, 2)) : '') + el('indTot', '1');
+    const orig = /^[0-8]$/.test(String(it.origem ?? '')) ? String(it.origem) : '0';
+    const icms = el('ICMS', el(r.csosn === '500' ? 'ICMSSN500' : 'ICMSSN102', el('orig', orig) + el('CSOSN', r.csosn)));
+    const pis = r.pis_cst === '04' ? el('PIS', el('PISNT', el('CST', '04')))
+      : el('PIS', el('PISOutr', el('CST', '49') + el('vBC', '0.00') + el('pPIS', '0.0000') + el('vPIS', '0.00')));
+    const cofins = r.pis_cst === '04' ? el('COFINS', el('COFINSNT', el('CST', '04')))
+      : el('COFINS', el('COFINSOutr', el('CST', '49') + el('vBC', '0.00') + el('pCOFINS', '0.0000') + el('vCOFINS', '0.00')));
+    det += `<det nItem="${ix + 1}">${el('prod', prod)}${el('imposto', icms + pis + cofins)}</det>`;
+  });
+  const vNF = Math.round((vProdT - vDescT) * 100) / 100;
+  const z = '0.00';
+  const total = el('total', el('ICMSTot', el('vBC', z) + el('vICMS', z) + el('vICMSDeson', z) + el('vFCP', z) + el('vBCST', z) + el('vST', z) +
+    el('vFCPST', z) + el('vFCPSTRet', z) + el('vProd', dec(vProdT, 2)) + el('vFrete', z) + el('vSeg', z) + el('vDesc', dec(vDescT, 2)) + el('vII', z) +
+    el('vIPI', z) + el('vIPIDevol', z) + el('vPIS', z) + el('vCOFINS', z) + el('vOutro', z) + el('vNF', dec(vNF, 2)) + el('vTotTrib', z)));
+
+  const tPag = String(n.pagamento || '01').padStart(2, '0');
+  const cartao = ['03', '04'].includes(tPag) ? el('card', el('tpIntegra', '2')) : '';
+  const pag = el('pag', el('detPag', el('tPag', tPag) + (tPag === '99' ? el('xPag', 'Outros') : '') + el('vPag', dec(vNF, 2)) + cartao));
+  const infCpl = xmlTexto([TEXTO_SIMPLES, n.os ? 'OS ' + n.os : ''].filter(Boolean).join(' '), 5000);
+  const rt = n.respTec && n.respTec.email ? el('infRespTec', el('CNPJ', EMITENTE.CNPJ) + el('xContato', xmlTexto(n.respTec.contato || 'Suporte', 60)) +
+    el('email', xmlTexto(n.respTec.email, 60)) + el('fone', soDigitos(n.respTec.fone || EMITENTE.fone))) : '';
+
+  const infNFe = `<infNFe Id="NFe${chave}" versao="4.00">${el('ide', ide)}${el('emit', emit)}${dest}${det}${total}${el('transp', el('modFrete', '9'))}${pag}` +
+    `${el('infAdic', el('infCpl', infCpl))}${rt}</infNFe>`;
+  return { infNFe, chave, dhEmi, vNF, vProd: vProdT, vDesc: vDescT };
+}
+
+async function garantirTabelasEmissao(DB) {
+  await DB.batch([
+    DB.prepare(`CREATE TABLE IF NOT EXISTS nfe_saida (id TEXT PRIMARY KEY, ordem_id TEXT, modelo TEXT, serie TEXT, numero INTEGER, tp_amb INTEGER,
+      chave TEXT, status TEXT, cstat TEXT, xmotivo TEXT, nprot TEXT, dh_emi TEXT, valor REAL, dest_doc TEXT, dest_nome TEXT, dados TEXT,
+      xml TEXT, qrcode TEXT, url_chave TEXT, cancel_xml TEXT, cancel_prot TEXT, cancel_just TEXT, quem TEXT, criado INTEGER, atualizado INTEGER)`),
+    DB.prepare('CREATE INDEX IF NOT EXISTS idx_nfe_saida_os ON nfe_saida (ordem_id)'),
+    DB.prepare('CREATE TABLE IF NOT EXISTS nfe_numeracao (id TEXT PRIMARY KEY, proximo INTEGER)'),
+    DB.prepare('CREATE TABLE IF NOT EXISTS fiscal_config (chave TEXT PRIMARY KEY, valor TEXT)'),
+  ]);
+}
+
+async function configEmissao(DB) {
+  const [c, nums] = await Promise.all([DB.prepare('SELECT chave, valor FROM fiscal_config').all(), DB.prepare('SELECT * FROM nfe_numeracao').all()]);
+  const cfg = {}; (c.results || []).forEach(r => { cfg[r.chave] = r.valor; });
+  const proximo = {}; (nums.results || []).forEach(r => { proximo[r.id] = r.proximo; });
+  for (const id of ['2-55-1', '2-65-1', '1-55-1', '1-65-1'])
+    if (proximo[id] == null) proximo[id] = id.startsWith('2-') ? 1 : (NUMERO_INICIAL[id] ?? null);
+  return { tpAmb: cfg.tp_amb === '1' ? 1 : 2, serie: { 55: cfg.serie_55 || '1', 65: cfg.serie_65 || '1' }, proximo,
+    respTec: { contato: cfg.resp_contato || '', email: cfg.resp_email || '', fone: cfg.resp_fone || '' } };
+}
+
+async function salvarConfigEmissao(DB, b) {
+  const stmts = [];
+  const put = (k, v) => stmts.push(DB.prepare('INSERT INTO fiscal_config (chave,valor) VALUES (?,?) ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor').bind(k, String(v)));
+  if (b.tpAmb === 1 || b.tpAmb === 2) put('tp_amb', b.tpAmb);
+  if (b.respTec) { put('resp_contato', b.respTec.contato || ''); put('resp_email', b.respTec.email || ''); put('resp_fone', b.respTec.fone || ''); }
+  if (b.proximo && /^[12]-(55|65)-\d{1,3}$/.test(b.proximo.id) && Number(b.proximo.valor) >= 1)
+    stmts.push(DB.prepare('INSERT INTO nfe_numeracao (id,proximo) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET proximo=excluded.proximo').bind(b.proximo.id, Math.floor(Number(b.proximo.valor))));
+  if (stmts.length) await DB.batch(stmts);
+  return configEmissao(DB);
+}
+
+/** Emite a nota: numera, monta, manda pela ponte, grava. */
+async function emitirNota(DB, env, b) {
+  const cfg = await configEmissao(DB);
+  const modelo = String(b.modelo) === '55' ? '55' : '65';
+  const tpAmb = cfg.tpAmb, serie = cfg.serie[modelo];
+  const idNum = `${tpAmb}-${modelo}-${serie}`;
+  const numero = cfg.proximo[idNum];
+  if (!numero) throw new Error(`Informe em Fiscal → Emissão o próximo número da ${modelo === '65' ? 'NFC-e' : 'NF-e'} de produção (série ${serie}).`);
+  if (!Array.isArray(b.itens) || !b.itens.length) throw new Error('Nenhuma peça para a nota.');
+  const cNF = String(Math.floor(10000000 + Math.random() * 89999999));
+  const nota = montarInfNFe({ modelo, tpAmb, serie, numero, cNF, dest: b.dest, itens: b.itens, pagamento: b.pagamento, os: b.os, respTec: cfg.respTec });
+  const r = await ponte(env, { acao: 'nfe_autorizar', infNFe: nota.infNFe });
+  const agora = Date.now(), id = uid();
+  const dup = ['204', '539'].includes(String(r.cStat));
+  const status = r.autorizada ? 'autorizada' : 'rejeitada';
+  await DB.batch([
+    DB.prepare(`INSERT INTO nfe_saida (id,ordem_id,modelo,serie,numero,tp_amb,chave,status,cstat,xmotivo,nprot,dh_emi,valor,dest_doc,dest_nome,dados,xml,qrcode,url_chave,quem,criado,atualizado)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(id, String(b.ordem_id || ''), modelo, serie, numero, tpAmb, nota.chave, status, r.cStat || null, r.xMotivo || null, r.nProt || null,
+        nota.dhEmi, nota.vNF, soDigitos((b.dest || {}).doc) || null, (b.dest || {}).nome || null,
+        JSON.stringify({ dest: b.dest || null, itens: b.itens, pagamento: b.pagamento, os: b.os || null }), r.xml || null, r.qrCode || null, r.urlChave || null,
+        String(b.quem || ''), agora, agora),
+    ...(r.autorizada || dup ? [DB.prepare('INSERT INTO nfe_numeracao (id,proximo) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET proximo=excluded.proximo').bind(idNum, numero + 1)] : []),
+  ]);
+  return { id, status, modelo, numero, serie, tpAmb, chave: nota.chave, cStat: r.cStat, xMotivo: r.xMotivo, nProt: r.nProt,
+    aviso: dup ? 'A SEFAZ já tinha este número: o sistema pulou para o próximo. Tente emitir de novo.' : null };
+}
+
+async function cancelarNota(DB, env, b) {
+  const n = await DB.prepare('SELECT * FROM nfe_saida WHERE id=?').bind(String(b.id || '')).first();
+  if (!n || n.status !== 'autorizada') throw new Error('Só dá para cancelar nota autorizada.');
+  const just = String(b.xJust || '').trim();
+  if (just.length < 15) throw new Error('Escreva o motivo do cancelamento (mínimo de 15 letras).');
+  const r = await ponte(env, { acao: 'nfe_cancelar', chave: n.chave, nProt: n.nprot, xJust: just, tpAmb: n.tp_amb });
+  if (!r.cancelada) throw new Error(`SEFAZ: ${r.cStat} ${r.xMotivo}`);
+  await DB.prepare("UPDATE nfe_saida SET status='cancelada', cancel_xml=?, cancel_prot=?, cancel_just=?, atualizado=? WHERE id=?")
+    .bind(r.xml, r.nProt, just, Date.now(), n.id).run();
+  return { ok: true, nProt: r.nProt };
+}
+
+/** DANFE em HTML para imprimir/salvar em PDF: A4 (NF-e) ou cupom 80 mm com QR Code (NFC-e). */
+function danfeHtml(n) {
+  const x = n.xml || '';
+  const t = (s, nome) => { const m = s.match(new RegExp(`<${nome}>([\\s\\S]*?)</${nome}>`)); return m ? m[1] : ''; };
+  const ide = t(x, 'ide'), emit = t(x, 'emit'), dest = t(x, 'dest'), tot = t(x, 'ICMSTot');
+  const itens = [...x.matchAll(/<det nItem="(\d+)">([\s\S]*?)<\/det>/g)].map(d => ({ n: d[1], p: t(d[2], 'prod'), i: d[2] }));
+  const brl = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const num = v => Number(v || 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 });
+  const chaveF = (n.chave || '').replace(/(\d{4})/g, '$1 ').trim();
+  const homolog = Number(n.tp_amb) === 2;
+  const cancel = n.status === 'cancelada';
+  const marca = (homolog ? '<div class="marca">HOMOLOGAÇÃO — SEM VALOR FISCAL</div>' : '') + (cancel ? '<div class="marca">CANCELADA</div>' : '');
+  const destDoc = t(dest, 'CNPJ') || t(dest, 'CPF');
+  const dh = (t(ide, 'dhEmi') || '').replace('T', ' ').slice(0, 19);
+  const scripts = `<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>`;
+  if (n.modelo === '65') {
+    return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>NFC-e ${n.numero}</title><meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>body{font:12px/1.35 monospace;margin:0;background:#fff;color:#000}.c{width:76mm;margin:0 auto;padding:4mm 2mm}.ct{text-align:center}hr{border:0;border-top:1px dashed #000}
+    table{width:100%;border-collapse:collapse}td{vertical-align:top}.r{text-align:right}.marca{border:2px solid #000;text-align:center;font-weight:bold;margin:4px 0;padding:2px}
+    #qr{display:flex;justify-content:center;margin:6px 0}.bt{font:14px sans-serif;margin:10px auto;display:block}@media print{.bt{display:none}@page{size:80mm auto;margin:0}}</style>${scripts}</head>
+    <body><div class="c"><div class="ct"><b>${t(emit, 'xNome')}</b><br>CNPJ ${t(emit, 'CNPJ').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')} IE ${t(emit, 'IE')}<br>
+    AV MADRI, 101, QD 174 LT 22, JARDIM EUROPA, GOIANIA/GO<hr>Documento Auxiliar da Nota Fiscal de Consumidor Eletrônica</div>${marca}<hr>
+    <table><tr><td>Item</td><td class="r">Qtd</td><td class="r">Unit.</td><td class="r">Total</td></tr>
+    ${itens.map(i => `<tr><td colspan="4">${i.n} ${t(i.p, 'cProd')} ${t(i.p, 'xProd')}</td></tr><tr><td></td><td class="r">${num(t(i.p, 'qCom'))} UN</td><td class="r">${num(t(i.p, 'vUnCom'))}</td><td class="r">${num(t(i.p, 'vProd'))}</td></tr>`).join('')}</table><hr>
+    <table><tr><td>Qtde. total de itens</td><td class="r">${itens.length}</td></tr><tr><td>Valor total</td><td class="r">${brl(t(tot, 'vProd'))}</td></tr>
+    ${Number(t(tot, 'vDesc')) > 0 ? `<tr><td>Desconto</td><td class="r">${brl(t(tot, 'vDesc'))}</td></tr>` : ''}<tr><td><b>Valor a pagar</b></td><td class="r"><b>${brl(t(tot, 'vNF'))}</b></td></tr></table><hr>
+    <div class="ct">Consulte pela chave de acesso em<br>${n.url_chave || ''}<br><b>${chaveF}</b><hr>
+    ${destDoc ? `CONSUMIDOR ${destDoc.length === 14 ? 'CNPJ' : 'CPF'} ${destDoc}${t(dest, 'xNome') ? '<br>' + t(dest, 'xNome') : ''}` : 'CONSUMIDOR NÃO IDENTIFICADO'}<hr>
+    NFC-e nº ${n.numero} Série ${n.serie} ${dh}<br>Protocolo de autorização ${n.nprot || '—'}<br>Data de autorização ${n.dh_emi ? n.dh_emi.replace('T', ' ').slice(0, 19) : ''}
+    <div id="qr"></div>${t(x, 'infCpl')}</div></div>
+    <button class="bt" onclick="print()">Imprimir / salvar PDF</button>
+    <script>new QRCode(document.getElementById('qr'),{text:${JSON.stringify(n.qrcode || '')},width:150,height:150,correctLevel:QRCode.CorrectLevel.M});</script></body></html>`;
+  }
+  const dEnd = t(dest, 'enderDest');
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>DANFE NF-e ${n.numero}</title>
+  <style>body{font:10px/1.3 Arial,sans-serif;margin:0;background:#fff;color:#000}.p{width:200mm;margin:0 auto;padding:5mm}.b{border:1px solid #000;padding:2px 4px;margin:-1px 0 0 -1px}
+  .g{display:flex}.g>.b{flex:1}.l{font-size:7px;text-transform:uppercase;color:#333}h1{font-size:14px;margin:0}table{width:100%;border-collapse:collapse}th,td{border:1px solid #000;padding:2px 3px}
+  th{font-size:7px;text-transform:uppercase}.r{text-align:right}.c{text-align:center}.marca{border:2px solid #000;text-align:center;font-weight:bold;font-size:14px;margin:4px 0;padding:3px}
+  .bt{font:14px sans-serif;margin:10px auto;display:block}@media print{.bt{display:none}@page{size:A4;margin:5mm}}</style>${scripts}</head>
+  <body><div class="p">${marca}
+  <div class="g"><div class="b" style="flex:2"><h1>${t(emit, 'xNome')}</h1>AV MADRI, 101 - QD 174 LT 22 - JARDIM EUROPA, Goiânia/GO - CEP 74330-550 - Fone 6231000115</div>
+  <div class="b c"><b style="font-size:13px">DANFE</b><br>Documento Auxiliar da Nota Fiscal Eletrônica<br>1 - Saída<br><b>Nº ${String(n.numero).padStart(9, '0').replace(/(\d{3})(\d{3})(\d{3})/, '$1.$2.$3')}<br>SÉRIE ${n.serie}</b></div>
+  <div class="b" style="flex:2"><svg id="bc"></svg><div class="l">Chave de acesso</div><b>${chaveF}</b><div>Consulta de autenticidade no portal nacional da NF-e www.nfe.fazenda.gov.br/portal</div></div></div>
+  <div class="g"><div class="b" style="flex:2"><div class="l">Natureza da operação</div>${t(ide, 'natOp')}</div><div class="b" style="flex:2"><div class="l">Protocolo de autorização de uso</div>${n.nprot || '—'} - ${(n.dh_emi || '').replace('T', ' ').slice(0, 19)}</div></div>
+  <div class="g"><div class="b"><div class="l">Inscrição estadual</div>${t(emit, 'IE')}</div><div class="b"><div class="l">CNPJ</div>${t(emit, 'CNPJ').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')}</div></div>
+  <b>DESTINATÁRIO/REMETENTE</b>
+  <div class="g"><div class="b" style="flex:3"><div class="l">Nome/Razão social</div>${t(dest, 'xNome')}</div><div class="b"><div class="l">CNPJ/CPF</div>${destDoc}</div><div class="b"><div class="l">Data da emissão</div>${dh.slice(0, 10).split('-').reverse().join('/')}</div></div>
+  <div class="g"><div class="b" style="flex:3"><div class="l">Endereço</div>${t(dEnd, 'xLgr')}, ${t(dEnd, 'nro')} ${t(dEnd, 'xCpl')}</div><div class="b"><div class="l">Bairro</div>${t(dEnd, 'xBairro')}</div><div class="b"><div class="l">CEP</div>${t(dEnd, 'CEP')}</div></div>
+  <div class="g"><div class="b" style="flex:2"><div class="l">Município</div>${t(dEnd, 'xMun')}</div><div class="b"><div class="l">UF</div>${t(dEnd, 'UF')}</div><div class="b"><div class="l">Inscrição estadual</div>${t(dest, 'IE')}</div></div>
+  <b>CÁLCULO DO IMPOSTO</b>
+  <div class="g">${[['Base de cálculo do ICMS', 'vBC'], ['Valor do ICMS', 'vICMS'], ['Base cálc. ICMS ST', 'vBCST'], ['Valor do ICMS ST', 'vST'], ['Valor total dos produtos', 'vProd']].map(([l, k]) => `<div class="b"><div class="l">${l}</div><div class="r">${num(t(tot, k))}</div></div>`).join('')}</div>
+  <div class="g">${[['Valor do frete', 'vFrete'], ['Valor do seguro', 'vSeg'], ['Desconto', 'vDesc'], ['Outras despesas', 'vOutro'], ['Valor do IPI', 'vIPI'], ['Valor total da nota', 'vNF']].map(([l, k]) => `<div class="b"><div class="l">${l}</div><div class="r">${num(t(tot, k))}</div></div>`).join('')}</div>
+  <b>TRANSPORTADOR/VOLUMES TRANSPORTADOS</b><div class="b">Frete: 9 - Sem frete</div>
+  <b>DADOS DO PRODUTO/SERVIÇO</b>
+  <table><tr><th>Código</th><th>Descrição</th><th>NCM</th><th>CSOSN</th><th>CFOP</th><th>Un</th><th>Qtd</th><th>Vlr unit.</th><th>Vlr total</th></tr>
+  ${itens.map(i => `<tr><td>${t(i.p, 'cProd')}</td><td>${t(i.p, 'xProd')}</td><td>${t(i.p, 'NCM')}</td><td class="c">${t(i.i, 'orig')}${t(i.i, 'CSOSN')}</td><td>${t(i.p, 'CFOP')}</td><td>${t(i.p, 'uCom')}</td><td class="r">${num(t(i.p, 'qCom'))}</td><td class="r">${num(t(i.p, 'vUnCom'))}</td><td class="r">${num(t(i.p, 'vProd'))}</td></tr>`).join('')}</table>
+  <b>DADOS ADICIONAIS</b><div class="b" style="min-height:20mm">${t(x, 'infCpl')}${cancel ? '<br><b>NOTA CANCELADA</b> — ' + (n.cancel_just || '') : ''}</div></div>
+  <button class="bt" onclick="print()">Imprimir / salvar PDF</button>
+  <script>JsBarcode('#bc',${JSON.stringify(n.chave || '')},{format:'CODE128C',height:40,width:1.1,displayValue:false,margin:0});</script></body></html>`;
+}
+
 /** Saldo por peça, só das notas que contam no estoque, com as notas de onde vem. */
 async function estoque(DB) {
   const r = await DB.prepare(`SELECT i.id, i.peca_id, i.descricao, i.unidade, i.qtde, COALESCE(i.custo_unit, i.valor_unit) AS valor_unit, i.ncm, n.chave, n.nome_emit, n.numero, n.dh_emi,
@@ -691,6 +948,28 @@ export async function onRequest(context) {
 
     if (request.method === 'GET' && acao === 'estoque') return jsonResp({ pecas: await estoque(DB) });
     if (request.method === 'GET' && acao === 'regras') return jsonResp({ pecas: await regrasPorPeca(DB) });
+    if (request.method === 'GET' && acao === 'regra_ncm') {
+      const st = url.searchParams.get('st') === '1';
+      const r = regraVenda({ ncm: url.searchParams.get('ncm'), icms_cst: st ? '60' : '00', cfop: '' }, { status: 'completa', numero: '', nome_emit: 'informação manual' });
+      r.motivos = r.motivos.map(m => m.replace(/^Na nota\s+de informação manual/, 'Informado à mão'));
+      return jsonResp({ regra: r });
+    }
+    if (request.method === 'GET' && acao === 'emissao_config') return jsonResp(await configEmissao(DB));
+    if (request.method === 'GET' && acao === 'saidas') {
+      const oid = url.searchParams.get('ordem_id');
+      const r = await DB.prepare(`SELECT id,ordem_id,modelo,serie,numero,tp_amb,chave,status,cstat,xmotivo,nprot,dh_emi,valor,dest_doc,dest_nome,cancel_just,quem,criado
+        FROM nfe_saida ${oid ? 'WHERE ordem_id=?' : ''} ORDER BY criado DESC LIMIT 300`).bind(...(oid ? [oid] : [])).all();
+      return jsonResp({ notas: r.results || [] });
+    }
+    if (request.method === 'GET' && (acao === 'danfe' || acao === 'xml_saida')) {
+      const n = await DB.prepare('SELECT * FROM nfe_saida WHERE id=?').bind(String(url.searchParams.get('id') || '')).first();
+      if (!n || !n.xml) return new Response('Nota não encontrada ou não autorizada.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+      if (acao === 'danfe') return new Response(danfeHtml(n), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+      const cancel = url.searchParams.get('evento') === 'cancelamento';
+      if (cancel && !n.cancel_xml) return new Response('Sem cancelamento.', { status: 404 });
+      return new Response(cancel ? n.cancel_xml : n.xml, { headers: { 'content-type': 'application/xml; charset=utf-8',
+        'content-disposition': `attachment; filename="${n.chave}${cancel ? '-cancelamento' : ''}-${n.modelo === '65' ? 'nfce' : 'nfe'}.xml"`, 'cache-control': 'no-store' } });
+    }
 
     if (request.method === 'POST') {
       const body = await request.json().catch(() => ({}));
@@ -710,6 +989,10 @@ export async function onRequest(context) {
         return jsonResp({ ok: true });
       }
       if (acao === 'regra') return jsonResp(await salvarRegra(DB, body));
+      if (acao === 'emissao_config') return jsonResp(await salvarConfigEmissao(DB, body));
+      if (acao === 'nfe_status') return jsonResp(await ponte(env, { acao: 'nfe_status', tpAmb: (await configEmissao(DB)).tpAmb }));
+      if (acao === 'emitir') return jsonResp(await emitirNota(DB, env, body));
+      if (acao === 'cancelar_nota') return jsonResp(await cancelarNota(DB, env, body));
       if (acao === 'historico') {
         await DB.prepare('UPDATE nfe_entrada SET historico=? WHERE chave=?').bind(body.valor ? 1 : 0, soDigitos(body.chave)).run();
         return jsonResp({ ok: true });

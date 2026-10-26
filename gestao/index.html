@@ -1857,7 +1857,12 @@ function renderOsDet(id){
   // Pagamentos (andamento/executado)
   if(['aguardando','andamento','liberado','executado'].includes(st)){ corpo+=renderPagamentosOS(o); }
 
+  // Notas fiscais: peças (NF-e/NFC-e) e serviço (NFS-e, quando a prefeitura liberar)
+  const podeNota=['andamento','liberado','executado'].includes(st)&&(pode('valores')||ehAdmin());
+  if(podeNota) corpo+=blocoNotasOS(o);
+
   box.innerHTML=head+corpo;
+  if(podeNota) carregarNotasOS(o.id);
 }
 function renderOsDetMecanico(o,mid){
   const box=document.getElementById('osDet'); const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const st=osStatus(o);
@@ -3664,10 +3669,10 @@ async function carregarRegrasFiscais(){
 function renderFiscal(){
   const box=document.getElementById('fiscalBox'); if(!box) return;
   if(!telaLiberada('fornecedores')&&!ehGestor()){ box.innerHTML='<div class="note empty-note">Sem permissão.</div>'; return; }
-  const abas=[['regras','Regras das peças'],['simples','Simples (estimativa)']].filter(a=>a[0]!=='simples'||ehGestor());
+  const abas=[['regras','Regras das peças'],['emissao','Emissão de notas'],['simples','Simples (estimativa)']].filter(a=>a[0]!=='simples'||ehGestor());
   if(!abas.some(a=>a[0]===fiscalAba)) fiscalAba='regras';
-  box.innerHTML=`<div class="seg" style="display:flex;gap:6px;margin:0 0 12px">${abas.map(a=>`<button class="btn sm ${fiscalAba===a[0]?'gold':''}" onclick="fiscalAba='${a[0]}'; renderFiscal()">${a[1]}</button>`).join('')}</div><div id="fiscalConteudo"><div class="note">Carregando…</div></div>`;
-  const pronto=()=>{ if(fiscalAba==='regras') desenharRegrasFiscais(); else desenharSimples(); };
+  box.innerHTML=`<div class="seg" style="display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap">${abas.map(a=>`<button class="btn sm ${fiscalAba===a[0]?'gold':''}" onclick="fiscalAba='${a[0]}'; renderFiscal()">${a[1]}</button>`).join('')}</div><div id="fiscalConteudo"><div class="note">Carregando…</div></div>`;
+  const pronto=()=>{ if(fiscalAba==='regras') desenharRegrasFiscais(); else if(fiscalAba==='emissao') desenharEmissaoCfg(); else desenharSimples(); };
   const precisa=[]; if(!fiscalRegras) precisa.push(carregarRegrasFiscais()); if(fiscalAba==='simples'&&!notasCompra) precisa.push(carregarNotasCompra());
   if(precisa.length) Promise.all(precisa).then(pronto).catch(e=>{ const c=document.getElementById('fiscalConteudo'); if(c) c.innerHTML='<div class="note">Erro ao carregar: '+esc(e.message)+'</div>'; });
   else pronto();
@@ -3843,6 +3848,172 @@ function desenharSimples(){
       <div class="rows">${semRegra.slice(0,30).map(x=>`<div class="row click" onclick='go("os","${x.o.id}")'><div class="main"><div class="t">${esc(x.it.nome)}</div><div class="s">${esc(nfeOsRotulo(x.o))} · ${moneyFmt(x.val)}</div></div>${chev()}</div>`).join('')}</div>`:''}
     <div class="note" style="white-space:normal;margin-top:12px;font-size:12px;color:var(--muted)">Como a conta é feita: alíquota efetiva = (RBT12 × alíquota nominal − parcela a deduzir) ÷ RBT12 (LC 123/2006, art. 18). Mão de obra no Anexo III; peças no Anexo I. Peça com ST tira a parte do ICMS; peça monofásica tira PIS e Cofins. Descontos da OS já descontados da receita. Não entram: receitas fora das OS, ISS retido pelo cliente e ajustes que só o contador vê.</div>`;
 }
+
+/* ==================================================================
+   NOTA FISCAL DA OS — peças em NF-e (empresa) ou NFC-e (consumidor),
+   serviço em NFS-e (aguardando liberação da prefeitura / NotaControl).
+================================================================== */
+const NFE_PAGAMENTOS=[['20','PIX'],['01','Dinheiro'],['03','Cartão de crédito'],['04','Cartão de débito'],['15','Boleto'],['18','Transferência bancária'],['99','Outros']];
+let emissaoCfg=null, emissaoCtx=null;
+async function carregarEmissaoCfg(){ const r=await fetch(API_FISCAL+'/emissao_config'); const d=await r.json(); if(!r.ok) throw new Error(d.error||'http '+r.status); emissaoCfg=d; return d; }
+function nfeAmbChip(tp){ return Number(tp)===1?'<span class="badge" style="color:#48B98A;border-color:#48B98A">Produção</span>':'<span class="badge" style="color:#E8B23A;border-color:#E8B23A">Homologação (teste)</span>'; }
+function nfeStChip(s){ const m={autorizada:['Autorizada','#48B98A'],rejeitada:['Rejeitada','#E5675C'],cancelada:['Cancelada','#9AA3AF']}[s]||[s,'#9AA3AF'];
+  return `<span class="badge" style="color:${m[1]};border-color:${m[1]}">${m[0]}</span>`; }
+function blocoNotasOS(o){
+  const temPecas=(o.itens||[]).length>0, temMdo=(o.maodeobra||[]).length>0;
+  return `<div class="section-label" style="margin-top:14px"><span>Notas fiscais</span></div>
+    <div class="form-actions" style="margin-top:0;flex-wrap:wrap">
+      ${temPecas?`<button class="btn sm gold" onclick='abrirEmissaoNota("${o.id}")'>🧾 Emitir nota das peças</button>`:''}
+      ${temMdo?`<button class="btn sm" disabled title="Aguardando a prefeitura (NotaControl) liberar a integração" style="opacity:.55">🧾 Nota de serviço — aguardando liberação da prefeitura</button>`:''}</div>
+    <div id="osNotas-${o.id}" class="rows" style="margin-top:6px"></div>`;
+}
+async function carregarNotasOS(oid){
+  const el=document.getElementById('osNotas-'+oid); if(!el) return;
+  try{ const r=await fetch(API_FISCAL+'/saidas?ordem_id='+encodeURIComponent(oid)); const d=await r.json();
+    el.innerHTML=(d.notas||[]).map(n=>linhaNotaSaida(n)).join(''); }catch(e){ el.innerHTML=''; }
+}
+function linhaNotaSaida(n){
+  const tipo=n.modelo==='65'?'NFC-e':'NF-e';
+  return `<div class="row" style="display:block"><div class="main"><div class="t">${tipo} nº ${n.numero} ${nfeStChip(n.status)} ${nfeAmbChip(n.tp_amb)}</div>
+    <div class="s">${moneyFmt(n.valor)} · ${n.dh_emi?new Date(n.dh_emi).toLocaleString('pt-BR'):''}${n.dest_nome?(' · '+esc(n.dest_nome)):''}</div>
+    ${n.status==='rejeitada'?`<div class="s" style="color:#E5675C">SEFAZ: ${esc(n.cstat||'')} ${esc(n.xmotivo||'')}</div>`:''}
+    ${n.status==='cancelada'?`<div class="s">Cancelada: ${esc(n.cancel_just||'')}</div>`:''}</div>
+    ${n.status!=='rejeitada'?`<div class="form-actions" style="margin-top:6px"><a class="btn sm" target="_blank" href="${API_FISCAL}/danfe?id=${n.id}">📄 DANFE / PDF</a>
+      <a class="btn sm ghost" href="${API_FISCAL}/xml_saida?id=${n.id}">⬇️ XML</a>
+      ${n.status==='cancelada'?`<a class="btn sm ghost" href="${API_FISCAL}/xml_saida?id=${n.id}&evento=cancelamento">⬇️ XML do cancelamento</a>`:''}
+      ${n.status==='autorizada'&&pode('editar')?`<button class="btn sm ghost" style="color:#E5675C" onclick='cancelarNotaSaida("${n.id}","${n.ordem_id}")'>Cancelar nota</button>`:''}</div>`:''}</div>`;
+}
+// Linhas da nota a partir da OS: cada peça com a regra da nota de compra ligada (ou da peça);
+// o desconto da peça e a parte do desconto geral que cabe a ela.
+function linhasNotaDaOS(o){
+  const bruto=osTotalBruto(o); const geral=(o.descontos||[]).filter(d=>d.tipo!=='peca'&&d.tipo!=='mdo').reduce((s,d)=>s+(Number(d.valor)||0),0);
+  const fator=bruto>0?Math.max(0,geral/bruto):0;
+  const porItemNota={}; ((notasCompra&&notasCompra.notas)||[]).forEach(n=>n.itens.forEach(i=>{ porItemNota[i.id]={...i,nota:n}; }));
+  const linhas=[];
+  (o.itens||[]).forEach(it=>{
+    const q=Number(it.qtde)||1, vUn=Number(it.valor)||0; if(!(vUn>0)) return;
+    const descItem=descontoAlvo(o,'peca',it.id)+vUn*q*fator;
+    const partes=simplesRegrasDoItem(it); const grupos={};
+    partes.forEach(p=>{ const k=p.regra?[p.regra.ncm,p.regra.cfop,p.regra.csosn,p.regra.pis_cst,p.regra.origem].join('|'):'sem'; (grupos[k]||=({regra:p.regra,frac:0})).frac+=p.frac; });
+    const pc=(fiscalRegras||[]).find(p=>p.peca_id===it.peca_id)||(fiscalRegras||[]).find(p=>(p.nome||'').trim().toLowerCase()===(it.nome||'').trim().toLowerCase());
+    Object.values(grupos).forEach(g=>{ const r=g.regra;
+      linhas.push({ nome:it.nome, codigo:it.peca_codigo||(pc&&pc.codigo)||'', qtde:Math.round(q*g.frac*10000)/10000, valorUnit:vUn,
+        desconto:Math.round(descItem*g.frac*100)/100, ncm:r&&r.ncm||'', cest:r&&r.cest||'', origem:r?r.origem:'0', regra:r||null, manual:!r }); });
+  });
+  return linhas;
+}
+async function abrirEmissaoNota(oid){
+  const o=getOS(oid); if(!o) return;
+  openModal('<div class="note">Carregando dados fiscais…</div>');
+  let jaEmitidas=[];
+  try{ const [, , , ja]=await Promise.all([carregarEmissaoCfg(), fiscalRegras?null:carregarRegrasFiscais(), notasCompra?null:carregarNotasCompra(),
+      fetch(API_FISCAL+'/saidas?ordem_id='+encodeURIComponent(oid)).then(r=>r.json())]);
+    jaEmitidas=((ja&&ja.notas)||[]).filter(n=>n.status==='autorizada'); }
+  catch(e){ openModal(`<div class="note">Não foi possível carregar: ${esc(e.message)}</div><button class="btn" onclick="closeModal()">Fechar</button>`); return; }
+  const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
+  const doc=normDoc(c&&c.cpf);
+  const goiania=/goi[aâ]nia/i.test((c&&c.cidade)||'')||!(c&&c.cidade);
+  emissaoCtx={ oid, jaEmitidas, modelo:doc.length===14?'55':'65', linhas:linhasNotaDaOS(o), pagamento:'20',
+    dest:{ doc, nome:(c&&(c.razao||c.nome))||'', IE:'', xLgr:(c&&c.rua)||'', nro:(c&&c.numero)||'SN', xCpl:[(c&&c.quadra)?'QD '+c.quadra:'',(c&&c.lote)?'LT '+c.lote:'',(c&&c.complemento)||''].filter(Boolean).join(' '),
+      xBairro:(c&&c.setor)||'', xMun:(c&&c.cidade)||'Goiania', UF:(c&&c.estado)||'GO', CEP:normDoc(c&&c.cep), cMun:goiania?'5208707':'', fone:normDoc(c&&(c.telefone1||c.telefone)), email:'' } };
+  renderEmissaoNota();
+  if(!emissaoCtx.dest.cMun&&emissaoCtx.dest.CEP.length===8) buscarCepEmissao();
+}
+async function buscarCepEmissao(){
+  const d=emissaoCtx.dest; const cep=normDoc(d.CEP); if(cep.length!==8) return;
+  try{ const r=await fetch('https://viacep.com.br/ws/'+cep+'/json/'); const j=await r.json(); if(j&&!j.erro){
+    d.cMun=j.ibge||d.cMun; d.xMun=j.localidade||d.xMun; d.UF=j.uf||d.UF; if(!d.xLgr) d.xLgr=j.logradouro||''; if(!d.xBairro) d.xBairro=j.bairro||''; renderEmissaoNota(); } }catch(e){}
+}
+function emissaoSet(k,v){ emissaoCtx.dest[k]=v; }
+async function regraManualLinha(ix){
+  const l=emissaoCtx.linhas[ix]; const ncm=normDoc(val('emNcm'+ix)); const st=val('emSt'+ix);
+  l.ncm=ncm; l.st=st; if(ncm.length!==8||!st){ l.regra=null; renderEmissaoNota(); return; }
+  try{ const r=await fetch(API_FISCAL+'/regra_ncm?ncm='+ncm+'&st='+(st==='sim'?1:0)); const d=await r.json(); l.regra=d.regra; }catch(e){ l.regra=null; }
+  renderEmissaoNota();
+}
+function renderEmissaoNota(){
+  const ctx=emissaoCtx; const o=getOS(ctx.oid); const cfg=emissaoCfg; const d=ctx.dest; const nfce=ctx.modelo==='65';
+  const tot=ctx.linhas.reduce((s,l)=>s+l.qtde*l.valorUnit-l.desconto,0);
+  const proximo=cfg.proximo[`${cfg.tpAmb}-${ctx.modelo}-${cfg.serie[ctx.modelo]}`];
+  const pendentes=ctx.linhas.filter(l=>!l.regra||String(l.ncm||'').length!==8);
+  const campo=(k,rot,extra)=>`<div class="field" style="flex:1;min-width:120px"><label>${rot}</label><input value="${esc(d[k]||'')}" oninput="emissaoSet('${k}',this.value)" ${extra||''}></div>`;
+  openModal(`<h3>Nota das peças · OS ${esc(o.codigo||'')}</h3>
+    <div class="note" style="white-space:normal">${nfeAmbChip(cfg.tpAmb)} ${cfg.tpAmb===2?'Nota de <b>teste</b>: vai para a SEFAZ-GO de homologação e <b>não tem valor fiscal</b>.':'<b>Produção</b>: nota fiscal de verdade.'}
+      <br>Próximo número: <b>${proximo||'—'}</b> (série ${cfg.serie[ctx.modelo]}).</div>
+    ${(ctx.jaEmitidas||[]).length?`<div class="note" style="white-space:normal;border-color:#E5675C">⚠ Esta OS já tem ${ctx.jaEmitidas.map(n=>(n.modelo==='65'?'NFC-e':'NF-e')+' nº '+n.numero+(Number(n.tp_amb)===2?' (teste)':'')).join(', ')} autorizada. Só emita outra se a anterior foi cancelada ou se é outra venda.</div>`:''}
+    <div class="field"><label>Tipo de nota</label><select onchange="emissaoCtx.modelo=this.value; renderEmissaoNota()">
+      <option value="65" ${nfce?'selected':''}>NFC-e — consumidor (CPF ou sem identificação)</option>
+      <option value="55" ${!nfce?'selected':''}>NF-e — empresa (CNPJ) ou quando o cliente pedir</option></select></div>
+    <div class="section-label">Cliente</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${campo('doc','CPF ou CNPJ'+(nfce?' (opcional)':''),'inputmode="numeric"')}${campo('nome','Nome / razão social')}</div>
+    ${!nfce?`<div style="display:flex;gap:8px;flex-wrap:wrap">${campo('IE','Inscrição estadual (se tiver)','inputmode="numeric"')}${campo('email','E-mail (opcional)')}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${campo('CEP','CEP','inputmode="numeric" onchange="emissaoSet(\'CEP\',this.value); buscarCepEmissao()"')}${campo('xLgr','Rua')}${campo('nro','Número')}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${campo('xCpl','Complemento')}${campo('xBairro','Bairro')}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${campo('xMun','Cidade')}${campo('UF','UF')}${campo('cMun','Código IBGE da cidade','inputmode="numeric"')}</div>`:''}
+    <div class="section-label">Peças (${ctx.linhas.length})</div>
+    <div class="rows">${ctx.linhas.map((l,ix)=>{ const r=l.regra;
+      return `<div class="row" style="display:block"><div class="t">${esc(l.nome)} <span style="color:#999;font-weight:400">${l.codigo?esc(l.codigo):''}</span></div>
+        <div class="s">${nfeQtd(l.qtde)} × ${moneyFmt(l.valorUnit)}${l.desconto>0?(' − desconto '+moneyFmt(l.desconto)):''} = <b>${moneyFmt(l.qtde*l.valorUnit-l.desconto)}</b></div>
+        ${r&&!l.manual?`<div class="s">NCM ${esc(l.ncm)} · CFOP ${esc(r.cfop)} · CSOSN ${esc(r.csosn)} · PIS/Cofins ${esc(r.pis_cst)}${r.conferir?' <span style="color:#E8B23A">⚠ conferir</span>':''}</div>`
+        :`<div class="note" style="white-space:normal;border-color:#E8B23A;margin-top:6px">Peça sem nota de compra ligada: informe o NCM e se foi comprada com ST. O melhor é ligar a nota em Notas de compra → Destinar.
+          <div style="display:flex;gap:8px;margin-top:6px"><div class="field" style="flex:1;margin:0"><label>NCM</label><input id="emNcm${ix}" inputmode="numeric" value="${esc(l.ncm||'')}" onchange="regraManualLinha(${ix})"></div>
+          <div class="field" style="flex:1;margin:0"><label>Comprada com ST?</label><select id="emSt${ix}" onchange="regraManualLinha(${ix})"><option value="">—</option><option value="nao" ${l.st==='nao'?'selected':''}>Não</option><option value="sim" ${l.st==='sim'?'selected':''}>Sim</option></select></div></div>
+          ${r?`<div class="s" style="margin-top:4px">→ CFOP ${esc(r.cfop)} · CSOSN ${esc(r.csosn)} · PIS/Cofins ${esc(r.pis_cst)}</div>`:''}</div>`}</div>`; }).join('')}</div>
+    <div class="field" style="margin-top:10px"><label>Forma de pagamento</label><select onchange="emissaoCtx.pagamento=this.value">${NFE_PAGAMENTOS.map(([c,n])=>`<option value="${c}" ${ctx.pagamento===c?'selected':''}>${n}</option>`).join('')}</select></div>
+    <div class="os-total" style="margin-top:6px"><span class="l"><b>Total da nota (só peças)</b></span><span class="v"><b>${moneyFmt(tot)}</b></span></div>
+    <div class="note" style="white-space:normal;font-size:12px">A mão de obra não entra nesta nota: ela vai na nota de serviço (prefeitura).</div>
+    ${pendentes.length?`<div class="note" style="white-space:normal;color:#E8B23A">Faltam NCM e regra em ${pendentes.length} peça(s).</div>`:''}
+    <div style="display:flex;gap:8px;margin-top:12px"><button class="btn gold" id="emOk" ${pendentes.length||!proximo?'disabled':''} onclick="confirmarEmissaoNota()">${cfg.tpAmb===2?'Emitir nota de teste':'Emitir nota fiscal'}</button>
+    <button class="btn" onclick='closeModal()'>Cancelar</button></div>`);
+}
+async function confirmarEmissaoNota(){
+  const ctx=emissaoCtx; const o=getOS(ctx.oid); const btn=document.getElementById('emOk'); if(btn){ btn.disabled=true; btn.textContent='Enviando para a SEFAZ…'; }
+  const u=(typeof usuarioAtual!=='undefined'&&usuarioAtual)||{};
+  const corpo={ ordem_id:o.id, os:o.codigo||'', modelo:ctx.modelo, pagamento:ctx.pagamento, quem:u.nome||'',
+    dest:{...ctx.dest, doc:normDoc(ctx.dest.doc), CEP:normDoc(ctx.dest.CEP), cMun:normDoc(ctx.dest.cMun), IE:normDoc(ctx.dest.IE), fone:normDoc(ctx.dest.fone)},
+    itens:ctx.linhas.map(l=>({nome:l.nome, codigo:l.codigo, ncm:normDoc(l.ncm), cest:l.cest, origem:l.origem, qtde:l.qtde, valorUnit:l.valorUnit, desconto:l.desconto, regra:l.regra})) };
+  try{
+    const r=await fiscalPost('emitir',corpo);
+    logAcao(r.status==='autorizada'?'Emitiu nota fiscal':'Nota fiscal rejeitada', 'OS '+(o.codigo||''), (r.modelo==='65'?'NFC-e':'NF-e')+' nº '+r.numero+' · '+r.cStat+' '+(r.xMotivo||''));
+    if(r.status==='autorizada'){
+      openModal(`<h3>✓ Nota autorizada</h3><div class="note" style="white-space:normal">${r.modelo==='65'?'NFC-e':'NF-e'} nº <b>${r.numero}</b> série ${r.serie} ${nfeAmbChip(r.tpAmb)}<br>Protocolo ${esc(r.nProt||'')}<br>Chave ${esc(r.chave)}</div>
+        <div class="form-actions"><a class="btn gold" target="_blank" href="${API_FISCAL}/danfe?id=${r.id}">📄 Abrir DANFE / PDF</a><a class="btn" href="${API_FISCAL}/xml_saida?id=${r.id}">⬇️ XML</a><button class="btn" onclick="closeModal()">Fechar</button></div>`);
+    } else {
+      openModal(`<h3>A SEFAZ recusou a nota</h3><div class="note" style="white-space:normal;border-color:#E5675C"><b>${esc(r.cStat||'')}</b> ${esc(r.xMotivo||'')}</div>
+        <div class="note" style="white-space:normal">Nada foi emitido e o número não foi gasto${r.aviso?(' — '+esc(r.aviso)):''}. Corrija e tente de novo; se não souber o que fazer, me mande esta mensagem.</div>
+        <div class="form-actions"><button class="btn gold" onclick="renderEmissaoNota()">Voltar e corrigir</button><button class="btn" onclick="closeModal()">Fechar</button></div>`);
+    }
+    carregarNotasOS(o.id);
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent='Tentar de novo'; } alert('Não foi possível emitir:\n'+e.message); }
+}
+function cancelarNotaSaida(id,oid){
+  openModal(`<h3>Cancelar nota</h3><div class="note" style="white-space:normal">O cancelamento vai para a SEFAZ e não pode ser desfeito. Prazo: NFC-e até 30 minutos depois da emissão; NF-e até 24 horas.</div>
+    <div class="field"><label>Motivo (mínimo 15 letras)</label><input id="cnJust" placeholder="Ex.: nota emitida com valor errado"></div>
+    <div class="form-actions"><button class="btn" style="color:#E5675C" id="cnOk" onclick='confirmarCancelNota("${id}","${oid}")'>Cancelar na SEFAZ</button><button class="btn" onclick="closeModal()">Voltar</button></div>`);
+}
+async function confirmarCancelNota(id,oid){ const b=document.getElementById('cnOk'); if(b){ b.disabled=true; b.textContent='Enviando…'; }
+  try{ await fiscalPost('cancelar_nota',{id, xJust:val('cnJust')}); logAcao('Cancelou nota fiscal', '', id); toast('Nota cancelada ✓'); closeModal(); carregarNotasOS(oid); if(fiscalAba==='emissao') desenharEmissaoCfg(); }
+  catch(e){ if(b){ b.disabled=false; b.textContent='Cancelar na SEFAZ'; } alert(e.message); } }
+
+/* ---- Fiscal → Emissão: ambiente, numeração e notas emitidas ---- */
+async function desenharEmissaoCfg(){
+  const el=document.getElementById('fiscalConteudo'); if(!el) return;
+  let notas=[]; try{ await carregarEmissaoCfg(); const r=await fetch(API_FISCAL+'/saidas'); notas=(await r.json()).notas||[]; }catch(e){ el.innerHTML='<div class="note">Erro: '+esc(e.message)+'</div>'; return; }
+  const c=emissaoCfg; const linhaNum=(tp,mod)=>{ const id=`${tp}-${mod}-${c.serie[mod]}`; return `<tr style="border-top:1px solid var(--line)"><td>${mod==='65'?'NFC-e':'NF-e'} · série ${c.serie[mod]}</td><td>${tp===1?'Produção':'Homologação'}</td>
+    <td style="text-align:right">${ehAdmin()?`<input style="width:90px;text-align:right" inputmode="numeric" value="${c.proximo[id]??''}" onchange='salvarProximoNumero("${id}",this.value)'>`:(c.proximo[id]??'—')}</td></tr>`; };
+  el.innerHTML=`<div class="note" style="white-space:normal">Ambiente de emissão: ${nfeAmbChip(c.tpAmb)}<br>${c.tpAmb===2?'As notas vão para a SEFAZ-GO de <b>homologação</b> (teste, sem valor fiscal). Quando os testes estiverem ok, o administrador passa para produção.':'As notas emitidas são <b>notas fiscais de verdade</b>.'}
+      ${ehAdmin()?`<div style="margin-top:8px"><button class="btn sm" onclick="trocarAmbienteEmissao(${c.tpAmb===2?1:2})">${c.tpAmb===2?'Passar para produção':'Voltar para homologação'}</button> <button class="btn sm ghost" onclick="testarSefazGo()">Testar conexão com a SEFAZ-GO</button></div>`:''}</div>
+    <div class="section-label">Próximo número</div>
+    <table style="width:100%;font-size:13px;border-collapse:collapse">${[2,1].map(tp=>['55','65'].map(m=>linhaNum(tp,m)).join('')).join('')}</table>
+    <div class="note" style="white-space:normal;font-size:12px">A NF-e de produção continua da nº 353 (emitida pelo contador em 23/10/2026). Para a NFC-e de produção, informe o próximo número se a 3M já tiver emitido alguma.</div>
+    <div class="section-label">Notas emitidas (${notas.length})</div><div class="rows">${notas.map(n=>linhaNotaSaida(n)).join('')||emptyState('Nenhuma nota emitida','Emita pela OS: botão “Emitir nota das peças”.')}</div>`;
+}
+async function salvarProximoNumero(id,valor){ try{ emissaoCfg=await fiscalPost('emissao_config',{proximo:{id,valor:parseInt(valor)}}); toast('Número salvo ✓'); }catch(e){ alert(e.message); } }
+function trocarAmbienteEmissao(tp){
+  if(tp===1){ confirmar('Passar a emissão para PRODUÇÃO?\n\nA partir daqui as notas emitidas são notas fiscais de verdade, com valor fiscal.', async()=>{ try{ await fiscalPost('emissao_config',{tpAmb:1}); logAcao('Passou emissão de notas para produção','',''); desenharEmissaoCfg(); }catch(e){ alert(e.message); } }, 'Passar para produção', 'red'); return; }
+  fiscalPost('emissao_config',{tpAmb:2}).then(()=>{ logAcao('Voltou emissão de notas para homologação','',''); desenharEmissaoCfg(); }).catch(e=>alert(e.message));
+}
+async function testarSefazGo(){ toast('Consultando a SEFAZ-GO…'); try{ const r=await fiscalPost('nfe_status',{}); alert('SEFAZ-GO: '+r.cStat+' '+r.xMotivo+(r.tMed?(' (tempo médio '+r.tMed+'s)'):'')); }catch(e){ alert('Erro: '+e.message); } }
 
 /* ---- Estoque de peças (saldo das notas que contam no estoque) ---- */
 let estoqueDados=null;
