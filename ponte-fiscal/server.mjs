@@ -325,9 +325,10 @@ const SEFAZ_GO = { 1: "https://nfe.sefaz.go.gov.br/nfe/services/", 2: "https://h
 const QR_GO = { 1: "https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfce/danfeNFCe", 2: "https://nfewebhomolog.sefaz.go.gov.br/nfeweb/sites/nfce/danfeNFCe" };
 const URL_CHAVE_GO = { 1: "www.sefaz.go.gov.br/nfce/consulta", 2: "www.sefaz.go.gov.br/nfce/consulta" };
 
+// trim: espaço ou quebra de linha colados junto com o código mudam o hash (rejeição 464).
 function csc(tpAmb) {
-  const prod = { id: process.env.CSC_ID ?? "", csc: process.env.CSC ?? "" };
-  const hom = { id: process.env.CSC_HOM_ID ?? "", csc: process.env.CSC_HOM ?? "" };
+  const prod = { id: (process.env.CSC_ID ?? "").trim(), csc: (process.env.CSC ?? "").trim() };
+  const hom = { id: (process.env.CSC_HOM_ID ?? "").trim(), csc: (process.env.CSC_HOM ?? "").trim() };
   return tpAmb === 2 && hom.id && hom.csc ? hom : prod;
 }
 
@@ -448,6 +449,9 @@ const servidor = http.createServer(async (req, res) => {
           saida.titular = c.subject.split("\n").find((l) => l.startsWith("CN=")) ?? c.subject;
           saida.validoAte = c.validTo;
         }
+        // CSC sem revelar o código: só o ID, o tamanho e se ficou o texto de exemplo.
+        const resumoCsc = (c) => (c.csc ? { id: c.id, tamanho: c.csc.length, exemplo: /COLE_AQUI/i.test(c.csc) } : null);
+        saida.csc = { producao: resumoCsc(csc(1)), homologacao: process.env.CSC_HOM ? resumoCsc(csc(2)) : "não gravado (usa o de produção)" };
         // Consulta de uma chave inexistente: só confere conexão e certificado.
         try {
           const r = await distribuicao(`<consChNFe><chNFe>${"0".repeat(44)}</chNFe></consChNFe>`);
