@@ -2208,8 +2208,9 @@ function proxDiaUtil(iso,n){ let d=parseISO(iso); let add=n; while(add>0){ d.set
 function ehEspecie(m){ return m.forma==='dinheiro'||m.forma==='especie'; }
 function contaMov(m){ return ehEspecie(m)?'caixa':'banco'; }
 function valorBanco(m){ return (m.liquido!=null&&m.liquido!=='')?(Number(m.liquido)||0):(Number(m.valor)||0); }
-/* data em que a entrada fica disponível na conta; '' = ainda não caiu (boleto sem pagamento confirmado) */
-function dispMov(m){ if(m.tipo==='saida'){ if(m.pagamento) return m.pagamento; if(m.forma==='cartao'||m.forma==='boleto') return m.vencimento||m.data; return m.data; }
+/* data em que o lançamento mexe na conta; '' = ainda não mexeu (boleto sem pagamento confirmado).
+   Boleto de fornecedor só sai do banco na baixa — vencer não é pagar. */
+function dispMov(m){ if(m.tipo==='saida'){ if(m.pagamento) return m.pagamento; if(m.forma==='boleto') return ''; if(m.forma==='cartao') return m.vencimento||m.data; return m.data; }
   if(m.forma==='cartao') return m.data;
   if(m.forma==='boleto') return m.pagamento?addDiasISO(m.pagamento,3):'';
   return m.data; }
@@ -2218,7 +2219,8 @@ function saldoCaixa(ate){ let s=0; (state.caixa||[]).forEach(m=>{ if(contaMov(m)
 function saldoBanco(ate){ let s=0; (state.caixa||[]).forEach(m=>{ if(contaMov(m)!=='banco') return; const d=dispMov(m); if(!d||d>ate) return;
   if(m.tipo==='entrada') s+=valorBanco(m); else s-=(Number(m.valor)||0); }); return s; }
 function aReceberList(ate){ return (state.caixa||[]).filter(m=>m.tipo==='entrada'&&contaMov(m)==='banco').map(m=>({m,disp:dispMov(m)})).filter(x=>!x.disp||x.disp>ate).sort((a,b)=>String(a.disp||a.m.vencimento||'').localeCompare(String(b.disp||b.m.vencimento||''))); }
-function aPagarList(ate){ return (state.caixa||[]).filter(m=>m.tipo==='saida'&&(m.forma==='cartao'||m.forma==='boleto')&&!m.pagamento&&m.vencimento&&m.vencimento>ate).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))); }
+function aPagarList(ate){ return (state.caixa||[]).filter(m=>m.tipo==='saida'&&!m.pagamento&&(m.forma==='boleto'||(m.forma==='cartao'&&m.vencimento&&m.vencimento>ate))).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))); }
+function vencTxt(m){ if(!m.vencimento) return 'sem vencimento'; return 'vence '+fmtBR(parseISO(m.vencimento))+(m.vencimento<toISO(hoje())?' <b style="color:var(--red)">⚠ vencido</b>':''); }
 function baixarConta(id){ const m=(state.caixa||[]).find(x=>x.id===id); if(!m) return; confirmar('Dar baixa nesta conta? Marca como paga hoje ('+fmtBR(hoje())+').', function(){ m.pagamento=toISO(hoje()); m.atualizado=Date.now(); salvar(); renderSaldos(); toast('Baixa registrada ✓'); }, 'Dar baixa','green'); }
 function baixarGrupo(grupo){ const arr=(state.caixa||[]).filter(x=>x.parcela_grupo===grupo&&!x.pagamento); if(!arr.length) return; confirmar('Dar baixa em todas as '+arr.length+' parcelas? Marca todas como pagas hoje.', function(){ arr.forEach(m=>{ m.pagamento=toISO(hoje()); m.atualizado=Date.now(); }); salvar(); renderSaldos(); toast(arr.length+' baixas registradas ✓'); }, 'Baixar todas','green'); }
 function reRenderFin(){ if(document.querySelector('[data-screen="financeiro"].active')) finTab(finAtiva); if(document.querySelector('[data-screen="boletos"].active')) renderBoletosReceber(); }
@@ -3318,8 +3320,8 @@ function renderSaldos(){
     let h='';
     Object.values(grupos).forEach(arr=>{ arr.sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))); const g=arr[0]; const tot=arr.reduce((s,m)=>s+(Number(m.valor)||0),0);
       h+=`<div class="card"><div class="row"><div><div class="t">📄 ${g.nota?('NF '+esc(g.nota)):'Boleto parcelado'}${g.fornecedor_id?(' · 🏭 '+esc(fornecedorNome(g.fornecedor_id))):''}</div><div class="s">${arr.length} parcelas em aberto · ${moneyFmt(tot)}</div></div><button class="btn sm green" onclick='baixarGrupo("${g.parcela_grupo}")'>✓ Baixar todas</button></div>`+
-        arr.map(m=>`<div class="row" style="padding:6px 0 0"><div class="main"><div class="s">Parcela vence ${fmtBR(parseISO(m.vencimento))}</div></div><span class="valor-tag" style="color:var(--red)">−${moneyFmt(m.valor)}</span> <button class="btn sm ghost" onclick='baixarConta("${m.id}")'>Baixar</button></div>`).join('')+`</div>`; });
-    avulsos.forEach(m=>{ h+=`<div class="card"><div class="row"><div><div class="t">${m.forma==='cartao'?'💳 Cartão':'📄 Boleto'}${m.nota?(' · NF '+esc(m.nota)):''}${m.descricao?(' · '+esc(m.descricao)):''}</div><div class="s">vence ${fmtBR(parseISO(m.vencimento))}</div></div><span class="valor-tag" style="color:var(--red)">−${moneyFmt(Number(m.valor)||0)}</span></div><div class="form-actions" style="margin-top:6px"><button class="btn sm green" onclick='baixarConta("${m.id}")'>✓ Dar baixa</button></div></div>`; });
+        arr.map(m=>`<div class="row" style="padding:6px 0 0"><div class="main"><div class="s">Parcela ${vencTxt(m)}</div></div><span class="valor-tag" style="color:var(--red)">−${moneyFmt(m.valor)}</span> <button class="btn sm ghost" onclick='baixarConta("${m.id}")'>Baixar</button></div>`).join('')+`</div>`; });
+    avulsos.forEach(m=>{ h+=`<div class="card"><div class="row"><div><div class="t">${m.forma==='cartao'?'💳 Cartão':'📄 Boleto'}${m.nota?(' · NF '+esc(m.nota)):''}${m.descricao?(' · '+esc(m.descricao)):''}</div><div class="s">${vencTxt(m)}</div></div><span class="valor-tag" style="color:var(--red)">−${moneyFmt(Number(m.valor)||0)}</span></div><div class="form-actions" style="margin-top:6px"><button class="btn sm green" onclick='baixarConta("${m.id}")'>✓ Dar baixa</button></div></div>`; });
     return h; })();
   box.innerHTML=`
     <div class="field"><label>Posição até a data</label><div class="dt-wrap"><input id="saldoAteInp" type="date" value="${ate}" onchange="saldoAte=this.value; renderSaldos()"><button type="button" class="dt-btn" onmousedown="event.preventDefault(); abrirPicker('saldoAteInp')">📅</button></div></div>
