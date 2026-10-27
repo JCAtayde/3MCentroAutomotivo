@@ -1,0 +1,5 @@
+# Cache local do wrangler (deploy do agendador)
+.wrangler/
+# Pedidos e documentos fiscais da 3M: ficam só no computador
+docs/pedidos/
+node_modules/

@@ -3924,12 +3924,16 @@ function blocoNotasOS(o){
     <div class="form-actions" style="margin-top:0;flex-wrap:wrap">
       ${temPecas?`<button class="btn sm gold" onclick='abrirEmissaoNota("${o.id}")'>🧾 Emitir nota das peças</button>`:''}
       ${temMdo?`<button class="btn sm" disabled title="Aguardando a prefeitura (NotaControl) liberar a integração" style="opacity:.55">🧾 Nota de serviço — aguardando liberação da prefeitura</button>`:''}</div>
-    <div id="osNotas-${o.id}" class="rows" style="margin-top:6px"></div>`;
+    <div id="osNotas-${o.id}" class="rows" style="margin-top:6px">${notasOSCache[o.id]||''}</div>`;
 }
+// A tela da OS é redesenhada a cada sincronização (1 min): sem esta memória o bloco piscava vazio.
+const notasOSCache={};
 async function carregarNotasOS(oid){
-  const el=document.getElementById('osNotas-'+oid); if(!el) return;
-  try{ const r=await fetch(API_FISCAL+'/saidas?ordem_id='+encodeURIComponent(oid)); const d=await r.json();
-    el.innerHTML=(d.notas||[]).map(n=>linhaNotaSaida(n)).join(''); }catch(e){ el.innerHTML=''; }
+  try{ const r=await fetch(API_FISCAL+'/saidas?ordem_id='+encodeURIComponent(oid)); if(!r.ok) return; const d=await r.json();
+    const html=(d.notas||[]).map(n=>linhaNotaSaida(n)).join('');
+    const el=document.getElementById('osNotas-'+oid);
+    if(html===notasOSCache[oid]&&el&&el.innerHTML) return;
+    notasOSCache[oid]=html; if(el) el.innerHTML=html; }catch(e){ /* mantém o que já está na tela */ }
 }
 function linhaNotaSaida(n){
   const tipo=n.modelo==='65'?'NFC-e':'NF-e';
@@ -4890,6 +4894,8 @@ function revalidarAposSync(){
   const overAberto=(document.getElementById('overlay')||{}).classList && document.getElementById('overlay').classList.contains('open');
   const ae=document.activeElement; const editando = ae && (ae.tagName==='INPUT'||ae.tagName==='TEXTAREA'||ae.tagName==='SELECT');
   if(overAberto || editando || modalMinimizado) return; // não redesenha enquanto edita
+  const atual=(histStack[histStack.length-1]||{}).screen;
+  if(['fiscal','estoque','notas_compra'].includes(atual)) return; // dados do fiscal: atualizam ao abrir a tela, não piscam a cada minuto
   refreshAtual();
 }
 let pendJaMostrada=false;
