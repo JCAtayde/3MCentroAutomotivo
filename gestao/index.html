@@ -3455,6 +3455,7 @@ function renderNotasCompra(){
   const auto=alertaCompras.auto;
   const infoAuto=auto?`\n🔄 Busca automática (de hora em hora): última às ${new Date(auto.quando).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}${auto.erro?(' — ⚠️ '+esc(auto.erro)):(' — '+(auto.resumos+auto.completas)+' documento(s)')}`:'';
   const nNovas=notas.filter(n=>n.nova).length;
+  if(!nNovas) nfeSoNovas=false; // sem nota nova o filtro some da tela — não pode ficar ligado escondido
   box.innerHTML=`<div class="note" style="margin:0 16px 12px">${info}${infoAuto}</div>
     ${nNovas?`<div class="note" style="margin:0 16px 12px;white-space:normal;border-color:#D9A83E">🧾 <b>${nNovas} nota(s) de compra nova(s)</b> para conferir: abra cada uma (marcadas com <b>NOVA</b>).
       ${pode('editar')?`<a href="#" style="color:#D9A83E;margin-left:6px" onclick="event.preventDefault(); conferirTodasCompras()">Marcar todas como conferidas</a>`:''}</div>`:''}
@@ -3490,7 +3491,10 @@ function desenharListaNotas(){
     return `<div class="row click" onclick='openNotaCompra("${n.chave}")'><div class="main"><div class="t">${esc(n.nome_emit||'—')} ${nfeStatusTag(n)}</div>
     <div class="s">${n.numero?('NF '+esc(n.numero)+' · '):''}${nfeFmtData(n.dh_emi)} · ${moneyFmt(n.valor)}</div>
     ${mostra.slice(0,4).map(linhaItem).join('')}${its.length>4?`<div class="s">+ ${its.length-4} outras peças</div>`:''}</div>${chev()}</div>`; }).join('')
-    :emptyState(q||nfeSoPend?'Nada encontrado':'Nenhuma nota de compra', q||nfeSoPend?'Tente outro nome de peça, fornecedor ou número da NF.':'Toque em “Buscar na SEFAZ” para puxar as notas emitidas contra o CNPJ da 3M.');
+    :(q||nfeSoPend||nfeSoNovas)?emptyState('Nada encontrado','Nenhuma nota com esse filtro.')+`<div style="text-align:center;margin-top:10px"><button class="btn sm" onclick="limparFiltrosNotas()">Mostrar todas as notas</button></div>`
+    :emptyState('Nenhuma nota de compra','Toque em “Buscar na SEFAZ” para puxar as notas emitidas contra o CNPJ da 3M.');
+}
+function limparFiltrosNotas(){ nfeFiltro=''; nfeSoPend=false; nfeSoNovas=false; renderNotasCompra();
 }
 async function buscarNotasSefaz(){
   if(notasCompraBusy) return; notasCompraBusy=true; renderNotasCompra();
