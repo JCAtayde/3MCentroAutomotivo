@@ -841,6 +841,7 @@ async function sincronizar(){
     if(typeof revalidarAposSync==='function') revalidarAposSync();
     // Uma vez por sessão: confere as ligações nota → OS mesmo sem abrir Notas de compra.
     if(!origensConferidas&&usuarioAtual&&telaLiberada('fornecedores')){ origensConferidas=true; carregarNotasCompra().catch(()=>{ origensConferidas=false; }); }
+    atualizarAlertaCompras();
   }catch(e){ setSync('erro'); }
 }
 function setSync(estado){ const el=document.getElementById('syncDot'); if(!el) return;
@@ -1025,6 +1026,7 @@ function montarNav(){
     if(!i)t.classList.add('active'); t.onclick=()=>goTab(v.id); tab.appendChild(t);
   });
   garantirRegras();
+  if(typeof aplicarBadgeMais==='function') aplicarBadgeMais();
   atualizarRegrasList();
 }
 function souMecanico(){ return usuarioAtual ? (usuarioAtual.mecanico_id||'') : ''; }
@@ -1173,7 +1175,7 @@ function renderPainelTopo(){
   const podeFin=ehAdmin()||pode('valores');
   const recent=feitos.map(o=>{ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
     return `<div class="card srv" onclick='go("os","${o.id}")'><div class="row"><div><div class="t">${esc(v?nomeVeiculo(v):'Veículo')}${v&&v.placa?` · ${esc(v.placa)}`:''}</div><div class="s">${esc((c&&c.nome)||'—')} · ${o.data?fmtBR(parseISO(o.data)):'—'}</div></div>${podeFin?`<span class="valor-tag" style="color:var(--green)">${moneyFmt(osTotal(o))}</span>`:''}</div></div>`; }).join('');
-  box.innerHTML=alertaLib+`
+  box.innerHTML=alertaComprasHtml()+alertaLib+`
     <div class="painel-search" onclick='goTab("servicos")'>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       <span>Buscar cliente, placa ou serviço…</span></div>
@@ -3070,7 +3072,7 @@ function renderMais(){
     if(telaLiberada('veiculos')) h+=item('🚗','Veículos','Frota dos clientes',`goTab("veiculos")`);
     if(telaLiberada('regras')) h+=item('🗓️','Tabela de Revisões','Prazos de retorno (km/meses)',`goTab("regras")`);
     if(telaLiberada('fornecedores')) h+=item('🏭','Fornecedores','Lojistas e fornecedores (CNPJ)',`goTab("fornecedores")`);
-    if(telaLiberada('fornecedores')) h+=item('🧾','Notas de compra','NF-e dos fornecedores (SEFAZ) e cadastro de peças',`goTab("notas_compra")`);
+    if(telaLiberada('fornecedores')) h+=item('🧾',alertaCompras.novas?`Notas de compra <span class="nav-badge" style="background:#D9A83E;color:#0C0E10">${alertaCompras.novas} nova${alertaCompras.novas>1?'s':''}</span>`:'Notas de compra','NF-e dos fornecedores (SEFAZ) e cadastro de peças',`goTab("notas_compra")`);
     if(telaLiberada('fornecedores')) h+=item('📦','Estoque de peças','O que sobrou das compras e de onde veio',`goTab("estoque")`);
     if(telaLiberada('fornecedores')) h+=item('🧮','Fiscal','Regras das peças na nota e estimativa do Simples',`goTab("fiscal")`);
   }
@@ -3351,9 +3353,48 @@ function renderBoletosReceber(){
 const API_FISCAL='/gestao/api/fiscal';
 let notasCompra=null, notasCompraBusy=false;
 function nfeFmtData(d){ return d?new Date(d).toLocaleDateString('pt-BR'):'—'; }
+/* Alerta de nota de compra nova (chegou da SEFAZ e ninguém abriu): aviso no Painel,
+   número no botão Mais e etiqueta NOVA na lista. Atualiza a cada sincronização. */
+let alertaCompras={novas:0,lista:[],auto:null}, alertaComprasCarregado=false;
+async function atualizarAlertaCompras(){
+  if(!usuarioAtual||!telaLiberada('fornecedores')) return;
+  try{
+    const r=await fetch(API_FISCAL+'/alertas'); if(!r.ok) return; const d=await r.json();
+    const subiu=alertaComprasCarregado&&d.novas>alertaCompras.novas;
+    alertaCompras=d; alertaComprasCarregado=true;
+    aplicarBadgeMais();
+    if(subiu) toast('🧾 Chegou nota de compra nova da SEFAZ');
+    const tela=(histStack[histStack.length-1]||{}).screen;
+    if(tela==='painel'&&!document.querySelector('#overlay.open')) renderPainelTopo();
+  }catch(e){}
+}
+function aplicarBadgeMais(){
+  const n=alertaCompras.novas||0;
+  document.querySelectorAll('#topnav button[data-go="mais"],#tabbar button[data-go="mais"]').forEach(b=>{
+    let s=b.querySelector('.nav-badge-compras');
+    if(!n){ if(s) s.remove(); return; }
+    if(!s){ s=document.createElement('span'); s.className='nav-badge nav-badge-compras'; s.style.background='#D9A83E'; s.style.color='#0C0E10'; s.style.marginLeft='4px'; (b.querySelector('span')||b).appendChild(s); }
+    s.textContent=n; s.title=n+' nota(s) de compra nova(s)';
+  });
+}
+function alertaComprasHtml(){
+  const a=alertaCompras; if(!a.novas||!telaLiberada('fornecedores')) return '';
+  return `<div class="alert-lib" style="border-color:#D9A83E"><div class="al-head" style="color:#D9A83E">🧾${a.novas===1?'Chegou 1 nota de compra nova':'Chegaram '+a.novas+' notas de compra novas'} da SEFAZ</div>`+
+    a.lista.map(n=>`<div class="al-row" onclick='abrirNotaPorChave("${n.chave}")'><div><div class="t">${esc(n.nome_emit||'Fornecedor')}</div>
+      <div class="s">${n.numero?('NF '+esc(n.numero)+' · '):''}${nfeFmtData(n.dh_emi)} · ${moneyFmt(n.valor)}${n.status==='resumo'?' · aguardando os itens':''}</div></div><span class="chev">›</span></div>`).join('')+
+    `<div class="al-row" onclick='nfeSoNovas=true; goTab("notas_compra")'><div><div class="t" style="color:#D9A83E">Conferir ${a.novas>a.lista.length?('todas as '+a.novas):''} em Notas de compra →</div></div></div></div>`;
+}
+async function conferirTodasCompras(){
+  confirmar('Marcar todas as notas novas como conferidas?', async()=>{
+    try{ await fiscalPost('conferir',{todas:true}); logAcao('Marcou notas de compra como conferidas','',''); await carregarNotasCompra(); renderNotasCompra(); atualizarAlertaCompras(); }catch(e){ alert(e.message); } });
+}
+
 // Ciência recusada por prazo (mais de 10 dias): a SEFAZ não libera mais o XML completo.
 function nfeSoResumo(n){ return n.status==='resumo'&&!n.manifestado&&/^596/.test(n.manifesto_msg||''); }
 function nfeStatusTag(n){
+  return (n.nova?'<span class="badge" style="color:#0C0E10;background:#D9A83E;border-color:#D9A83E">NOVA</span> ':'')+nfeStatusTagBase(n);
+}
+function nfeStatusTagBase(n){
   if(n.status==='cancelada') return '<span class="badge" style="color:#e57373;border-color:#e57373">Cancelada</span>';
   if(n.status==='manual') return '<span class="badge" style="color:#9AA3AF;border-color:#9AA3AF">Sem nota</span>';
   if(nfeSoResumo(n)) return '<span class="badge" style="color:#9AA3AF;border-color:#9AA3AF">Só resumo</span>';
@@ -3411,18 +3452,24 @@ function renderNotasCompra(){
     : ctl?('Última busca: '+new Date(ctl.ultima_execucao).toLocaleString('pt-BR')+' · '+esc(ctl.ultimo_status||'')
         +(espera?('\nPróxima busca liberada às '+new Date(espera).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+' (regra da SEFAZ: 1 consulta por hora quando não há nada novo).'):''))
     : 'Nenhuma busca feita ainda. A primeira traz as notas dos últimos 90 dias.';
-  box.innerHTML=`<div class="note" style="margin:0 16px 12px">${info}</div>
+  const auto=alertaCompras.auto;
+  const infoAuto=auto?`\n🔄 Busca automática (de hora em hora): última às ${new Date(auto.quando).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}${auto.erro?(' — ⚠️ '+esc(auto.erro)):(' — '+(auto.resumos+auto.completas)+' documento(s)')}`:'';
+  const nNovas=notas.filter(n=>n.nova).length;
+  box.innerHTML=`<div class="note" style="margin:0 16px 12px">${info}${infoAuto}</div>
+    ${nNovas?`<div class="note" style="margin:0 16px 12px;white-space:normal;border-color:#D9A83E">🧾 <b>${nNovas} nota(s) de compra nova(s)</b> para conferir: abra cada uma (marcadas com <b>NOVA</b>).
+      ${pode('editar')?`<a href="#" style="color:#D9A83E;margin-left:6px" onclick="event.preventDefault(); conferirTodasCompras()">Marcar todas como conferidas</a>`:''}</div>`:''}
     <div class="section-label"><span>Notas (${notas.length})</span><span>
       ${ehAdmin()?'<button class="btn sm" onclick="diagnosticoFiscal()">Diagnóstico</button> ':''}
       ${pode('editar')?'<button class="btn sm" onclick="abrirEntradaManual()">+ Sem nota</button> ':''}
       <button class="btn sm gold" id="btnBuscarNfe" onclick="buscarNotasSefaz()" ${notasCompraBusy?'disabled':''}>${notasCompraBusy?'Buscando…':'Buscar na SEFAZ'}</button></span></div>
     <div style="margin:0 0 10px"><input id="nfeBusca" placeholder="🔎 Buscar peça, fornecedor ou nº da NF (ex.: valvula, palio, 247997)" value="${esc(nfeFiltro)}"
       oninput="nfeFiltro=this.value; desenharListaNotas()" style="width:100%">
-      <label style="display:flex;gap:8px;align-items:center;justify-content:flex-start;text-align:left;font-size:13px;margin-top:8px;color:var(--muted);cursor:pointer"><input type="checkbox" style="width:18px;height:18px;flex:none;margin:0" ${nfeSoPend?'checked':''} onchange="nfeSoPend=this.checked; desenharListaNotas()"><span>Só notas com peças ainda sem OS</span></label></div>
+      <label style="display:flex;gap:8px;align-items:center;justify-content:flex-start;text-align:left;font-size:13px;margin-top:8px;color:var(--muted);cursor:pointer"><input type="checkbox" style="width:18px;height:18px;flex:none;margin:0" ${nfeSoPend?'checked':''} onchange="nfeSoPend=this.checked; desenharListaNotas()"><span>Só notas com peças ainda sem OS</span></label>
+      ${nNovas?`<label style="display:flex;gap:8px;align-items:center;justify-content:flex-start;text-align:left;font-size:13px;margin-top:6px;color:var(--muted);cursor:pointer"><input type="checkbox" style="width:18px;height:18px;flex:none;margin:0" ${nfeSoNovas?'checked':''} onchange="nfeSoNovas=this.checked; desenharListaNotas()"><span>Só as novas (${nNovas})</span></label>`:''}</div>
     <div class="rows" id="nfeLista"></div>`;
   desenharListaNotas();
 }
-let nfeFiltro='', nfeSoPend=false;
+let nfeFiltro='', nfeSoPend=false, nfeSoNovas=false;
 // Lista das notas com as peças à mostra: nome, quantidade e quanto falta destinar.
 function desenharListaNotas(){
   const el=document.getElementById('nfeLista'); if(!el||!notasCompra) return;
@@ -3430,6 +3477,7 @@ function desenharListaNotas(){
   const notas=(notasCompra.notas||[]).filter(n=>{
     // Pendência só conta em nota que vale para o estoque (histórico = peças que já saíram).
     if(nfeSoPend&&(n.historico||!n.itens.some(i=>i.saldo>0))) return false;
+    if(nfeSoNovas&&!n.nova) return false;
     if(!q) return true;
     return [n.nome_emit,n.numero,n.cnpj_emit].some(v=>String(v||'').toLowerCase().includes(q))
       || n.itens.some(i=>[i.descricao,i.codigo,i.peca_codigo].some(v=>String(v||'').toLowerCase().includes(q)));
@@ -3476,6 +3524,8 @@ function nfeOsRotulo(o){ if(!o) return 'OS removida'; const v=getVeiculo(o.veicu
   return [v&&v.placa, c&&c.nome, o.codigo?('OS '+o.codigo):null].filter(Boolean).join(' · '); }
 function openNotaCompra(chave){
   const n=((notasCompra&&notasCompra.notas)||[]).find(x=>x.chave===chave); if(!n) return;
+  // Abrir a nota = conferir: sai do alerta para todos.
+  if(n.nova){ n.nova=false; fiscalPost('conferir',{chave}).then(()=>{ atualizarAlertaCompras(); if(document.getElementById('nfeLista')) desenharListaNotas(); }).catch(()=>{}); }
   const podeDest=(n.status==='completa'||n.status==='manual')&&pode('editar');
   const manual=n.status==='manual';
   const itens=n.itens.map(i=>{

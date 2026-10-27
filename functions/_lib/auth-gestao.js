@@ -23,7 +23,7 @@ export const aleatorio = (n) => { const a = new Uint8Array(n); crypto.getRandomV
 const b64url = (s) => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const deB64url = (s) => decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/'))));
 
-function iguais(a, b) {
+export function iguais(a, b) {
   a = String(a); b = String(b);
   if (a.length !== b.length) return false;
   let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);

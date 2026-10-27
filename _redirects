@@ -4,3 +4,4 @@ https://3mcentroautomotivo.com.br/*  https://www.3mcentroautomotivo.com.br/:spla
 # código da ponte fiscal e documentação interna não são páginas do site
 /ponte-fiscal/*  /  302
 /docs/*  /  302
+/agendador/*  /  302

@@ -1,0 +1,16 @@
+// Agendador da 3M: busca de hora em hora as notas de compra na SEFAZ (ver index.js).
+// Publicar: cd agendador && npx wrangler deploy
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "3m-agendador",
+  "main": "index.js",
+  "compatibility_date": "2025-09-01",
+  // Sem endereço público: só roda pelo cron.
+  "workers_dev": false,
+  "triggers": { "crons": ["7 * * * *"] },
+  "vars": { "SITE": "https://www.3mcentroautomotivo.com.br" },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "oficina-3m", "database_id": "090d0fd7-0d1e-4aef-bb92-b3714bb3afa1" }
+  ],
+  "observability": { "enabled": true }
+}

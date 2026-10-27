@@ -53,6 +53,11 @@ const COMPLETAR_POR_RODADA = 5;
 // Depois da ciência a SEFAZ leva alguns minutos para liberar o XML completo.
 const ESPERA_COMPLETA_MS = 15 * 60 * 1000;
 
+// Nota de compra "nova" para o alerta: chegou da SEFAZ depois que o alerta foi ligado, conta no
+// estoque (não é histórico) e ninguém abriu ainda. Compra sem nota (lançada pela equipe) não entra.
+const SQL_NOVA = "conferida IS NULL AND status IN ('completa','resumo') AND COALESCE(historico,0)=0";
+const notaNova = (n) => n.conferida == null && ['completa', 'resumo'].includes(n.status) && !Number(n.historico);
+
 const jsonResp = (o, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 
@@ -81,7 +86,7 @@ async function garantirTabelas(DB) {
   for (const col of ['ncm TEXT', 'cest TEXT', 'ean TEXT', 'unidade TEXT', 'custo REAL', 'origem TEXT', 'codigo_forn TEXT', 'fornecedor_id TEXT', 'codigo TEXT']) {
     try { await DB.prepare(`ALTER TABLE pecas ADD COLUMN ${col}`).run(); } catch (e) { /* coluna já existe */ }
   }
-  for (const col of ['historico INTEGER', 'comprovante TEXT', 'obs TEXT', 'rateio_un INTEGER']) {
+  for (const col of ['historico INTEGER', 'comprovante TEXT', 'obs TEXT', 'rateio_un INTEGER', 'conferida INTEGER', 'conferida_por TEXT']) {
     try { await DB.prepare(`ALTER TABLE nfe_entrada ADD COLUMN ${col}`).run(); } catch (e) { /* coluna já existe */ }
   }
   try { await DB.prepare('ALTER TABLE dfe_controle ADD COLUMN estoque_desde INTEGER').run(); } catch (e) { /* coluna já existe */ }
@@ -110,6 +115,13 @@ async function garantirTabelas(DB) {
   try { await DB.prepare('ALTER TABLE pecas ADD COLUMN regra_fiscal TEXT').run(); } catch (e) { /* coluna já existe */ }
   await recalcularFiscal(DB);
   await garantirTabelasEmissao(DB);
+  // Alerta de nota nova: o que já estava gravado quando o alerta nasceu conta como conferido.
+  if (!(await DB.prepare("SELECT valor FROM fiscal_config WHERE chave='alerta_desde'").first())) {
+    await DB.batch([
+      DB.prepare("UPDATE nfe_entrada SET conferida=COALESCE(criado,?), conferida_por='(antes do alerta)' WHERE conferida IS NULL").bind(Date.now()),
+      DB.prepare("INSERT OR IGNORE INTO fiscal_config (chave,valor) VALUES ('alerta_desde',?)").bind(String(Date.now())),
+    ]);
+  }
 
   // Código próprio (P0001…) para toda peça que já apareceu numa nota.
   const semCodigo = await DB.prepare(`SELECT DISTINCT p.id FROM pecas p JOIN nfe_entrada_itens i ON i.peca_id=p.id
@@ -928,7 +940,7 @@ export async function onRequest(context) {
 
     if (request.method === 'GET' && acao === 'notas') {
       const [notas, itens, dest, ctl] = await Promise.all([
-        DB.prepare(`SELECT chave,nsu,status,numero,serie,cnpj_emit,nome_emit,fornecedor_id,dh_emi,valor,situacao_sefaz,tp_nf,manifestado,manifesto_msg,historico,comprovante,obs,criado
+        DB.prepare(`SELECT chave,nsu,status,numero,serie,cnpj_emit,nome_emit,fornecedor_id,dh_emi,valor,situacao_sefaz,tp_nf,manifestado,manifesto_msg,historico,comprovante,obs,criado,conferida,conferida_por
           FROM nfe_entrada ORDER BY dh_emi DESC LIMIT 500`).all(),
         DB.prepare(`SELECT i.*, p.codigo AS peca_codigo FROM nfe_entrada_itens i
           JOIN (SELECT chave FROM nfe_entrada ORDER BY dh_emi DESC LIMIT 500) n ON n.chave=i.chave
@@ -948,7 +960,7 @@ export async function onRequest(context) {
         (porNota[i.chave] ||= []).push(i);
       });
       return jsonResp({
-        notas: (notas.results || []).map(n => ({ ...n, itens: porNota[n.chave] || [] })),
+        notas: (notas.results || []).map(n => ({ ...n, nova: notaNova(n), itens: porNota[n.chave] || [] })),
         controle: ctl || null,
         configurada: !!(env.PONTE_FISCAL_URL && env.PONTE_FISCAL_TOKEN),
       });
@@ -969,6 +981,15 @@ export async function onRequest(context) {
     if (request.method === 'POST' && acao === 'diagnostico') return jsonResp(await ponte(env, { diagnostico: true }));
 
     if (request.method === 'GET' && acao === 'estoque') return jsonResp({ pecas: await estoque(DB) });
+    if (request.method === 'GET' && acao === 'alertas') {
+      const [lista, n, auto] = await Promise.all([
+        DB.prepare(`SELECT chave,numero,nome_emit,valor,dh_emi,status FROM nfe_entrada WHERE ${SQL_NOVA} ORDER BY dh_emi DESC LIMIT 6`).all(),
+        DB.prepare(`SELECT COUNT(*) AS n FROM nfe_entrada WHERE ${SQL_NOVA}`).first(),
+        DB.prepare("SELECT valor FROM fiscal_config WHERE chave='auto_ultima'").first(),
+      ]);
+      let ultimaAuto = null; try { ultimaAuto = auto ? JSON.parse(auto.valor) : null; } catch (e) { /* ignora */ }
+      return jsonResp({ novas: n ? n.n : 0, lista: lista.results || [], auto: ultimaAuto });
+    }
     if (request.method === 'GET' && acao === 'regras') return jsonResp({ pecas: await regrasPorPeca(DB) });
     if (request.method === 'GET' && acao === 'regra_ncm') {
       const st = url.searchParams.get('st') === '1';
@@ -1019,6 +1040,12 @@ export async function onRequest(context) {
       if (acao === 'nfe_status') return jsonResp(await ponte(env, { acao: 'nfe_status', tpAmb: (await configEmissao(DB)).tpAmb }));
       if (acao === 'emitir') return jsonResp(await emitirNota(DB, env, body));
       if (acao === 'cancelar_nota') return jsonResp(await cancelarNota(DB, env, body));
+      if (acao === 'conferir') {
+        const quem = (context.data.usuario && context.data.usuario.nome) || '';
+        if (body.todas) await DB.prepare(`UPDATE nfe_entrada SET conferida=?, conferida_por=? WHERE ${SQL_NOVA}`).bind(Date.now(), quem).run();
+        else await DB.prepare('UPDATE nfe_entrada SET conferida=?, conferida_por=? WHERE chave=? AND conferida IS NULL').bind(Date.now(), quem, String(body.chave || '')).run();
+        return jsonResp({ ok: true });
+      }
       if (acao === 'historico') {
         await DB.prepare('UPDATE nfe_entrada SET historico=? WHERE chave=?').bind(body.valor ? 1 : 0, soDigitos(body.chave)).run();
         return jsonResp({ ok: true });

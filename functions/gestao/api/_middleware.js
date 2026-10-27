@@ -17,7 +17,7 @@
  */
 import {
   garantirTabelasAuth, usuarioDaSessao, conferirSenha, hashNovo, criarSessao, cookieSessao, cookieSair,
-  bloqueado, registrarFalha, limparFalhas, usuarioPublico,
+  bloqueado, registrarFalha, limparFalhas, usuarioPublico, iguais,
 } from '../../_lib/auth-gestao.js';
 
 const json = (o, s = 200, extra = {}) => new Response(JSON.stringify(o), {
@@ -34,6 +34,18 @@ export async function onRequest(context) {
 
   await garantirTabelasAuth(DB);
   if (p.startsWith('/gestao/api/auth/')) return rotasAuth(context, p.slice('/gestao/api/auth/'.length));
+
+  // Busca automática de notas de compra (agendador/, Worker com cron): chave guardada no D1, que
+  // os dois leem. Vale só para POST /fiscal/sincronizar — mais nada.
+  const chaveCron = request.headers.get('x-cron-key');
+  if (chaveCron) {
+    const k = await DB.prepare("SELECT valor FROM auth_gestao WHERE chave='cron'").first();
+    if (p === '/gestao/api/fiscal/sincronizar' && request.method === 'POST' && k && k.valor && iguais(chaveCron, k.valor)) {
+      context.data.usuario = { id: 'agendador', nome: 'Busca automática', papel: 'sistema' };
+      return context.next();
+    }
+    return json({ error: 'Chave inválida.' }, 401);
+  }
 
   const u = await usuarioDaSessao(DB, request);
   if (!u) return json({ error: 'Faça login para continuar.', login: true }, 401);
