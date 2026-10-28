@@ -4145,7 +4145,10 @@ function moneyK(v){ v=Number(v)||0; if(Math.abs(v)>=1000) return 'R$'+(v/1000).t
 function catSaidaLabel(cat){ const f=CAT_SAIDA.find(c=>c[0]===cat); return f?f[1]:(cat||'Outros'); }
 function osExecPeriodo(de,ate){ return (state.ordens||[]).filter(o=>osStatus(o)==='executado' && o.data && o.data>=de && o.data<=ate); }
 function fatPeriodo(de,ate){ return osExecPeriodo(de,ate).reduce((s,o)=>s+osTotal(o),0); }
-function caixaPeriodo(de,ate,tipo){ return (state.caixa||[]).filter(m=>(!tipo||m.tipo===tipo) && m.data && m.data>=de && m.data<=ate); }
+/* Data em que o lançamento mexe no caixa: saída paga conta no dia do pagamento; boleto a pagar ainda não saiu. */
+function dataCaixa(m){ if(m.tipo==='saida'){ if(m.pagamento) return m.pagamento; if(m.forma==='boleto') return ''; } return m.data||''; }
+function boletoAPagar(m){ return m.tipo==='saida'&&m.forma==='boleto'&&!m.pagamento; }
+function caixaPeriodo(de,ate,tipo){ return (state.caixa||[]).filter(m=>{ const d=dataCaixa(m); return (!tipo||m.tipo===tipo) && d && d>=de && d<=ate; }); }
 function entradasPeriodo(de,ate){ return caixaPeriodo(de,ate,'entrada').reduce((s,m)=>s+(Number(m.valor)||0),0); }
 function saidasPeriodo(de,ate){ return caixaPeriodo(de,ate,'saida').reduce((s,m)=>s+(Number(m.valor)||0),0); }
 function pecasCustoPeriodo(de,ate){ return osExecPeriodo(de,ate).reduce((s,o)=>s+pecasCusto(o),0); }
@@ -4319,12 +4322,12 @@ function relDRE(){ const de=relPer.de,ate=relPer.ate;
 function relCaixa(){ const de=relPer.de,ate=relPer.ate; const ent=entradasPeriodo(de,ate),sai=saidasPeriodo(de,ate);
   const catMap={}; caixaPeriodo(de,ate,'saida').forEach(m=>{ const c=catSaidaLabel(m.categoria); catMap[c]=(catMap[c]||0)+(Number(m.valor)||0); });
   const catArr=Object.entries(catMap).map(([k,v])=>({k,v})).sort((a,b)=>b.v-a.v); const maxCat=Math.max(...catArr.map(x=>x.v),1);
-  const movs=caixaPeriodo(de,ate, relCxTipo==='tudo'?null:relCxTipo).sort((a,b)=>String(b.data).localeCompare(String(a.data)));
+  const movs=caixaPeriodo(de,ate, relCxTipo==='tudo'?null:relCxTipo).sort((a,b)=>dataCaixa(b).localeCompare(dataCaixa(a)));
   const filtro=`<div class="rel-atalhos" style="margin-top:8px"><button class="btn sm ${relCxAberto&&relCxTipo==='tudo'?'gold':'ghost'}" onclick="relCxTipo='tudo'; relCxAberto=true; renderRelatorios()">Tudo</button><button class="btn sm ${relCxAberto&&relCxTipo==='entrada'?'gold':'ghost'}" onclick="relCxTipo='entrada'; relCxAberto=true; renderRelatorios()">▲ Entradas</button><button class="btn sm ${relCxAberto&&relCxTipo==='saida'?'gold':'ghost'}" onclick="relCxTipo='saida'; relCxAberto=true; renderRelatorios()">▼ Saídas</button>${relCxAberto?`<button class="btn sm ghost" onclick="relCxAberto=false; renderRelatorios()">Recolher ▴</button>`:''}</div>`;
   return `<div class="rel-kpi"><div class="rk"><div class="rl">Entradas</div><div class="rv" style="color:var(--green)">${moneyFmt(ent)}</div></div><div class="rk"><div class="rl">Saídas</div><div class="rv" style="color:var(--red)">${moneyFmt(sai)}</div></div><div class="rk"><div class="rl">Saldo</div><div class="rv" style="color:${ent-sai>=0?'var(--green)':'var(--red)'}">${moneyFmt(ent-sai)}</div></div><div class="rk"><div class="rl">🔒 Lucro em peças</div><div class="rv" style="color:var(--green)">${moneyFmt(lucroPecasPeriodo(de,ate))}</div></div></div>
     ${catArr.length?`<div class="section-label">Saídas por categoria</div>${catArr.map(x=>relBar(x.k,x.v,maxCat,'',(x.k==='Fornecedor'?'var(--red)':undefined))).join('')}`:''}
     <div class="section-label">Lançamentos ${relCxAberto?('· '+(relCxTipo==='tudo'?'todos':relCxTipo==='entrada'?'entradas':'saídas')+' ('+movs.length+')'):'(toque para ver)'}</div>${filtro}
-    ${relCxAberto?(movs.length?`<div class="rows" style="margin-top:8px">${movs.map(m=>{ const ent=m.tipo==='entrada'; return `<div class="row"><div class="main"><div class="t">${ent?'▲':'▼'} ${esc(m.descricao||(ent?'Entrada':catSaidaLabel(m.categoria)))}</div><div class="s">${fmtBR(parseISO(m.data))} · ${esc((FORMAS.find(f=>f[0]===m.forma)||[,m.forma])[1]||m.forma)}${m.fornecedor_id?(' · 🏭 '+esc(fornecedorNome(m.fornecedor_id))):''}</div></div><span class="valor-tag" style="color:${ent?'var(--green)':'var(--red)'}">${ent?'+':'−'}${moneyFmt(m.valor)}</span></div>`; }).join('')}</div>`:'<div class="hint" style="margin-top:8px">Nada no período.</div>'):'<div class="hint" style="margin-top:6px">Toque em <b>Entradas</b> ou <b>Saídas</b> para ver todos os lançamentos do período.</div>'}`;
+    ${relCxAberto?(movs.length?`<div class="rows" style="margin-top:8px">${movs.map(m=>{ const ent=m.tipo==='entrada'; return `<div class="row"><div class="main"><div class="t">${ent?'▲':'▼'} ${esc(m.descricao||(ent?'Entrada':catSaidaLabel(m.categoria)))}</div><div class="s">${fmtBR(parseISO(dataCaixa(m)))} · ${esc((FORMAS.find(f=>f[0]===m.forma)||[,m.forma])[1]||m.forma)}${m.fornecedor_id?(' · 🏭 '+esc(fornecedorNome(m.fornecedor_id))):''}</div></div><span class="valor-tag" style="color:${ent?'var(--green)':'var(--red)'}">${ent?'+':'−'}${moneyFmt(m.valor)}</span></div>`; }).join('')}</div>`:'<div class="hint" style="margin-top:8px">Nada no período.</div>'):'<div class="hint" style="margin-top:6px">Toque em <b>Entradas</b> ou <b>Saídas</b> para ver todos os lançamentos do período.</div>'}`;
 }
 function relDashboard(){ const A=relPer,B=relPerB;
   const kpi=p=>{ const fat=fatPeriodo(p.de,p.ate); const nos=osExecPeriodo(p.de,p.ate).length; const ent=entradasPeriodo(p.de,p.ate); const sai=saidasPeriodo(p.de,p.ate); const custoP=pecasCustoPeriodo(p.de,p.ate); const lucroP=lucroPecasPeriodo(p.de,p.ate); return {fat,nos,tk:nos?fat/nos:0,ent,sai,lucro:ent-sai,custoP,lucroP}; };
@@ -4434,7 +4437,7 @@ function confirmarPagarNota(key){ const ids=[...document.querySelectorAll('[data
 function imprimirCaixaHTML(de,ate,tipo,det){
   const d1=de||'0000-00-00', d2=ate||'9999-99-99';
   const ents = tipo!=='saida' ? caixaPeriodo(d1,d2,'entrada').slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))) : [];
-  const sais = tipo!=='entrada' ? caixaPeriodo(d1,d2,'saida').slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))) : [];
+  const sais = tipo!=='entrada' ? caixaPeriodo(d1,d2,'saida').slice().sort((a,b)=>dataCaixa(a).localeCompare(dataCaixa(b))) : [];
   const totEnt=ents.reduce((s,m)=>s+(Number(m.valor)||0),0), totSai=sais.reduce((s,m)=>s+(Number(m.valor)||0),0);
   const fLabel=f=>(FORMAS.find(x=>x[0]===f)||[,f||'—'])[1];
   const grupo=(arr,key)=>{ const g={}; arr.forEach(m=>{ const k=key(m); g[k]=(g[k]||0)+(Number(m.valor)||0); }); return Object.entries(g).sort((a,b)=>b[1]-a[1]); };
@@ -4452,7 +4455,7 @@ function imprimirCaixaHTML(de,ate,tipo,det){
     if(tipo!=='saida' && ents.length){ b+=`<h2>Entradas — detalhado (${ents.length})</h2><table><tr><td><b>Data</b></td><td><b>Descrição</b></td><td><b>Forma</b></td><td class="num"><b>Valor</b></td></tr>`;
       ents.forEach(m=>{ b+=`<tr><td>${fmtBR(parseISO(m.data))}</td><td>${esc(m.descricao||'Entrada')}</td><td>${esc(fLabel(m.forma))}</td><td class="num">${moneyFmt(m.valor)}</td></tr>`; }); b+=`</table>`; }
     if(tipo!=='entrada' && sais.length){ b+=`<h2>Saídas — detalhado (${sais.length})</h2><table><tr><td><b>Data</b></td><td><b>Descrição</b></td><td><b>Categoria</b></td><td class="num"><b>Valor</b></td></tr>`;
-      sais.forEach(m=>{ b+=`<tr><td>${fmtBR(parseISO(m.data))}</td><td>${esc(m.descricao||catSaidaLabel(m.categoria))}${m.fornecedor_id?(' · '+esc(fornecedorNome(m.fornecedor_id))):''}</td><td>${esc(catSaidaLabel(m.categoria))}</td><td class="num">${moneyFmt(m.valor)}</td></tr>`; }); b+=`</table>`; }
+      sais.forEach(m=>{ b+=`<tr><td>${fmtBR(parseISO(dataCaixa(m)))}</td><td>${esc(m.descricao||catSaidaLabel(m.categoria))}${m.fornecedor_id?(' · '+esc(fornecedorNome(m.fornecedor_id))):''}</td><td>${esc(catSaidaLabel(m.categoria))}</td><td class="num">${moneyFmt(m.valor)}</td></tr>`; }); b+=`</table>`; }
   }
   b+=`<div class="foot">3M Centro Automotivo · Gerado em ${fmtBR(hoje())}</div>`;
   return `<!doctype html><html><head><meta charset="utf-8"><title>Caixa 3M</title><style>${FICHA_CSS} .num{text-align:right;white-space:nowrap}</style></head><body>${b}</body></html>`;
@@ -4484,7 +4487,9 @@ function renderCaixa(){
   cxFiltrar();
 }
 function cxFiltrar(){ cxDe=val('cxDe')||''; cxAte=val('cxAte')||''; const de=cxDe||'0000-00-00', ate=cxAte||'9999-99-99';
-  const movs=(state.caixa||[]).filter(m=>{ const d=m.data||''; return d>=de&&d<=ate; }).sort((a,b)=>(b.data||'').localeCompare(a.data||'')||(b.criado||0)-(a.criado||0));
+  const movs=caixaPeriodo(de,ate).sort((a,b)=>dataCaixa(b).localeCompare(dataCaixa(a))||(b.criado||0)-(a.criado||0));
+  // Boletos lançados no período que ainda não foram pagos: aparecem na lista, mas fora dos totais.
+  const abertos=(state.caixa||[]).filter(m=>boletoAPagar(m)&&(m.data||'')>=de&&(m.data||'')<=ate);
   const somaForma=(tipo)=>{ const r={pix:0,dinheiro:0,cartao:0}; movs.filter(m=>m.tipo===tipo).forEach(m=>{ r[m.forma]=(r[m.forma]||0)+(tipo==='entrada'?(Number(m.liquido)||Number(m.valor)||0):(Number(m.valor)||0)); }); return r; };
   const entF=somaForma('entrada'), saiF=somaForma('saida');
   const entBruto=movs.filter(m=>m.tipo==='entrada').reduce((s,m)=>s+(Number(m.valor)||0),0);
@@ -4505,11 +4510,11 @@ function cxFiltrar(){ cxDe=val('cxDe')||''; cxAte=val('cxAte')||''; const de=cxD
       ${taxas>0?`<div class="cx-mini" style="color:var(--amber)">Taxas de cartão: ${moneyFmt(taxas)} (bruto ${moneyFmt(entBruto)} → líquido ${moneyFmt(entLiq)})</div>`:''}
     </div>`;
   const lista=document.getElementById('caixaLista');
-  if(!movs.length){ lista.innerHTML='<div class="note empty-note">Nenhum lançamento no período.</div>'; return; }
-  lista.innerHTML='<div class="rows">'+movs.map(m=>{ const ent=m.tipo==='entrada'; const cartao=m.forma==='cartao';
+  if(!movs.length&&!abertos.length){ lista.innerHTML='<div class="note empty-note">Nenhum lançamento no período.</div>'; return; }
+  lista.innerHTML=(abertos.length?`<div class="note" style="white-space:normal;border-color:#E8B23A;margin-bottom:8px">⏳ <b>${abertos.length} boleto(s) a pagar</b> lançado(s) no período (${moneyFmt(abertos.reduce((s,m)=>s+(Number(m.valor)||0),0))}): não entram nas saídas nem no saldo até a baixa em <b>Contas a Pagar</b>.</div>`:'')+'<div class="rows">'+abertos.concat(movs).map(m=>{ const ent=m.tipo==='entrada'; const cartao=m.forma==='cartao';
     return `<div class="row"><div class="main"><div class="t">${ent?'▲':'▼'} ${esc(m.descricao||(ent?'Entrada':'Saída'))} <span class="badge">${formaLabel(m.forma)}${cartao&&m.parcelas>1?(' '+m.parcelas+'x'):''}</span>${!ent&&m.categoria?` <span class="badge">${catSaidaLabel(m.categoria)}</span>`:''}</div>
-      <div class="s">${fmtBR(parseISO(m.data))}${cartao&&m.taxa?(' · taxa '+moneyFmt(m.taxa)+' · líq. '+moneyFmt(m.liquido)):''}${m.forma==='boleto'&&m.tipo==='entrada'?(' · '+(m.pagamento?('pago '+fmtBR(parseISO(m.pagamento))):('vence '+(m.vencimento?fmtBR(parseISO(m.vencimento)):'—')+' · a receber'))):''}${m.tipo==='saida'&&(m.forma==='cartao'||m.forma==='boleto')&&m.vencimento?(' · paga em '+fmtBR(parseISO(m.vencimento))):''}${m.tipo==='saida'?(' · '+(contaMov(m)==='banco'?'🏦 banco':'💵 caixa')):''}${m.ordem_id?' · OS':''}${m.funcionario_id?(' · '+esc((state.mecanicos.find(x=>x.id===m.funcionario_id)||{}).nome||'func.')):''}${m.socio?(' · '+esc(m.socio)):''}${m.fornecedor_id?(' · 🏭 '+esc(fornecedorNome(m.fornecedor_id))):''}</div></div>
-      <div class="acts"><span class="valor-tag" style="color:${ent?'var(--green)':'var(--red)'}">${ent?'+':'−'}${moneyFmt(m.valor)}</span>
+      <div class="s">${boletoAPagar(m)?`<b style="color:#E8B23A">⏳ a pagar</b> · lançado ${fmtBR(parseISO(m.data))}`:fmtBR(parseISO(dataCaixa(m)))}${cartao&&m.taxa?(' · taxa '+moneyFmt(m.taxa)+' · líq. '+moneyFmt(m.liquido)):''}${m.forma==='boleto'&&m.tipo==='entrada'?(' · '+(m.pagamento?('pago '+fmtBR(parseISO(m.pagamento))):('vence '+(m.vencimento?fmtBR(parseISO(m.vencimento)):'—')+' · a receber'))):''}${boletoAPagar(m)?(' · vence '+(m.vencimento?fmtBR(parseISO(m.vencimento)):'—')):(m.tipo==='saida'&&m.pagamento?(' · pago em '+fmtBR(parseISO(m.pagamento))):(m.tipo==='saida'&&m.forma==='cartao'&&m.vencimento?(' · fatura vence '+fmtBR(parseISO(m.vencimento))):''))}${m.tipo==='saida'?(' · '+(contaMov(m)==='banco'?'🏦 banco':'💵 caixa')):''}${m.ordem_id?' · OS':''}${m.funcionario_id?(' · '+esc((state.mecanicos.find(x=>x.id===m.funcionario_id)||{}).nome||'func.')):''}${m.socio?(' · '+esc(m.socio)):''}${m.fornecedor_id?(' · 🏭 '+esc(fornecedorNome(m.fornecedor_id))):''}</div></div>
+      <div class="acts"><span class="valor-tag" style="color:${ent?'var(--green)':(boletoAPagar(m)?'#E8B23A':'var(--red)')}">${ent?'+':'−'}${moneyFmt(m.valor)}</span>
         ${!m.ordem_id?`<button class="btn sm ghost" onclick='movimentoModal("${m.tipo}","${m.id}")'>Editar</button>`:`<button class="btn sm ghost" onclick='go("os","${m.ordem_id}")'>Ver OS</button>`}</div></div>`;
   }).join('')+'</div>';
 }
