@@ -841,6 +841,12 @@ async function cancelarNota(DB, env, b) {
   const just = String(b.xJust || '').trim();
   if (just.length < 15) throw new Error('Escreva o motivo do cancelamento (mínimo de 15 letras).');
   const r = await ponte(env, { acao: 'nfe_cancelar', chave: n.chave, nProt: n.nprot, xJust: just, tpAmb: n.tp_amb });
+  // 573 = duplicidade de evento: uma tentativa anterior já cancelou na SEFAZ, mas a resposta se perdeu.
+  if (!r.cancelada && r.cStat === '573') {
+    await DB.prepare("UPDATE nfe_saida SET status='cancelada', cancel_just=?, atualizado=? WHERE id=?")
+      .bind(just + ' (cancelamento já estava registrado na SEFAZ)', Date.now(), n.id).run();
+    return { ok: true, jaCancelada: true };
+  }
   if (!r.cancelada) throw new Error(`SEFAZ: ${r.cStat} ${r.xMotivo}`);
   await DB.prepare("UPDATE nfe_saida SET status='cancelada', cancel_xml=?, cancel_prot=?, cancel_just=?, atualizado=? WHERE id=?")
     .bind(r.xml, r.nProt, just, Date.now(), n.id).run();

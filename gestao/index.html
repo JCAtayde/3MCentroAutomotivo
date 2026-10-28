@@ -4056,7 +4056,9 @@ function cancelarNotaSaida(id,oid){
 }
 async function confirmarCancelNota(id,oid){ const b=document.getElementById('cnOk'); if(b){ b.disabled=true; b.textContent='Enviando…'; }
   try{ await fiscalPost('cancelar_nota',{id, xJust:val('cnJust')}); logAcao('Cancelou nota fiscal', '', id); toast('Nota cancelada ✓'); closeModal(); carregarNotasOS(oid); if(fiscalAba==='emissao') desenharEmissaoCfg(); }
-  catch(e){ if(b){ b.disabled=false; b.textContent='Cancelar na SEFAZ'; } alert(e.message); } }
+  catch(e){ if(b){ b.disabled=false; b.textContent='Cancelar na SEFAZ'; }
+    carregarNotasOS(oid);
+    alert(e instanceof TypeError ? 'A resposta do servidor não chegou (internet caiu ou demorou). Toque em "Cancelar na SEFAZ" de novo: se a SEFAZ já tiver registrado, o sistema reconhece e marca a nota como cancelada.' : e.message); } }
 
 /* ---- Fiscal → Emissão: ambiente, numeração e notas emitidas ---- */
 async function desenharEmissaoCfg(){
