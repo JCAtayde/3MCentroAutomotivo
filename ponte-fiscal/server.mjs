@@ -473,7 +473,8 @@ function montarCabecNfse(f) {
 /** Chama uma operação do webservice: cabeçalho e dados vão como texto (nfseCabecMsg / nfseDadosMsg). */
 async function soapNfse(tpAmb, operacao, dados, formato = FORMATO_NFSE) {
   const f = { ...FORMATO_NFSE, ...formato };
-  const texto = (t) => (f.cdata ? `<![CDATA[${t}]]>` : escXml(t));
+  // cru: o XML vai como elementos dentro do campo (o servidor pode ler o InnerXml em vez do texto).
+  const texto = (t) => (f.cru ? t.replace(/^<\?xml[^>]*\?>/, "") : f.cdata ? `<![CDATA[${t}]]>` : escXml(t));
   // nsFilhos=false: no WSDL nfseCabecMsg/nfseDadosMsg são elementos locais sem namespace (elementFormDefault
   // padrão = unqualified). nsFilhos=true: o xmlns padrão no pai, que os põe no namespace da NFS-e.
   const abre = f.nsFilhos ? `<${operacao} xmlns="${NS_NFSE}">` : `<ws:${operacao} xmlns:ws="${NS_NFSE}">`;
@@ -510,15 +511,12 @@ const consultaDisponivel = (im) => `<ConsultarDpsDisponivelEnvio xmlns="${NS_NFS
 
 /** Sondagem (só consulta, homologação): qual forma de cabeçalho a prefeitura aceita. */
 async function sondarFormatoNfse(im) {
+  // 30/10/2026: texto escapado e CDATA (1.00/1.01, com/sem declaração e namespace) deram todos E183+E160.
   const variantes = {
-    "1.00": { versaoCabec: "1.00" },
-    "1.01": { versaoCabec: "1.01" },
-    "1.00+decl": { versaoCabec: "1.00", declaracao: true },
-    "1.01+decl": { versaoCabec: "1.01", declaracao: true },
-    "1.01+cdata": { versaoCabec: "1.01", cdata: true },
-    "1.01+nsFilhos": { versaoCabec: "1.01", nsFilhos: true },
-    "1.00+cdata+nsFilhos": { versaoCabec: "1.00", cdata: true, nsFilhos: true },
-    "1.01+cabecSemNs": { versaoCabec: "1.01", cabecSemNs: true },
+    "cru 1.00": { versaoCabec: "1.00", cru: true },
+    "cru 1.01": { versaoCabec: "1.01", cru: true },
+    "cru 1.00+nsFilhos": { versaoCabec: "1.00", cru: true, nsFilhos: true },
+    "cru 1.01+nsFilhos": { versaoCabec: "1.01", cru: true, nsFilhos: true },
   };
   const saida = {};
   for (const [nome, f] of Object.entries(variantes)) {
