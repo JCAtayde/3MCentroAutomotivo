@@ -469,12 +469,18 @@ async function soapNfse(tpAmb, operacao, dados) {
     `<${operacao} xmlns="${NS_NFSE}"><nfseCabecMsg>${escXml(cabec)}</nfseCabecMsg><nfseDadosMsg>${escXml(dados)}</nfseDadosMsg></${operacao}>` +
     `</soap:Body></soap:Envelope>`;
   const r = await chamarSoap(NFSE_URL[tpAmb], env, true, { "content-type": "text/xml; charset=utf-8", SOAPAction: `"${NS_NFSE}/${operacao}"` });
-  const saida = tag(r.corpo, "outputXML");
+  // O WSDL fala em <outputXML> (texto), mas Goiânia devolve o XML direto dentro de <{operação}Response>.
+  let saida = tag(r.corpo, "outputXML");
+  if (saida == null) saida = tag(r.corpo, `${operacao}Response`);
+  else saida = desescXml(saida);
   if (r.status !== 200 || saida == null) {
-    const motivo = tag(r.corpo, "faultstring") ?? tag(r.corpo, "Text") ?? r.corpo.slice(0, 300);
+    const motivo = tag(r.corpo, "faultstring") ?? tag(r.corpo, "Text") ?? r.corpo.slice(0, 1500);
     throw new Error(`prefeitura respondeu ${r.status}: ${String(motivo).replace(/\s+/g, " ").trim()}`);
   }
-  return desescXml(saida);
+  // Se ainda vier como texto escapado (&lt;...), desfaz o escape.
+  const xml = /^\s*&lt;/.test(saida) ? desescXml(saida) : saida;
+  console.log(`[nfse ${operacao}] ${xml.replace(/\s+/g, " ").slice(0, 1500)}`); // enquanto a integração é nova
+  return xml;
 }
 
 /** Mensagens de retorno (erros e alertas) da prefeitura. */
@@ -629,7 +635,8 @@ const servidor = http.createServer(async (req, res) => {
     } catch (e) {
       const erro = (e instanceof Error ? e.message : String(e)) || "erro sem mensagem";
       console.error(`[${pedido.acao ?? (pedido.diagnostico ? "diagnostico" : "?")}] ${erro}`); // aparece em flyctl logs
-      return responder(res, 502, { erro });
+      // 422, não 502: o proxy do Fly troca a resposta 502 do app pela página dele e o motivo se perdia.
+      return responder(res, 422, { erro });
     }
   } catch (e) {
     return responder(res, 500, { erro: e instanceof Error ? e.message : String(e) });
