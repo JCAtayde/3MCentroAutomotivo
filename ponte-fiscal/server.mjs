@@ -461,14 +461,26 @@ const escXml = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").rep
 const desescXml = (t) => String(t).replace(/^\s*<!\[CDATA\[([\s\S]*)\]\]>\s*$/, "$1")
   .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;|&#39;/g, "'").replace(/&amp;/g, "&");
 
+// Forma do envelope que a prefeitura aceita. O manual não detalha o cabeçalho; FORMATO_NFSE é o
+// que a sondagem (diagnóstico, só consulta) mostrar que funciona.
+const FORMATO_NFSE = { versaoCabec: "1.00", declaracao: false, cdata: false, nsFilhos: false, cabecSemNs: false };
+
+function montarCabecNfse(f) {
+  return (f.declaracao ? `<?xml version="1.0" encoding="UTF-8"?>` : "") +
+    `<cabecalho${f.cabecSemNs ? "" : ` xmlns="${NS_NFSE}"`} versao="${f.versaoCabec}"><versaoDados>${f.versaoCabec}</versaoDados></cabecalho>`;
+}
+
 /** Chama uma operação do webservice: cabeçalho e dados vão como texto (nfseCabecMsg / nfseDadosMsg). */
-async function soapNfse(tpAmb, operacao, dados) {
-  const cabec = `<cabecalho xmlns="${NS_NFSE}" versao="${VERSAO_NFSE}"><versaoDados>${VERSAO_NFSE}</versaoDados></cabecalho>`;
+async function soapNfse(tpAmb, operacao, dados, formato = FORMATO_NFSE) {
+  const f = { ...FORMATO_NFSE, ...formato };
+  const texto = (t) => (f.cdata ? `<![CDATA[${t}]]>` : escXml(t));
+  // nsFilhos=false: no WSDL nfseCabecMsg/nfseDadosMsg são elementos locais sem namespace (elementFormDefault
+  // padrão = unqualified). nsFilhos=true: o xmlns padrão no pai, que os põe no namespace da NFS-e.
+  const abre = f.nsFilhos ? `<${operacao} xmlns="${NS_NFSE}">` : `<ws:${operacao} xmlns:ws="${NS_NFSE}">`;
+  const fecha = f.nsFilhos ? `</${operacao}>` : `</ws:${operacao}>`;
   const env =
     `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body>` +
-    // No WSDL, nfseCabecMsg/nfseDadosMsg são elementos locais sem namespace (elementFormDefault padrão =
-    // unqualified): com o xmlns padrão no pai eles herdavam o namespace e a prefeitura não os achava (E160/E232).
-    `<ws:${operacao} xmlns:ws="${NS_NFSE}"><nfseCabecMsg>${escXml(cabec)}</nfseCabecMsg><nfseDadosMsg>${escXml(dados)}</nfseDadosMsg></ws:${operacao}>` +
+    `${abre}<nfseCabecMsg>${texto(montarCabecNfse(f))}</nfseCabecMsg><nfseDadosMsg>${texto(dados)}</nfseDadosMsg>${fecha}` +
     `</soap:Body></soap:Envelope>`;
   const r = await chamarSoap(NFSE_URL[tpAmb], env, true, { "content-type": "text/xml; charset=utf-8", SOAPAction: `"${NS_NFSE}/${operacao}"` });
   // O WSDL fala em <outputXML> (texto), mas Goiânia devolve o XML direto dentro de <{operação}Response>.
@@ -494,9 +506,33 @@ function mensagensNfse(xml, grupo) {
   }));
 }
 
+const consultaDisponivel = (im) => `<ConsultarDpsDisponivelEnvio xmlns="${NS_NFSE}"><Prestador><CNPJ>${CNPJ}</CNPJ><IM>${im}</IM></Prestador><Pagina>1</Pagina></ConsultarDpsDisponivelEnvio>`;
+
+/** Sondagem (só consulta, homologação): qual forma de cabeçalho a prefeitura aceita. */
+async function sondarFormatoNfse(im) {
+  const variantes = {
+    "1.00": { versaoCabec: "1.00" },
+    "1.01": { versaoCabec: "1.01" },
+    "1.00+decl": { versaoCabec: "1.00", declaracao: true },
+    "1.01+decl": { versaoCabec: "1.01", declaracao: true },
+    "1.01+cdata": { versaoCabec: "1.01", cdata: true },
+    "1.01+nsFilhos": { versaoCabec: "1.01", nsFilhos: true },
+    "1.00+cdata+nsFilhos": { versaoCabec: "1.00", cdata: true, nsFilhos: true },
+    "1.01+cabecSemNs": { versaoCabec: "1.01", cabecSemNs: true },
+  };
+  const saida = {};
+  for (const [nome, f] of Object.entries(variantes)) {
+    try {
+      const xml = await soapNfse(2, "ConsultarDpsDisponivel", consultaDisponivel(im), f);
+      const erros = mensagensNfse(xml, "ListaMensagemRetorno").map((e) => e.codigo);
+      saida[nome] = erros.length ? erros.join(",") : "ACEITO: " + xml.replace(/\s+/g, " ").slice(0, 200);
+    } catch (e) { saida[nome] = "erro: " + e.message.slice(0, 120); }
+  }
+  return saida;
+}
+
 async function nfseDisponivel(tpAmb, im) {
-  const dados = `<ConsultarDpsDisponivelEnvio xmlns="${NS_NFSE}"><Prestador><CNPJ>${CNPJ}</CNPJ><IM>${im}</IM></Prestador><Pagina>1</Pagina></ConsultarDpsDisponivelEnvio>`;
-  const xml = await soapNfse(tpAmb, "ConsultarDpsDisponivel", dados);
+  const xml = await soapNfse(tpAmb, "ConsultarDpsDisponivel", consultaDisponivel(im));
   const dps = [...xml.matchAll(/<(?:\w+:)?DpsDisponivel>([\s\S]*?)<\/(?:\w+:)?DpsDisponivel>/g)]
     .map((m) => ({ numero: tag(m[1], "NumDPS"), serie: tag(m[1], "SerieDPS") }));
   return { dps, erros: mensagensNfse(xml, "ListaMensagemRetorno"), resposta: dps.length ? undefined : xml.slice(0, 2000) };
@@ -568,19 +604,9 @@ const servidor = http.createServer(async (req, res) => {
         // CSC sem revelar o código: só o ID, o tamanho e se ficou o texto de exemplo.
         const resumoCsc = (c) => (c.csc ? { id: c.id, tamanho: c.csc.length, exemplo: /COLE_AQUI/i.test(c.csc) } : null);
         saida.csc = { producao: resumoCsc(csc(1)), homologacao: process.env.CSC_HOM ? resumoCsc(csc(2)) : "não gravado (usa o de produção)" };
-        // NFS-e de Goiânia: confere se o WSDL abre com o certificado e quais operações ele tem.
-        saida.nfse = {};
-        for (const [nome, url] of Object.entries(NFSE_WSDL)) {
-          const r = await obterComCertificado(url);
-          saida.nfse[nome] = {
-            status: r.status, erro: r.erro,
-            enderecos: [...new Set([...r.corpo.matchAll(/address\s+location=["']([^"']+)/g)].map((m) => m[1]))],
-            operacoes: [...new Set([...r.corpo.matchAll(/<(?:\w+:)?operation\s+name=["']([^"']+)/g)].map((m) => m[1]))],
-            tamanho: r.corpo.length,
-            wsdl: nome === "homologacao" && r.status === 200 ? r.corpo : undefined, // a API guarda e tira da resposta
-            inicio: r.corpo && !/definitions/.test(r.corpo) ? r.corpo.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 160) : undefined,
-          };
-        }
+        // NFS-e de Goiânia: qual forma de cabeçalho a prefeitura aceita (consulta de DPS, homologação; não emite nada).
+        // (O WSDL já foi conferido e guardado em 30/10/2026 — fiscal_config 'nfse_wsdl'.)
+        saida.nfse = { sondagem: await sondarFormatoNfse(String(pedido.im || "6059023")) };
         // Consulta de uma chave inexistente: só confere conexão e certificado.
         try {
           const r = await distribuicao(`<consChNFe><chNFe>${"0".repeat(44)}</chNFe></consChNFe>`);
