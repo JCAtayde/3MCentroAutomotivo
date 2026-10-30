@@ -131,6 +131,27 @@ function chamarSoap(url, envelope, comCertificado = true) {
   });
 }
 
+/** GET com o certificado da 3M (só leitura): usado para conferir o WSDL da NFS-e de Goiânia. */
+function obterComCertificado(url) {
+  return new Promise((resolve) => {
+    if (!agente) return resolve({ status: 0, corpo: "" });
+    const req = https.request(url, { method: "GET", agent: agente, timeout: 20_000 }, (res) => {
+      const partes = [];
+      res.on("data", (p) => partes.push(p));
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, corpo: Buffer.concat(partes).toString("utf8") }));
+    });
+    req.on("timeout", () => req.destroy(new Error("sem resposta em 20 s")));
+    req.on("error", (e) => resolve({ status: 0, corpo: "", erro: e.message }));
+    req.end();
+  });
+}
+
+// Webservice da NFS-e (padrão nacional) da NotaControl/ISS.net: endereços a confirmar.
+const NFSE_WSDL = {
+  homologacao: "https://nfse.issnetonline.com.br/wsnfsenacional/homologacao/nfse.asmx?wsdl",
+  goiania: "https://nfse.issnetonline.com.br/wsnfsenacional/goiania/nfse.asmx?wsdl",
+};
+
 function envelope(wsdl, conteudo) {
   return (
     `<?xml version="1.0" encoding="utf-8"?>` +
@@ -452,6 +473,17 @@ const servidor = http.createServer(async (req, res) => {
         // CSC sem revelar o código: só o ID, o tamanho e se ficou o texto de exemplo.
         const resumoCsc = (c) => (c.csc ? { id: c.id, tamanho: c.csc.length, exemplo: /COLE_AQUI/i.test(c.csc) } : null);
         saida.csc = { producao: resumoCsc(csc(1)), homologacao: process.env.CSC_HOM ? resumoCsc(csc(2)) : "não gravado (usa o de produção)" };
+        // NFS-e de Goiânia: confere se o WSDL abre com o certificado e quais operações ele tem.
+        saida.nfse = {};
+        for (const [nome, url] of Object.entries(NFSE_WSDL)) {
+          const r = await obterComCertificado(url);
+          saida.nfse[nome] = {
+            status: r.status, erro: r.erro,
+            endereco: (r.corpo.match(/soap12?:address location="([^"]+)"/) ?? [])[1] ?? null,
+            operacoes: [...new Set([...r.corpo.matchAll(/<wsdl:operation name="([^"]+)"/g)].map((m) => m[1]))],
+            inicio: r.corpo && !/wsdl:definitions/.test(r.corpo) ? r.corpo.replace(/<[^>]+>/g, " ").replace(/s+/g, " ").slice(0, 160) : undefined,
+          };
+        }
         // Consulta de uma chave inexistente: só confere conexão e certificado.
         try {
           const r = await distribuicao(`<consChNFe><chNFe>${"0".repeat(44)}</chNFe></consChNFe>`);
