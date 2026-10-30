@@ -3522,7 +3522,7 @@ async function buscarNotasSefaz(){
 }
 async function diagnosticoFiscal(){
   toast('Conferindo certificado e SEFAZ…');
-  try{ const r=await fetch(API_FISCAL+'/diagnostico',{method:'POST'}); const d=await r.json(); alert(JSON.stringify(d,null,2)); }
+  try{ const r=await fetch(API_FISCAL+'/diagnostico',{method:'POST'}); const d=await r.json(); openModal('<h3>Diagnóstico da ponte fiscal</h3><pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;max-height:60vh;overflow:auto;background:var(--panel,#111);padding:10px;border-radius:8px">'+esc(JSON.stringify(d,null,2))+'</pre><div class="form-actions"><button class="btn" onclick="closeModal()">Fechar</button></div>'); }
   catch(e){ alert('Erro: '+e.message); }
 }
 function nfeQtd(n){ return (Number(n)||0).toLocaleString('pt-BR',{maximumFractionDigits:3}); }

@@ -479,9 +479,10 @@ const servidor = http.createServer(async (req, res) => {
           const r = await obterComCertificado(url);
           saida.nfse[nome] = {
             status: r.status, erro: r.erro,
-            endereco: (r.corpo.match(/soap12?:address location="([^"]+)"/) ?? [])[1] ?? null,
-            operacoes: [...new Set([...r.corpo.matchAll(/<wsdl:operation name="([^"]+)"/g)].map((m) => m[1]))],
-            inicio: r.corpo && !/wsdl:definitions/.test(r.corpo) ? r.corpo.replace(/<[^>]+>/g, " ").replace(/s+/g, " ").slice(0, 160) : undefined,
+            enderecos: [...new Set([...r.corpo.matchAll(/address\s+location=["']([^"']+)/g)].map((m) => m[1]))],
+            operacoes: [...new Set([...r.corpo.matchAll(/<(?:\w+:)?operation\s+name=["']([^"']+)/g)].map((m) => m[1]))],
+            tamanho: r.corpo.length,
+            inicio: r.corpo && !/definitions/.test(r.corpo) ? r.corpo.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 160) : undefined,
           };
         }
         // Consulta de uma chave inexistente: só confere conexão e certificado.
