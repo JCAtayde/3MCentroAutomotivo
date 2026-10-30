@@ -466,7 +466,9 @@ async function soapNfse(tpAmb, operacao, dados) {
   const cabec = `<cabecalho xmlns="${NS_NFSE}" versao="${VERSAO_NFSE}"><versaoDados>${VERSAO_NFSE}</versaoDados></cabecalho>`;
   const env =
     `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body>` +
-    `<${operacao} xmlns="${NS_NFSE}"><nfseCabecMsg>${escXml(cabec)}</nfseCabecMsg><nfseDadosMsg>${escXml(dados)}</nfseDadosMsg></${operacao}>` +
+    // No WSDL, nfseCabecMsg/nfseDadosMsg são elementos locais sem namespace (elementFormDefault padrão =
+    // unqualified): com o xmlns padrão no pai eles herdavam o namespace e a prefeitura não os achava (E160/E232).
+    `<ws:${operacao} xmlns:ws="${NS_NFSE}"><nfseCabecMsg>${escXml(cabec)}</nfseCabecMsg><nfseDadosMsg>${escXml(dados)}</nfseDadosMsg></ws:${operacao}>` +
     `</soap:Body></soap:Envelope>`;
   const r = await chamarSoap(NFSE_URL[tpAmb], env, true, { "content-type": "text/xml; charset=utf-8", SOAPAction: `"${NS_NFSE}/${operacao}"` });
   // O WSDL fala em <outputXML> (texto), mas Goiânia devolve o XML direto dentro de <{operação}Response>.
