@@ -627,7 +627,9 @@ const servidor = http.createServer(async (req, res) => {
       }
       return responder(res, 400, { erro: "ação desconhecida" });
     } catch (e) {
-      return responder(res, 502, { erro: e instanceof Error ? e.message : String(e) });
+      const erro = (e instanceof Error ? e.message : String(e)) || "erro sem mensagem";
+      console.error(`[${pedido.acao ?? (pedido.diagnostico ? "diagnostico" : "?")}] ${erro}`); // aparece em flyctl logs
+      return responder(res, 502, { erro });
     }
   } catch (e) {
     return responder(res, 500, { erro: e instanceof Error ? e.message : String(e) });

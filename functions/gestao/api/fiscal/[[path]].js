@@ -222,19 +222,21 @@ async function ultimoCodigo(DB) {
 
 async function ponte(env, pedido) {
   if (!env.PONTE_FISCAL_URL || !env.PONTE_FISCAL_TOKEN) throw new Error('Ponte fiscal não configurada (PONTE_FISCAL_URL / PONTE_FISCAL_TOKEN).');
-  // A ponte dorme sem uso (Fly autostop) e leva ~2 s para acordar: nesse intervalo o Fly responde
-  // 502/503 sem o pedido chegar nela — então dá para repetir com segurança.
-  let r;
+  // A ponte dorme sem uso (Fly autostop) e leva ~2 s para acordar: nesse intervalo quem responde
+  // 502/503 é o Fly, sem JSON e sem o pedido chegar nela — só esse caso é repetido. O 502 da própria
+  // ponte (erro ao falar com a SEFAZ/prefeitura) vem em JSON e não se repete: pode ter havido emissão.
+  let r, dados;
   for (let tentativa = 0; ; tentativa++) {
     r = await fetch(env.PONTE_FISCAL_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-ponte-token': env.PONTE_FISCAL_TOKEN },
       body: JSON.stringify(pedido),
     });
-    if (![502, 503].includes(r.status) || tentativa >= 3) break;
+    dados = await r.json().catch(() => null);
+    if (dados || ![502, 503].includes(r.status) || tentativa >= 3) break;
     await new Promise((ok) => setTimeout(ok, 2500));
   }
-  const dados = await r.json().catch(() => ({ erro: `ponte respondeu ${r.status}` }));
+  if (!dados) dados = { erro: `ponte fiscal fora do ar (${r.status}). Tente de novo em 1 minuto.` };
   if (!r.ok) throw new Error(dados.erro || `ponte respondeu ${r.status}`);
   return dados;
 }
