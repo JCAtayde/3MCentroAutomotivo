@@ -45,12 +45,13 @@
  *   POST nfse_cancelar         { id, cMotivo (1 erro, 2 não prestado, 9 outros), xMotivo }
  *   GET  nfse_saidas?ordem_id= notas de serviço (sem o XML)
  *   GET  nfse_xml?id=          XML da NFS-e (e o do cancelamento: &evento=cancelamento)
+ *   GET  nfse_danfse?id=       DANFSe em HTML (imprimir / salvar PDF), com o QR Code do link oficial
  *
  * Notas anteriores à ativação do estoque (dfe_controle.estoque_desde) ficam como
  * histórico: dá para ligar as peças às OS (rastreio/garantia), mas não somam no estoque.
  */
 
-import { garantirTabelaNfse, configNfse, salvarConfigNfse, emitirNfse, cancelarNfse } from '../../../_lib/nfse.js';
+import { garantirTabelaNfse, configNfse, salvarConfigNfse, emitirNfse, cancelarNfse, danfseHtml, linksNfse } from '../../../_lib/nfse.js';
 
 // Regra da SEFAZ: sem documentos novos (137) ou já no fim da fila, esperar 1 hora
 // antes de consultar de novo — senão ela bloqueia por "consumo indevido" (656).
@@ -1039,6 +1040,12 @@ export async function onRequest(context) {
       const r = await DB.prepare(`SELECT id,ordem_id,tp_amb,serie,n_dps,chave,numero,status,erros,valor,desconto,iss_retido,tomador_doc,tomador_nome,descricao,cancel_just,quem,criado
         FROM nfse_saida ${oid ? 'WHERE ordem_id=?' : ''} ORDER BY criado DESC LIMIT 300`).bind(...(oid ? [oid] : [])).all();
       return jsonResp({ notas: r.results || [] });
+    }
+    if (request.method === 'GET' && acao === 'nfse_danfse') {
+      const n = await DB.prepare('SELECT * FROM nfse_saida WHERE id=?').bind(String(url.searchParams.get('id') || '')).first();
+      if (!n || !n.xml) return new Response('Nota de serviço não encontrada ou não autorizada.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+      const links = await linksNfse(DB, (p) => ponte(env, p), n);
+      return new Response(danfseHtml(n, links), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
     }
     if (request.method === 'GET' && acao === 'nfse_xml') {
       const n = await DB.prepare('SELECT * FROM nfse_saida WHERE id=?').bind(String(url.searchParams.get('id') || '')).first();

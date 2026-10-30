@@ -134,6 +134,9 @@ export async function emitirNfse(DB, ponte, b, quem) {
     return { validacao: true, ok: r.ok, erros: r.erros || [], alertas: r.alertas || [], sucesso: r.sucesso || [], semNumero: !livre, tpAmb, resposta: r.resposta };
   }
   if (!r.ok) await guardarResposta(DB, 'gerar', r);
+  // Links oficiais (QR Code do DANFSe). Se falhar, o DANFSe busca de novo quando for aberto.
+  let links = null;
+  if (r.ok && r.numero) { try { links = await ponte({ acao: 'nfse_links', tpAmb, im: PRESTADOR.IM, numero: r.numero }); } catch (e) { links = null; } }
   const agora = Date.now(), id = uid(), t = b.tomador || {};
   const status = r.ok ? 'autorizada' : 'rejeitada';
   await DB.prepare(`INSERT INTO nfse_saida (id,ordem_id,tp_amb,serie,n_dps,chave,numero,status,erros,valor,desconto,iss_retido,tomador_doc,tomador_nome,descricao,dados,xml,dps,quem,criado,atualizado)
@@ -141,7 +144,7 @@ export async function emitirNfse(DB, ponte, b, quem) {
     .bind(id, String(b.ordem_id || ''), tpAmb, String(livre.serie), String(livre.numero), r.chave || null, r.numero || null, status,
       (r.erros || []).length ? JSON.stringify(r.erros) : null, dps.valor, dps.desconto, b.iss_retido ? 1 : 0,
       soDigitos(t.doc) || null, t.nome || null, String(b.descricao || '').slice(0, 2000),
-      JSON.stringify({ tomador: t, os: b.os || null, alertas: r.alertas || [] }), r.xml || null, r.dps || null, String(quem || ''), agora, agora)
+      JSON.stringify({ tomador: t, os: b.os || null, alertas: r.alertas || [], links: linksValidos(links) }), r.xml || null, r.dps || null, String(quem || ''), agora, agora)
     .run();
   return { id, status, chave: r.chave, numero: r.numero, tpAmb, erros: r.erros || [], alertas: r.alertas || [], texto: textoErros(r.erros), resposta: r.resposta };
 }
@@ -160,4 +163,116 @@ export async function cancelarNfse(DB, ponte, b) {
   await DB.prepare("UPDATE nfse_saida SET status='cancelada', cancel_xml=?, cancel_just=?, atualizado=? WHERE id=?")
     .bind(r.xml || null, xMotivo, Date.now(), n.id).run();
   return { ok: true };
+}
+
+// ---------- Links oficiais e DANFSe ----------
+
+const linksValidos = (l) => (l && (l.autenticidade || l.visualizar || l.nacional)
+  ? { autenticidade: l.autenticidade || null, visualizar: l.visualizar || null, nacional: l.nacional || null } : null);
+
+/** Links da nota (QR Code): usa os guardados; se não houver, pergunta à prefeitura e guarda. */
+export async function linksNfse(DB, ponte, n) {
+  let dados = {}; try { dados = JSON.parse(n.dados || '{}'); } catch (e) { dados = {}; }
+  if (dados.links || !n.numero || n.status === 'rejeitada') return dados.links || null;
+  try {
+    const l = linksValidos(await ponte({ acao: 'nfse_links', tpAmb: n.tp_amb, im: PRESTADOR.IM, numero: n.numero }));
+    if (l) { dados.links = l; await DB.prepare('UPDATE nfse_saida SET dados=? WHERE id=?').bind(JSON.stringify(dados), n.id).run(); }
+    return l;
+  } catch (e) { return null; }
+}
+
+const TRIB_ISSQN = { 1: 'Operação tributável', 2: 'Imunidade', 3: 'Exportação de serviço', 4: 'Não incidência' };
+const RET_ISSQN = { 1: 'Não retido', 2: 'Retido pelo tomador', 3: 'Retido pelo intermediário' };
+const OP_SN = { 1: 'Não optante', 2: 'Optante — Microempreendedor Individual (MEI)', 3: 'Optante — Microempresa ou Empresa de Pequeno Porte (ME/EPP)' };
+const AP_SN = { 1: 'Regime de apuração dos tributos federais e municipal pelo SN', 2: 'Tributos federais pelo SN e ISSQN por fora do SN', 3: 'Tributos federais e municipal por fora do SN' };
+
+/** DANFSe (Documento Auxiliar da NFS-e) em HTML para imprimir ou salvar em PDF, a partir do XML autorizado. */
+export function danfseHtml(n, links) {
+  const x = n.xml || '';
+  const t = (s, nome) => { const m = String(s || '').match(new RegExp(`<(?:\\w+:)?${nome}(?:\\s[^>]*)?>([\\s\\S]*?)</(?:\\w+:)?${nome}>`)); return m ? m[1] : ''; };
+  // O XML já vem escapado (&amp; &lt;): escapa o resto sem escapar de novo as entidades.
+  const e = (s) => String(s ?? '').replace(/&(?!(amp|lt|gt|quot|apos|#\d+);)/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const brl = (v) => (v === '' || v == null) ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const pct = (v) => (v === '' || v == null) ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + '%';
+  const doc = (v) => { const d = soDigitos(v); return d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : d.length === 11 ? d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4') : (v || '—'); };
+  const cep = (v) => { const d = soDigitos(v); return d.length === 8 ? d.replace(/^(\d{2})(\d{3})(\d{3})$/, '$1.$2-$3') : (v || ''); };
+  const data = (v) => v ? v.slice(0, 10).split('-').reverse().join('/') : '—';
+  const dataHora = (v) => v ? data(v) + ' ' + v.slice(11, 19) : '—';
+  const cod = (v, fmt) => { const d = soDigitos(v); return fmt === 'trib' && d.length === 6 ? d.replace(/^(\d{2})(\d{2})(\d{2})$/, '$1.$2.$3') : fmt === 'nbs' && d.length === 9 ? d.replace(/^(\d)(\d{4})(\d{2})(\d{2})$/, '$1.$2.$3.$4') : (v || '—'); };
+
+  const inf = t(x, 'infNFSe'), emit = t(inf, 'emit'), endE = t(emit, 'enderNac'), val = t(inf, 'valores');
+  const dps = t(inf, 'infDPS'), toma = t(dps, 'toma'), endT = t(toma, 'end'), serv = t(dps, 'serv'), cServ = t(serv, 'cServ');
+  const vDps = t(dps, 'valores'), tribMun = t(vDps, 'tribMun'), regTrib = t(t(dps, 'prest'), 'regTrib');
+  const chave = n.chave || (x.match(/infNFSe[^>]*Id="NFS([0-9A-Z]{50})"/) || [])[1] || '';
+  const homolog = Number(n.tp_amb) === 2 || t(dps, 'tpAmb') === '2';
+  const cancel = n.status === 'cancelada';
+  const vServ = t(t(vDps, 'vServPrest'), 'vServ'), vDesc = t(t(vDps, 'vDescCondIncond'), 'vDescIncond');
+  const retido = t(tribMun, 'tpRetISSQN') === '2';
+  const qr = (links && (links.autenticidade || links.nacional || links.visualizar)) || '';
+  const campo = (rot, v, cls = '') => `<div class="c ${cls}"><div class="r">${rot}</div><div class="v">${v || '—'}</div></div>`;
+  const marca = (homolog ? '<div class="marca">HOMOLOGAÇÃO — SEM VALOR FISCAL</div>' : '') + (cancel ? '<div class="marca">CANCELADA</div>' : '');
+  const infoCompl = [t(inf, 'xOutInf') || 'DOCUMENTO EMITIDO POR ME OU EPP OPTANTE PELO SIMPLES NACIONAL. NÃO GERA DIREITO A CRÉDITO FISCAL DE IPI.',
+    t(t(serv, 'infoCompl'), 'xInfComp')].filter(Boolean).map(e).join('<br>');
+  const pTot = t(t(vDps, 'totTrib'), 'pTotTribSN');
+
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>NFS-e ${e(n.numero || '')} · 3M</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  *{box-sizing:border-box} body{font:11px/1.35 Arial,Helvetica,sans-serif;margin:0;background:#fff;color:#000}
+  .pg{width:200mm;max-width:100%;margin:0 auto;padding:6mm 5mm;position:relative}
+  .top{display:flex;gap:10px;align-items:stretch;border:1px solid #000;padding:6px}
+  .top .t{flex:1} .top h1{font-size:15px;margin:0} .top .s{font-size:11px;color:#333}
+  #qr{width:96px;height:96px;flex:none} .qrbox{display:flex;gap:8px;align-items:center;max-width:300px;font-size:9px;color:#333}
+  .sec{border:1px solid #000;border-top:0;padding:4px 6px} .sec h2{font-size:10px;margin:0 0 3px;letter-spacing:.3px;background:#eee;padding:2px 4px}
+  .g{display:grid;grid-template-columns:repeat(4,1fr);gap:3px 8px} .c .r{font-size:8.5px;color:#444;text-transform:uppercase} .c .v{font-size:11px;font-weight:bold;word-break:break-word}
+  .s2{grid-column:span 2} .s4{grid-column:span 4}
+  .chave{font:bold 12px monospace;letter-spacing:.5px}
+  .desc{white-space:pre-wrap;font-size:11px}
+  .tot{display:flex;justify-content:space-between;font-size:13px;font-weight:bold;border:1px solid #000;border-top:0;padding:6px}
+  .marca{position:absolute;top:40%;left:0;right:0;text-align:center;font-size:34px;color:rgba(200,0,0,.18);transform:rotate(-20deg);pointer-events:none;font-weight:bold}
+  .bar{max-width:200mm;margin:8px auto;text-align:right;padding:0 5mm} .bar button{font-size:14px;padding:8px 14px}
+  @media print{.bar{display:none} .pg{padding:0}} @page{size:A4;margin:8mm}
+</style></head><body>
+<div class="bar"><button onclick="window.print()">Imprimir / salvar PDF</button></div>
+<div class="pg">${marca}
+  <div class="top">
+    <div class="t"><h1>DANFSe — Documento Auxiliar da NFS-e</h1>
+      <div class="s">Município: ${e(t(inf, 'xLocEmi') || 'Goiânia')} - GO · ${homolog ? 'Homologação' : 'Produção'}${cancel ? ' · <b>NFS-e CANCELADA</b>' : ''}</div>
+      <div style="font-size:8.5px;margin-top:6px;color:#444">CHAVE DE ACESSO DA NFS-e</div><div class="chave">${e(chave.replace(/(.{5})/g, '$1 ').trim())}</div></div>
+    <div class="qrbox">${qr ? '<div id="qr"></div>' : ''}<div>A autenticidade desta NFS-e pode ser verificada ${qr ? 'pela leitura deste código QR ou ' : ''}pela consulta da chave de acesso no portal nacional da NFS-e.</div></div>
+  </div>
+  <div class="sec"><div class="g">
+    ${campo('Número da NFS-e', e(t(inf, 'nNFSe') || n.numero))}${campo('Competência', data(t(dps, 'dCompet')))}${campo('Emissão da NFS-e', dataHora(t(inf, 'dhProc')))}${campo('Situação', cancel ? 'Cancelada' : 'NFS-e gerada')}
+    ${campo('Número da DPS', e(t(dps, 'nDPS') || n.n_dps))}${campo('Série da DPS', e(t(dps, 'serie') || n.serie))}${campo('Emissão da DPS', dataHora(t(dps, 'dhEmi')))}${campo('Emitente', 'Prestador')}
+  </div></div>
+  <div class="sec"><h2>PRESTADOR / FORNECEDOR</h2><div class="g">
+    ${campo('Nome / Nome empresarial', e(t(emit, 'xNome') || 'JCMA CENTRO AUTOMOTIVO LTDA'), 's2')}${campo('CNPJ', doc(t(emit, 'CNPJ') || PRESTADOR.CNPJ))}${campo('Inscrição municipal', e(t(emit, 'IM') || PRESTADOR.IM))}
+    ${campo('Endereço', e([t(endE, 'xLgr'), t(endE, 'nro'), t(endE, 'xCpl'), t(endE, 'xBairro')].filter(Boolean).join(', ')), 's2')}${campo('Município / UF', e((t(inf, 'xLocEmi') || 'Goiânia') + ' / ' + (t(endE, 'UF') || 'GO')))}${campo('CEP', cep(t(endE, 'CEP')))}
+    ${campo('Telefone', e(t(emit, 'fone')))}${campo('E-mail', e(t(emit, 'email')))}${campo('Simples Nacional', e(OP_SN[t(regTrib, 'opSimpNac')] || ''), 's2')}
+    ${campo('Regime de apuração tributária pelo SN', e(AP_SN[t(regTrib, 'regApTribSN')] || ''), 's4')}
+  </div></div>
+  <div class="sec"><h2>TOMADOR / ADQUIRENTE</h2><div class="g">
+    ${toma ? `${campo('Nome / Nome empresarial', e(t(toma, 'xNome')), 's2')}${campo('CNPJ / CPF', doc(t(toma, 'CNPJ') || t(toma, 'CPF')))}${campo('Inscrição municipal', e(t(toma, 'IM')))}
+    ${campo('Endereço', e([t(endT, 'xLgr'), t(endT, 'nro'), t(endT, 'xCpl'), t(endT, 'xBairro')].filter(Boolean).join(', ')), 's2')}${campo('CEP', cep(t(t(endT, 'endNac'), 'CEP')))}${campo('Telefone / e-mail', e([t(toma, 'fone'), t(toma, 'email')].filter(Boolean).join(' · ')))}`
+      : campo('Tomador', 'Não identificado na NFS-e', 's4')}
+  </div></div>
+  <div class="sec"><h2>SERVIÇO PRESTADO</h2><div class="g">
+    ${campo('Código de tributação nacional / municipal', cod(t(cServ, 'cTribNac'), 'trib') + ' / ' + e(t(cServ, 'cTribMun') || '—'), 's2')}${campo('Código da NBS', cod(t(cServ, 'cNBS'), 'nbs'))}${campo('Local da prestação', e(t(inf, 'xLocPrestacao') || 'Goiânia'))}
+    ${campo('Descrição do código de tributação nacional', e(t(inf, 'xTribNac')), 's4')}
+    <div class="c s4"><div class="r">Descrição do serviço</div><div class="v desc">${e(t(cServ, 'xDescServ'))}</div></div>
+  </div></div>
+  <div class="sec"><h2>TRIBUTAÇÃO MUNICIPAL (ISSQN)</h2><div class="g">
+    ${campo('Tipo de tributação do ISSQN', e(TRIB_ISSQN[t(tribMun, 'tribISSQN')] || ''))}${campo('Município de incidência', e(t(inf, 'xLocIncid') || 'Goiânia'))}${campo('Retenção do ISSQN', e(RET_ISSQN[t(tribMun, 'tpRetISSQN')] || ''))}${campo('Regime especial', 'Nenhum')}
+    ${campo('Base de cálculo do ISSQN', brl(t(val, 'vBC')))}${campo('Alíquota aplicada', pct(t(val, 'pAliqAplic')))}${campo('ISSQN apurado', brl(t(val, 'vISSQN')))}${campo('Total das retenções', brl(t(val, 'vTotalRet') || (retido ? t(val, 'vISSQN') : '')))}
+  </div></div>
+  <div class="sec"><h2>VALOR TOTAL DA NFS-e</h2><div class="g">
+    ${campo('Valor do serviço', brl(vServ))}${campo('Desconto incondicionado', brl(vDesc))}${campo('ISSQN retido', retido ? brl(t(val, 'vISSQN')) : '—')}${campo('Valor líquido da NFS-e', brl(t(val, 'vLiq')))}
+  </div></div>
+  <div class="tot"><span>VALOR LÍQUIDO DA NFS-e</span><span>${brl(t(val, 'vLiq') || (Number(vServ || 0) - Number(vDesc || 0)))}</span></div>
+  <div class="sec"><h2>INFORMAÇÕES COMPLEMENTARES</h2><div class="desc">${infoCompl || 'DOCUMENTO EMITIDO POR ME OU EPP OPTANTE PELO SIMPLES NACIONAL. NÃO GERA DIREITO A CRÉDITO FISCAL DE IPI.'}</div>
+    ${pTot ? `<div style="margin-top:3px">Totais aproximados dos tributos cfe. Lei nº 12.741/2012: alíquota do Simples Nacional ${pct(pTot)}.</div>` : ''}</div>
+</div>
+${qr ? `<script>try{new QRCode(document.getElementById('qr'),{text:${JSON.stringify(qr).replace(/</g, '\\u003c')},width:96,height:96,correctLevel:QRCode.CorrectLevel.M});}catch(e){}</script>` : ''}
+</body></html>`;
 }

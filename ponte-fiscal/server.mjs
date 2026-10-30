@@ -20,6 +20,7 @@
 //   { acao: "nfse_gerar", tpAmb, infDPS, validar }   assina a <infDPS> montada pelo sistema e
 //                                                    envia (GerarNfse) ou só confere (ValidarXml)
 //   { acao: "nfse_cancelar", tpAmb, chave, cMotivo, xMotivo }  evento 101101
+//   { acao: "nfse_links", tpAmb, im, numero }        links oficiais da nota (QR Code do DANFSe)
 //
 // Segredos (fly secrets):
 //   PONTE_TOKEN        senha compartilhada com o sistema (cabeçalho x-ponte-token);
@@ -570,6 +571,15 @@ function pedidoCancelamentoNfse(tpAmb, chave, cMotivo, xMotivo) {
   return `<CancelarNfseEnvio xmlns="${NS_NFSE}"><pedRegEvento versao="${VERSAO_NFSE}">${inf}${assinar(inf, id, NS_NFSE)}</pedRegEvento></CancelarNfseEnvio>`;
 }
 
+/** Links oficiais da NFS-e (visualização e verificação de autenticidade), pelo número. Só consulta. */
+async function nfseLinks(tpAmb, im, numero) {
+  const envio = `<ConsultarUrlNfseEnvio xmlns="${NS_NFSE}"><Prestador><CNPJ>${CNPJ}</CNPJ><IM>${im}</IM></Prestador><NumeroNfse>${numero}</NumeroNfse><Pagina>1</Pagina></ConsultarUrlNfseEnvio>`;
+  const xml = await soapNfse(tpAmb, "ConsultarUrlNfse", envio);
+  const l = tag(xml, "Links") ?? "";
+  return { visualizar: tag(l, "UrlVisualizacaoNfse"), autenticidade: tag(l, "UrlVerificaAutenticidade"),
+    nacional: tag(l, "UrlVisualizacaoNfseNacional"), erros: mensagensNfse(xml, "ListaMensagemRetorno") };
+}
+
 async function nfseCancelar(tpAmb, chave, cMotivo, xMotivo) {
   const xml = await soapNfse(tpAmb, "CancelarNfse", pedidoCancelamentoNfse(tpAmb, chave, cMotivo, xMotivo));
   const erros = mensagensNfse(xml, "ListaMensagemRetorno");
@@ -651,6 +661,11 @@ const servidor = http.createServer(async (req, res) => {
           if (!infDPS.startsWith(`<infDPS Id="DPS52087072${CNPJ}`) ||!infDPS.endsWith("</infDPS>") || infDPS.length > 60_000)
             return responder(res, 400, { erro: "DPS inválida" });
           return responder(res, 200, await nfseGerar(tpAmb, infDPS, !!pedido.validar));
+        }
+        if (pedido.acao === "nfse_links") {
+          const im = String(pedido.im ?? "").replace(/\D/g, ""), numero = String(pedido.numero ?? "").replace(/\D/g, "");
+          if (!im || !numero || numero.length > 15) return responder(res, 400, { erro: "número da NFS-e inválido" });
+          return responder(res, 200, await nfseLinks(tpAmb, im, numero));
         }
         if (pedido.acao === "nfse_cancelar") {
           const chave = String(pedido.chave ?? "");

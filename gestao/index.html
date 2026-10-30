@@ -3728,10 +3728,10 @@ async function carregarRegrasFiscais(){
 function renderFiscal(){
   const box=document.getElementById('fiscalBox'); if(!box) return;
   if(!telaLiberada('fornecedores')&&!ehGestor()){ box.innerHTML='<div class="note empty-note">Sem permissão.</div>'; return; }
-  const abas=[['regras','Regras das peças'],['emissao','Emissão de notas'],['simples','Simples (estimativa)']].filter(a=>a[0]!=='simples'||ehGestor());
+  const abas=[['regras','Regras das peças'],['emissao','Nota de peças'],['servico','Nota de serviço'],['simples','Simples (estimativa)']].filter(a=>a[0]!=='simples'||ehGestor());
   if(!abas.some(a=>a[0]===fiscalAba)) fiscalAba='regras';
   box.innerHTML=`<div class="seg" style="display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap">${abas.map(a=>`<button class="btn sm ${fiscalAba===a[0]?'gold':''}" onclick="fiscalAba='${a[0]}'; renderFiscal()">${a[1]}</button>`).join('')}</div><div id="fiscalConteudo"><div class="note">Carregando…</div></div>`;
-  const pronto=()=>{ if(fiscalAba==='regras') desenharRegrasFiscais(); else if(fiscalAba==='emissao') desenharEmissaoCfg(); else desenharSimples(); };
+  const pronto=()=>{ if(fiscalAba==='regras') desenharRegrasFiscais(); else if(fiscalAba==='emissao') desenharEmissaoCfg(); else if(fiscalAba==='servico') desenharServicoCfg(); else desenharSimples(); };
   const precisa=[]; if(!fiscalRegras) precisa.push(carregarRegrasFiscais()); if(fiscalAba==='simples'&&!notasCompra) precisa.push(carregarNotasCompra());
   if(precisa.length) Promise.all(precisa).then(pronto).catch(e=>{ const c=document.getElementById('fiscalConteudo'); if(c) c.innerHTML='<div class="note">Erro ao carregar: '+esc(e.message)+'</div>'; });
   else pronto();
@@ -3974,7 +3974,7 @@ function linhaNfse(n){
     <div class="s">Serviço · ${moneyFmt((Number(n.valor)||0)-(Number(n.desconto)||0))} · ${new Date(n.criado).toLocaleString('pt-BR')}${n.tomador_nome?(' · '+esc(n.tomador_nome)):''}</div>
     ${n.status==='rejeitada'&&erros.length?`<div class="s" style="color:#E5675C">Prefeitura: ${erros.map(e=>esc(((e.codigo||'')+' '+(e.mensagem||'')).trim())).join(' · ')}</div>`:''}
     ${n.status==='cancelada'?`<div class="s">Cancelada: ${esc(n.cancel_just||'')}</div>`:''}</div>
-    ${n.status!=='rejeitada'?`<div class="form-actions" style="margin-top:6px"><a class="btn sm ghost" href="${API_FISCAL}/nfse_xml?id=${n.id}">⬇️ XML</a>
+    ${n.status!=='rejeitada'?`<div class="form-actions" style="margin-top:6px"><a class="btn sm" target="_blank" href="${API_FISCAL}/nfse_danfse?id=${n.id}">📄 DANFSe / PDF</a><a class="btn sm ghost" href="${API_FISCAL}/nfse_xml?id=${n.id}">⬇️ XML</a>
       ${n.chave?`<button class="btn sm ghost" onclick='copiarTexto("${n.chave}","Chave da NFS-e copiada")'>Copiar chave</button>`:''}
       ${n.status==='cancelada'?`<a class="btn sm ghost" href="${API_FISCAL}/nfse_xml?id=${n.id}&evento=cancelamento">⬇️ XML do cancelamento</a>`:''}
       ${n.status==='autorizada'&&pode('editar')?`<button class="btn sm ghost" style="color:#E5675C" onclick='cancelarNfseSaida("${n.id}","${n.ordem_id}")'>Cancelar nota</button>`:''}</div>`:''}</div>`;
@@ -4049,7 +4049,7 @@ async function enviarNotaServico(validar){
     carregarNotasOS(x.oid);
     if(r.status==='autorizada'){ logAcao('Emitiu nota de serviço','NFS-e '+(r.numero||''),x.oid);
       openModal(`<h3>✓ Nota de serviço autorizada</h3><div class="note" style="white-space:normal">NFS-e nº <b>${esc(r.numero||'')}</b> ${nfeAmbChip(r.tpAmb)}<br>Chave ${esc(r.chave||'')}</div>
-        <div class="form-actions"><a class="btn gold" href="${API_FISCAL}/nfse_xml?id=${r.id}">⬇️ XML</a><button class="btn" onclick="closeModal()">Fechar</button></div>`); return; }
+        <div class="form-actions"><a class="btn gold" target="_blank" href="${API_FISCAL}/nfse_danfse?id=${r.id}">📄 Abrir DANFSe / PDF</a><a class="btn" href="${API_FISCAL}/nfse_xml?id=${r.id}">⬇️ XML</a><button class="btn" onclick="closeModal()">Fechar</button></div>`); return; }
     liberar(); res.innerHTML=`<div class="note" style="white-space:normal;color:#E5675C">A prefeitura recusou a nota (nada foi emitido):${errosNfseHtml(r.erros)||'<div>resposta inesperada (guardada para análise)</div>'}</div>`;
   }catch(e){ liberar(); res.innerHTML=`<div class="note" style="white-space:normal;color:#E5675C">${esc(e instanceof TypeError?'A resposta do servidor não chegou (internet). Antes de tentar de novo, feche e veja na OS se a nota já apareceu.':e.message)}</div>`; }
 }
@@ -4170,8 +4170,14 @@ async function desenharEmissaoCfg(){
     <div class="section-label">Próximo número</div>
     <table style="width:100%;font-size:13px;border-collapse:collapse">${[2,1].map(tp=>['55','65'].map(m=>linhaNum(tp,m)).join('')).join('')}</table>
     <div class="note" style="white-space:normal;font-size:12px">A NF-e de produção continua da nº 353 (emitida pelo contador em 23/10/2026). Para a NFC-e de produção, informe o próximo número se a 3M já tiver emitido alguma.</div>
-    <div class="section-label">Notas emitidas (${notas.length})</div><div class="rows">${notas.map(n=>linhaNotaSaida(n)).join('')||emptyState('Nenhuma nota emitida','Emita pela OS: botão “Emitir nota das peças”.')}</div>
-    <div class="section-label" style="margin-top:16px">Nota de serviço (NFS-e de Goiânia)</div><div id="nfseCfgBox"><div class="note">Carregando…</div></div>`;
+    <div class="section-label">Notas emitidas (${notas.length})</div><div class="rows">${notas.map(n=>linhaNotaSaida(n)).join('')||emptyState('Nenhuma nota emitida','Emita pela OS: botão “Emitir nota das peças”.')}</div>`;
+}
+/* ---- Fiscal → Nota de serviço: ambiente da NFS-e e notas de serviço emitidas ---- */
+async function desenharServicoCfg(){
+  const el=document.getElementById('fiscalConteudo'); if(!el) return;
+  let notas=[]; try{ const r=await fetch(API_FISCAL+'/nfse_saidas'); const d=await r.json(); if(d.error) throw new Error(d.error); notas=d.notas||[]; }catch(e){ el.innerHTML='<div class="note">Erro: '+esc(e.message)+'</div>'; return; }
+  el.innerHTML=`<div id="nfseCfgBox"><div class="note">Carregando…</div></div>
+    <div class="section-label">Notas de serviço emitidas (${notas.length})</div><div class="rows">${notas.map(n=>linhaNfse(n)).join('')||emptyState('Nenhuma nota de serviço','Emita pela OS: botão “Emitir nota de serviço”.')}</div>`;
   desenharNfseCfg();
 }
 async function desenharNfseCfg(){
