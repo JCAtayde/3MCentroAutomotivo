@@ -4031,7 +4031,8 @@ function renderNotaServico(){
     <div class="os-total"><span class="l"><b>Valor da nota</b></span><span class="v"><b>${moneyFmt(liq)}</b></span></div>
     <div id="nfseRes"></div>
     <div class="form-actions" style="flex-wrap:wrap"><button class="btn gold" onclick="enviarNotaServico(false)">${nfseCfg.tpAmb===2?'Emitir nota de serviço de teste':'Emitir nota de serviço'}</button>
-      <button class="btn" onclick="enviarNotaServico(true)">Conferir na prefeitura (sem emitir)</button><button class="btn ghost" onclick="closeModal()">Voltar</button></div>`);
+      <button class="btn" onclick="enviarNotaServico(true)">${nfseCfg.tpAmb===2?'Conferir na prefeitura — produção (sem emitir)':'Conferir na prefeitura (sem emitir)'}</button><button class="btn ghost" onclick="closeModal()">Voltar</button></div>
+    ${nfseCfg.tpAmb===2?'<div class="s" style="color:var(--muted);margin-top:6px">O ambiente de teste da prefeitura ainda não tem a 3M cadastrada; por isso a conferência usa a produção. Conferir não gera nota.</div>':''}`);
 }
 function errosNfseHtml(l){ return (l||[]).map(e=>`<div><b>${esc(e.codigo||'')}</b> ${esc(e.mensagem||'')}${e.correcao?` <span style="color:var(--muted)">— ${esc(e.correcao)}</span>`:''}</div>`).join(''); }
 async function enviarNotaServico(validar){
@@ -4040,7 +4041,7 @@ async function enviarNotaServico(validar){
   res.innerHTML=`<div class="note">${validar?'Conferindo na prefeitura…':'Enviando para a prefeitura…'}</div>`;
   try{
     const r=await fiscalPost('nfse_emitir',{ ordem_id:x.oid, os:(getOS(x.oid)||{}).codigo||'', tomador:x.tomador, descricao:x.descricao, infoCompl:x.info,
-      valor:x.valor, desconto:x.desconto, iss_retido:x.issRetido, validar });
+      valor:x.valor, desconto:x.desconto, iss_retido:x.issRetido, validar, validarProducao:validar&&nfseCfg.tpAmb===2 });
     if(validar){ liberar();
       res.innerHTML=r.ok?`<div class="note" style="white-space:normal;border-color:#48B98A">✓ A prefeitura conferiu e não achou erro.${r.semNumero?' (Ainda sem número de DPS liberado para a 3M.)':''}${(r.alertas||[]).length?'<br>Avisos:'+errosNfseHtml(r.alertas):''}</div>`
         :`<div class="note" style="white-space:normal;color:#E5675C">A prefeitura apontou:${errosNfseHtml(r.erros)||'<div>resposta inesperada (guardada para análise)</div>'}</div>`;

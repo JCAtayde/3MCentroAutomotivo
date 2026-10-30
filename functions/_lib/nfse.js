@@ -117,7 +117,9 @@ const textoErros = (erros) => (erros || []).map((e) => `${e.codigo || ''} ${e.me
 /** Emite (ou só confere, com b.validar) a NFS-e da mão de obra de uma OS. */
 export async function emitirNfse(DB, ponte, b, quem) {
   const cfg = await configNfse(DB);
-  const tpAmb = cfg.tpAmb;
+  // Conferir (ValidarXml, não emite) pode usar a produção: o ambiente de teste da prefeitura não tem a 3M
+  // cadastrada (E043/E259 em 30/10/2026).
+  const tpAmb = b.validar && b.validarProducao ? 1 : cfg.tpAmb;
   const disp = await ponte({ acao: 'nfse_disponivel', tpAmb, im: PRESTADOR.IM });
   const livre = (disp.dps || []).filter((x) => x.numero).sort((a, b2) => Number(a.numero) - Number(b2.numero))[0];
   if (!livre && !b.validar) {
