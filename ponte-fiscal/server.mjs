@@ -463,7 +463,9 @@ const desescXml = (t) => String(t).replace(/^\s*<!\[CDATA\[([\s\S]*)\]\]>\s*$/, 
 
 // Forma do envelope que a prefeitura aceita. O manual não detalha o cabeçalho; FORMATO_NFSE é o
 // que a sondagem (diagnóstico, só consulta) mostrar que funciona.
-const FORMATO_NFSE = { versaoCabec: "1.00", declaracao: false, cdata: false, nsFilhos: false, cabecSemNs: false };
+// Sondagem de 30/10/2026: só o XML cru dentro dos campos, com os campos no namespace da NFS-e, passa do
+// cabeçalho (texto escapado ou CDATA dão E183/E160, com qualquer versão ou namespace).
+const FORMATO_NFSE = { versaoCabec: "1.00", declaracao: false, cdata: false, nsFilhos: true, cabecSemNs: false, cru: true };
 
 function montarCabecNfse(f) {
   return (f.declaracao ? `<?xml version="1.0" encoding="UTF-8"?>` : "") +
@@ -604,7 +606,13 @@ const servidor = http.createServer(async (req, res) => {
         saida.csc = { producao: resumoCsc(csc(1)), homologacao: process.env.CSC_HOM ? resumoCsc(csc(2)) : "não gravado (usa o de produção)" };
         // NFS-e de Goiânia: qual forma de cabeçalho a prefeitura aceita (consulta de DPS, homologação; não emite nada).
         // (O WSDL já foi conferido e guardado em 30/10/2026 — fiscal_config 'nfse_wsdl'.)
-        saida.nfse = { sondagem: await sondarFormatoNfse(String(pedido.im || "6059023")) };
+        // Consulta de números de DPS liberados (só leitura) nos dois ambientes: mostra se a 3M está cadastrada.
+        saida.nfse = {};
+        for (const [nome, tp] of [["homologacao", 2], ["producao", 1]]) {
+          try { const d = await nfseDisponivel(tp, String(pedido.im || "6059023"));
+            saida.nfse[nome] = { dps: d.dps.slice(0, 5), erros: d.erros.map((e) => `${e.codigo} ${e.mensagem}`) };
+          } catch (e) { saida.nfse[nome] = { erro: e.message.slice(0, 200) }; }
+        }
         // Consulta de uma chave inexistente: só confere conexão e certificado.
         try {
           const r = await distribuicao(`<consChNFe><chNFe>${"0".repeat(44)}</chNFe></consChNFe>`);
