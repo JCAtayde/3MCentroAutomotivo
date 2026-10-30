@@ -15,6 +15,12 @@
 //                                                    põe o QR Code (NFC-e, com o CSC) e envia
 //   { acao: "nfe_cancelar", chave, nProt, xJust, tpAmb }  evento 110111
 //
+// NFS-e de Goiânia (NotaControl/ISS.net, padrão nacional, leiaute 1.00 sem IBS/CBS):
+//   { acao: "nfse_disponivel", tpAmb, im }           números de DPS liberados pela prefeitura
+//   { acao: "nfse_gerar", tpAmb, infDPS, validar }   assina a <infDPS> montada pelo sistema e
+//                                                    envia (GerarNfse) ou só confere (ValidarXml)
+//   { acao: "nfse_cancelar", tpAmb, chave, cMotivo, xMotivo }  evento 101101
+//
 // Segredos (fly secrets):
 //   PONTE_TOKEN        senha compartilhada com o sistema (cabeçalho x-ponte-token);
 //   CERT_CADEIA_B64    certificado + cadeia em PEM, em base64 (conexão);
@@ -104,14 +110,11 @@ function lerCorpo(req) {
 }
 
 /** Faz a chamada SOAP 1.2 com o certificado da 3M e devolve status e corpo. */
-function chamarSoap(url, envelope, comCertificado = true) {
+function chamarSoap(url, envelope, comCertificado = true, cabecalhos = { "content-type": "application/soap+xml; charset=utf-8" }) {
   return new Promise((resolve, reject) => {
     const opcoes = {
       method: "POST",
-      headers: {
-        "content-type": "application/soap+xml; charset=utf-8",
-        "content-length": Buffer.byteLength(envelope),
-      },
+      headers: { ...cabecalhos, "content-length": Buffer.byteLength(envelope) },
       timeout: 60_000,
     };
     if (comCertificado) {
@@ -292,9 +295,9 @@ function dataHoraBrasilia() {
  * ordem certa e elementos vazios abertos e fechados — por isso não há
  * biblioteca de canonicalização.
  */
-function assinar(elemento, id) {
-  // Na forma canônica o elemento (infEvento, infNFe) herda o xmlns do pai (<evento>, <NFe>).
-  const canonico = elemento.replace(/^<(\w+) /, `<$1 xmlns="${NS_NFE}" `);
+function assinar(elemento, id, ns = NS_NFE) {
+  // Na forma canônica o elemento (infEvento, infNFe, infDPS) herda o xmlns do pai (<evento>, <NFe>, <DPS>).
+  const canonico = elemento.replace(/^<(\w+) /, `<$1 xmlns="${ns}" `);
   const digest = createHash("sha1").update(canonico, "utf8").digest("base64");
   const signedInfo =
     `<SignedInfo>` +
@@ -444,6 +447,90 @@ async function cancelarGo(chave, nProt, xJust, tpAmb) {
     xml: ok ? `<?xml version="1.0" encoding="UTF-8"?><procEventoNFe xmlns="${NS_NFE}" versao="1.00">${evento}${retXml}</procEventoNFe>` : null };
 }
 
+// ---------- NFS-e de Goiânia (NotaControl / ISS.net) ----------
+
+const NS_NFSE = "http://www.sped.fazenda.gov.br/nfse";
+// Endereços conferidos com o certificado da 3M em 30/10/2026 (WSDL com todas as operações).
+const NFSE_URL = {
+  1: "https://nfse.issnetonline.com.br/wsnfsenacional/goiania/nfse.asmx",
+  2: "https://nfse.issnetonline.com.br/wsnfsenacional/homologacao/nfse.asmx",
+};
+const VERSAO_NFSE = "1.00"; // 1.00 = sem o grupo IBS/CBS, como a NFS-e nº 25 da 3M (23/10/2026)
+const VER_APLIC = "3M-Gestao-1.0";
+const escXml = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const desescXml = (t) => String(t).replace(/^\s*<!\[CDATA\[([\s\S]*)\]\]>\s*$/, "$1")
+  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;|&#39;/g, "'").replace(/&amp;/g, "&");
+
+/** Chama uma operação do webservice: cabeçalho e dados vão como texto (nfseCabecMsg / nfseDadosMsg). */
+async function soapNfse(tpAmb, operacao, dados) {
+  const cabec = `<cabecalho xmlns="${NS_NFSE}" versao="${VERSAO_NFSE}"><versaoDados>${VERSAO_NFSE}</versaoDados></cabecalho>`;
+  const env =
+    `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body>` +
+    `<${operacao} xmlns="${NS_NFSE}"><nfseCabecMsg>${escXml(cabec)}</nfseCabecMsg><nfseDadosMsg>${escXml(dados)}</nfseDadosMsg></${operacao}>` +
+    `</soap:Body></soap:Envelope>`;
+  const r = await chamarSoap(NFSE_URL[tpAmb], env, true, { "content-type": "text/xml; charset=utf-8", SOAPAction: `"${NS_NFSE}/${operacao}"` });
+  const saida = tag(r.corpo, "outputXML");
+  if (r.status !== 200 || saida == null) {
+    const motivo = tag(r.corpo, "faultstring") ?? tag(r.corpo, "Text") ?? r.corpo.slice(0, 300);
+    throw new Error(`prefeitura respondeu ${r.status}: ${String(motivo).replace(/\s+/g, " ").trim()}`);
+  }
+  return desescXml(saida);
+}
+
+/** Mensagens de retorno (erros e alertas) da prefeitura. */
+function mensagensNfse(xml, grupo) {
+  const bloco = tag(xml, grupo);
+  if (!bloco) return [];
+  return [...bloco.matchAll(/<(?:\w+:)?MensagemRetorno>([\s\S]*?)<\/(?:\w+:)?MensagemRetorno>/g)].map((m) => ({
+    codigo: tag(m[1], "Codigo"), mensagem: tag(m[1], "Mensagem"), correcao: tag(m[1], "Correcao") ?? undefined,
+  }));
+}
+
+async function nfseDisponivel(tpAmb, im) {
+  const dados = `<ConsultarDpsDisponivelEnvio xmlns="${NS_NFSE}"><Prestador><CNPJ>${CNPJ}</CNPJ><IM>${im}</IM></Prestador><Pagina>1</Pagina></ConsultarDpsDisponivelEnvio>`;
+  const xml = await soapNfse(tpAmb, "ConsultarDpsDisponivel", dados);
+  const dps = [...xml.matchAll(/<(?:\w+:)?DpsDisponivel>([\s\S]*?)<\/(?:\w+:)?DpsDisponivel>/g)]
+    .map((m) => ({ numero: tag(m[1], "NumDPS"), serie: tag(m[1], "SerieDPS") }));
+  return { dps, erros: mensagensNfse(xml, "ListaMensagemRetorno"), resposta: dps.length ? undefined : xml.slice(0, 2000) };
+}
+
+/** Assina a <infDPS> montada pelo sistema e envia (ou só valida). */
+async function nfseGerar(tpAmb, infDPS, validar) {
+  const id = (infDPS.match(/^<infDPS Id="(DPS[0-9A-Z]{42})">/) ?? [])[1];
+  if (!id) throw new Error("infDPS sem Id válido");
+  const dps = `<DPS versao="${VERSAO_NFSE}">${infDPS}${assinar(infDPS, id, NS_NFSE)}</DPS>`;
+  const envio = `<GerarNfseEnvio xmlns="${NS_NFSE}">${dps}</GerarNfseEnvio>`;
+  const xml = await soapNfse(tpAmb, validar ? "ValidarXml" : "GerarNfse", envio);
+  const erros = mensagensNfse(xml, "ListaMensagemRetorno");
+  const alertas = mensagensNfse(xml, "ListaMensagemAlertaRetorno");
+  const nfse = (xml.match(/<(?:\w+:)?NFSe[\s>][\s\S]*<\/(?:\w+:)?NFSe>/) ?? [])[0] ?? null;
+  const chave = nfse ? ((nfse.match(/<(?:\w+:)?infNFSe[^>]*\sId="NFS([0-9A-Z]{50})"/) ?? [])[1] ?? null) : null;
+  return {
+    ok: validar ? erros.length === 0 : !!chave,
+    validacao: !!validar, chave, numero: nfse ? tag(nfse, "nNFSe") : null, cStat: nfse ? tag(nfse, "cStat") : null,
+    dhProc: nfse ? tag(nfse, "dhProc") : null, erros, alertas,
+    xml: nfse ? `<?xml version="1.0" encoding="UTF-8"?>${nfse}` : null, dps,
+    resposta: !nfse && !erros.length ? xml.slice(0, 2000) : undefined,
+  };
+}
+
+function pedidoCancelamentoNfse(tpAmb, chave, cMotivo, xMotivo) {
+  const id = `PRE${chave}101101`;
+  const inf =
+    `<infPedReg Id="${id}"><tpAmb>${tpAmb}</tpAmb><verAplic>${VER_APLIC}</verAplic><dhEvento>${dataHoraBrasilia()}</dhEvento>` +
+    `<CNPJAutor>${CNPJ}</CNPJAutor><chNFSe>${chave}</chNFSe>` +
+    `<e101101><xDesc>Cancelamento de NFS-e</xDesc><cMotivo>${cMotivo}</cMotivo><xMotivo>${escXml(xMotivo)}</xMotivo></e101101></infPedReg>`;
+  return `<CancelarNfseEnvio xmlns="${NS_NFSE}"><pedRegEvento versao="${VERSAO_NFSE}">${inf}${assinar(inf, id, NS_NFSE)}</pedRegEvento></CancelarNfseEnvio>`;
+}
+
+async function nfseCancelar(tpAmb, chave, cMotivo, xMotivo) {
+  const xml = await soapNfse(tpAmb, "CancelarNfse", pedidoCancelamentoNfse(tpAmb, chave, cMotivo, xMotivo));
+  const erros = mensagensNfse(xml, "ListaMensagemRetorno");
+  const evento = tag(xml, "ListaEvento");
+  return { cancelada: !!evento && !erros.length, erros, xml: evento ? `<?xml version="1.0" encoding="UTF-8"?>${xml}` : null,
+    resposta: !evento && !erros.length ? xml.slice(0, 2000) : undefined };
+}
+
 // ---------- Servidor ----------
 
 const CHAVE_NFE = /^\d{44}$/;
@@ -508,6 +595,29 @@ const servidor = http.createServer(async (req, res) => {
       }
       if (pedido.acao === "nfe_status") return responder(res, 200, await statusGo(Number(pedido.tpAmb) === 1 ? 1 : 2));
       if (pedido.acao === "nfe_autorizar") return responder(res, 200, await autorizarGo(String(pedido.infNFe ?? "")));
+      if (String(pedido.acao ?? "").startsWith("nfse_")) {
+        const tpAmb = Number(pedido.tpAmb) === 1 ? 1 : 2;
+        if (pedido.acao === "nfse_disponivel") {
+          const im = String(pedido.im ?? "").replace(/\D/g, "");
+          if (!im || im.length > 15) return responder(res, 400, { erro: "inscrição municipal inválida" });
+          return responder(res, 200, await nfseDisponivel(tpAmb, im));
+        }
+        if (pedido.acao === "nfse_gerar") {
+          const infDPS = String(pedido.infDPS ?? "");
+          // Só DPS do próprio CNPJ da 3M (Id = DPS + município + tipo 2 + CNPJ + série + número).
+          if (!infDPS.startsWith(`<infDPS Id="DPS52087072${CNPJ}`) ||!infDPS.endsWith("</infDPS>") || infDPS.length > 60_000)
+            return responder(res, 400, { erro: "DPS inválida" });
+          return responder(res, 200, await nfseGerar(tpAmb, infDPS, !!pedido.validar));
+        }
+        if (pedido.acao === "nfse_cancelar") {
+          const chave = String(pedido.chave ?? "");
+          if (!/^[0-9]{9}[0-9A-Z]{12}[0-9]{29}$/.test(chave) || !chave.includes(CNPJ)) return responder(res, 400, { erro: "chave da NFS-e inválida" });
+          if (!["1", "2", "9"].includes(String(pedido.cMotivo))) return responder(res, 400, { erro: "motivo inválido" });
+          if (String(pedido.xMotivo ?? "").trim().length < 15) return responder(res, 400, { erro: "motivo com menos de 15 letras" });
+          return responder(res, 200, await nfseCancelar(tpAmb, chave, String(pedido.cMotivo), String(pedido.xMotivo).trim().slice(0, 255)));
+        }
+        return responder(res, 400, { erro: "ação desconhecida" });
+      }
       if (pedido.acao === "nfe_cancelar") {
         const chave = String(pedido.chave ?? "");
         if (!CHAVE_NFE.test(chave) || chave.slice(6, 20) !== CNPJ) return responder(res, 400, { erro: "chave de acesso inválida" });
@@ -529,4 +639,4 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) servidor.list
   console.log(`ponte fiscal da 3M no ar (região ${process.env.FLY_REGION ?? "local"}, ambiente ${AMBIENTE}, certificado: ${TEM_CERTIFICADO})`);
 });
 
-export { eventoCiencia, lerDocumento, assinar, infNFeSupl };
+export { eventoCiencia, lerDocumento, assinar, infNFeSupl, NS_NFSE, VERSAO_NFSE, pedidoCancelamentoNfse };

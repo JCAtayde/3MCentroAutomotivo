@@ -38,9 +38,19 @@
  *   GET  danfe?id=           DANFE em HTML (imprimir / salvar PDF)
  *   GET  xml_saida?id=       XML autorizado (e o do cancelamento, se houver)
  *
+ * Nota de serviço (NFS-e de Goiânia, mão de obra) — functions/_lib/nfse.js:
+ *   GET  nfse_config           ambiente (homologação por padrão), alíquota e % do Simples
+ *   POST nfse_config           { tpAmb?, aliquota?, pTotTribSN? } — só o administrador
+ *   POST nfse_emitir           { ordem_id, os, tomador, descricao, valor, desconto, iss_retido, validar? }
+ *   POST nfse_cancelar         { id, cMotivo (1 erro, 2 não prestado, 9 outros), xMotivo }
+ *   GET  nfse_saidas?ordem_id= notas de serviço (sem o XML)
+ *   GET  nfse_xml?id=          XML da NFS-e (e o do cancelamento: &evento=cancelamento)
+ *
  * Notas anteriores à ativação do estoque (dfe_controle.estoque_desde) ficam como
  * histórico: dá para ligar as peças às OS (rastreio/garantia), mas não somam no estoque.
  */
+
+import { garantirTabelaNfse, configNfse, salvarConfigNfse, emitirNfse, cancelarNfse } from '../../../_lib/nfse.js';
 
 // Regra da SEFAZ: sem documentos novos (137) ou já no fim da fila, esperar 1 hora
 // antes de consultar de novo — senão ela bloqueia por "consumo indevido" (656).
@@ -115,6 +125,7 @@ async function garantirTabelas(DB) {
   try { await DB.prepare('ALTER TABLE pecas ADD COLUMN regra_fiscal TEXT').run(); } catch (e) { /* coluna já existe */ }
   await recalcularFiscal(DB);
   await garantirTabelasEmissao(DB);
+  await garantirTabelaNfse(DB);
   // Alerta de nota nova: o que já estava gravado quando o alerta nasceu conta como conferido.
   if (!(await DB.prepare("SELECT valor FROM fiscal_config WHERE chave='alerta_desde'").first())) {
     await DB.batch([
@@ -1013,6 +1024,21 @@ export async function onRequest(context) {
       return jsonResp({ regra: r });
     }
     if (request.method === 'GET' && acao === 'emissao_config') return jsonResp(await configEmissao(DB));
+    if (request.method === 'GET' && acao === 'nfse_config') return jsonResp(await configNfse(DB));
+    if (request.method === 'GET' && acao === 'nfse_saidas') {
+      const oid = url.searchParams.get('ordem_id');
+      const r = await DB.prepare(`SELECT id,ordem_id,tp_amb,serie,n_dps,chave,numero,status,erros,valor,desconto,iss_retido,tomador_doc,tomador_nome,descricao,cancel_just,quem,criado
+        FROM nfse_saida ${oid ? 'WHERE ordem_id=?' : ''} ORDER BY criado DESC LIMIT 300`).bind(...(oid ? [oid] : [])).all();
+      return jsonResp({ notas: r.results || [] });
+    }
+    if (request.method === 'GET' && acao === 'nfse_xml') {
+      const n = await DB.prepare('SELECT * FROM nfse_saida WHERE id=?').bind(String(url.searchParams.get('id') || '')).first();
+      const cancel = url.searchParams.get('evento') === 'cancelamento';
+      const xml = n && (cancel ? n.cancel_xml : n.xml);
+      if (!xml) return new Response('Nota de serviço não encontrada ou sem XML.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+      return new Response(xml, { headers: { 'content-type': 'application/xml; charset=utf-8',
+        'content-disposition': `attachment; filename="NFSe-${n.numero || n.n_dps}${cancel ? '-cancelamento' : ''}.xml"`, 'cache-control': 'no-store' } });
+    }
     if (request.method === 'GET' && acao === 'saidas') {
       const oid = url.searchParams.get('ordem_id');
       const r = await DB.prepare(`SELECT id,ordem_id,modelo,serie,numero,tp_amb,chave,status,cstat,xmotivo,nprot,dh_emi,valor,dest_doc,dest_nome,cancel_just,quem,criado
@@ -1054,6 +1080,12 @@ export async function onRequest(context) {
       }
       if (acao === 'nfe_status') return jsonResp(await ponte(env, { acao: 'nfe_status', tpAmb: (await configEmissao(DB)).tpAmb }));
       if (acao === 'emitir') return jsonResp(await emitirNota(DB, env, body));
+      if (acao === 'nfse_config') {
+        if (!(context.data.usuario && context.data.usuario.papel === 'admin')) return jsonResp({ error: 'Só o administrador muda o ambiente da nota de serviço.' }, 403);
+        return jsonResp(await salvarConfigNfse(DB, body));
+      }
+      if (acao === 'nfse_emitir') return jsonResp(await emitirNfse(DB, (p) => ponte(env, p), body, context.data.usuario && context.data.usuario.nome));
+      if (acao === 'nfse_cancelar') return jsonResp(await cancelarNfse(DB, (p) => ponte(env, p), body));
       if (acao === 'cancelar_nota') return jsonResp(await cancelarNota(DB, env, body));
       if (acao === 'conferir') {
         const quem = (context.data.usuario && context.data.usuario.nome) || '';

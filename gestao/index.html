@@ -3923,14 +3923,16 @@ function blocoNotasOS(o){
   return `<div class="section-label" style="margin-top:14px"><span>Notas fiscais</span></div>
     <div class="form-actions" style="margin-top:0;flex-wrap:wrap">
       ${temPecas?`<button class="btn sm gold" onclick='abrirEmissaoNota("${o.id}")'>🧾 Emitir nota das peças</button>`:''}
-      ${temMdo?`<button class="btn sm" disabled title="Aguardando a prefeitura (NotaControl) liberar a integração" style="opacity:.55">🧾 Nota de serviço — aguardando liberação da prefeitura</button>`:''}</div>
+      ${temMdo&&pode('editar')?`<button class="btn sm gold" onclick='abrirNotaServico("${o.id}")'>🧾 Emitir nota de serviço</button>`:''}</div>
     <div id="osNotas-${o.id}" class="rows" style="margin-top:6px">${notasOSCache[o.id]||''}</div>`;
 }
 // A tela da OS é redesenhada a cada sincronização (1 min): sem esta memória o bloco piscava vazio.
 const notasOSCache={};
 async function carregarNotasOS(oid){
-  try{ const r=await fetch(API_FISCAL+'/saidas?ordem_id='+encodeURIComponent(oid)); if(!r.ok) return; const d=await r.json();
-    const html=(d.notas||[]).map(n=>linhaNotaSaida(n)).join('');
+  try{ const q='?ordem_id='+encodeURIComponent(oid);
+    const [r,rs]=await Promise.all([fetch(API_FISCAL+'/saidas'+q), fetch(API_FISCAL+'/nfse_saidas'+q)]); if(!r.ok||!rs.ok) return;
+    const [d,ds]=await Promise.all([r.json(), rs.json()]);
+    const html=(d.notas||[]).map(n=>linhaNotaSaida(n)).join('')+(ds.notas||[]).map(n=>linhaNfse(n)).join('');
     const el=document.getElementById('osNotas-'+oid);
     if(html===notasOSCache[oid]&&el&&el.innerHTML) return;
     notasOSCache[oid]=html; if(el) el.innerHTML=html; }catch(e){ /* mantém o que já está na tela */ }
@@ -3965,6 +3967,102 @@ function linhasNotaDaOS(o){
   });
   return linhas;
 }
+/* ---- Nota de serviço (NFS-e de Goiânia) da mão de obra — API fiscal nfse_* ---- */
+function linhaNfse(n){
+  let erros=[]; try{ erros=JSON.parse(n.erros||'[]'); }catch(e){}
+  return `<div class="row" style="display:block"><div class="main"><div class="t">NFS-e ${n.numero?('nº '+esc(n.numero)):('DPS '+esc(n.n_dps||''))} ${nfeStChip(n.status)} ${nfeAmbChip(n.tp_amb)}${n.iss_retido?' <span class="badge">ISS retido</span>':''}</div>
+    <div class="s">Serviço · ${moneyFmt((Number(n.valor)||0)-(Number(n.desconto)||0))} · ${new Date(n.criado).toLocaleString('pt-BR')}${n.tomador_nome?(' · '+esc(n.tomador_nome)):''}</div>
+    ${n.status==='rejeitada'&&erros.length?`<div class="s" style="color:#E5675C">Prefeitura: ${erros.map(e=>esc(((e.codigo||'')+' '+(e.mensagem||'')).trim())).join(' · ')}</div>`:''}
+    ${n.status==='cancelada'?`<div class="s">Cancelada: ${esc(n.cancel_just||'')}</div>`:''}</div>
+    ${n.status!=='rejeitada'?`<div class="form-actions" style="margin-top:6px"><a class="btn sm ghost" href="${API_FISCAL}/nfse_xml?id=${n.id}">⬇️ XML</a>
+      ${n.chave?`<button class="btn sm ghost" onclick='copiarTexto("${n.chave}","Chave da NFS-e copiada")'>Copiar chave</button>`:''}
+      ${n.status==='cancelada'?`<a class="btn sm ghost" href="${API_FISCAL}/nfse_xml?id=${n.id}&evento=cancelamento">⬇️ XML do cancelamento</a>`:''}
+      ${n.status==='autorizada'&&pode('editar')?`<button class="btn sm ghost" style="color:#E5675C" onclick='cancelarNfseSaida("${n.id}","${n.ordem_id}")'>Cancelar nota</button>`:''}</div>`:''}</div>`;
+}
+function copiarTexto(t,msg){ try{ navigator.clipboard.writeText(t).then(()=>toast(msg||'Copiado ✓')); }catch(e){ prompt('Copie:',t); } }
+/* Valor da mão de obra e o desconto dela (próprio + parte proporcional do desconto geral, igual às peças). */
+function mdoDaNota(o){
+  const bruto=osTotalBruto(o); const geral=(o.descontos||[]).filter(d=>d.tipo!=='peca'&&d.tipo!=='mdo').reduce((s,d)=>s+(Number(d.valor)||0),0);
+  const fator=bruto>0?Math.max(0,geral/bruto):0;
+  const linhas=(o.maodeobra||[]).filter(m=>Number(m.valor)>0);
+  const valor=linhas.reduce((s,m)=>s+(Number(m.valor)||0),0);
+  const desconto=linhas.reduce((s,m)=>s+descontoAlvo(o,'mdo',m.id)+(Number(m.valor)||0)*fator,0);
+  return { linhas, valor:Math.round(valor*100)/100, desconto:Math.round(Math.min(desconto,valor)*100)/100 };
+}
+let nfseCtx=null, nfseCfg={tpAmb:2,aliquota:2.01};
+async function abrirNotaServico(oid){
+  const o=getOS(oid); if(!o) return;
+  openModal('<div class="note">Carregando…</div>');
+  let ja=[];
+  try{ const q='?ordem_id='+encodeURIComponent(oid);
+    const [cfg,lista]=await Promise.all([fetch(API_FISCAL+'/nfse_config').then(r=>r.json()), fetch(API_FISCAL+'/nfse_saidas'+q).then(r=>r.json())]);
+    if(cfg.error) throw new Error(cfg.error); nfseCfg=cfg; ja=((lista&&lista.notas)||[]).filter(n=>n.status==='autorizada'); }
+  catch(e){ openModal(`<div class="note">Não foi possível carregar: ${esc(e.message)}</div><button class="btn" onclick="closeModal()">Fechar</button>`); return; }
+  const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const m=mdoDaNota(o);
+  const goiania=/goi[aâ]nia/i.test((c&&c.cidade)||'')||!(c&&c.cidade);
+  nfseCtx={ oid, ja, valor:m.valor, desconto:m.desconto, issRetido:false,
+    descricao:m.linhas.map(x=>String(x.desc||'Serviço').trim()).join('; ').toUpperCase(),
+    info:[o.codigo?('OS '+o.codigo):'', v?[nomeVeiculo(v), v.placa?('placa '+v.placa):''].filter(Boolean).join(' '):''].filter(Boolean).join(' · '),
+    tomador:{ doc:normDoc(c&&c.cpf), nome:(c&&(c.razao||c.nome))||'', xLgr:(c&&c.rua)||'', nro:(c&&c.numero)||'SN',
+      xCpl:[(c&&c.quadra)?'QD '+c.quadra:'',(c&&c.lote)?'LT '+c.lote:'',(c&&c.complemento)||''].filter(Boolean).join(' '),
+      xBairro:(c&&c.setor)||'', cep:normDoc(c&&c.cep), cMun:goiania?'5208707':'', fone:normDoc(c&&(c.telefone1||c.telefone)) } };
+  renderNotaServico();
+  const t=nfseCtx.tomador;
+  if(!t.cMun&&t.cep.length===8){ try{ const j=await (await fetch('https://viacep.com.br/ws/'+t.cep+'/json/')).json(); if(j&&!j.erro){ t.cMun=j.ibge||''; if(!t.xLgr) t.xLgr=j.logradouro||''; if(!t.xBairro) t.xBairro=j.bairro||''; renderNotaServico(); } }catch(e){} }
+}
+function renderNotaServico(){
+  const x=nfseCtx, t=x.tomador, doc=normDoc(t.doc), cnpj=doc.length===14; if(!cnpj) x.issRetido=false;
+  const liq=Math.round((x.valor-x.desconto)*100)/100, aliq=Number(nfseCfg.aliquota)||2.01, iss=x.issRetido?Math.round(liq*aliq)/100:0;
+  const endOk=t.cep.length===8&&t.cMun&&t.xLgr&&t.xBairro;
+  openModal(`<h3>Nota de serviço (NFS-e)</h3>
+    <div class="note" style="white-space:normal">Ambiente: ${nfeAmbChip(nfseCfg.tpAmb)}${nfseCfg.tpAmb===2?' — teste na prefeitura, <b>sem valor fiscal</b>.':''} Só a <b>mão de obra</b> desta OS; as peças vão na nota de produto.</div>
+    ${x.ja.length?`<div class="note" style="white-space:normal;color:#E8B23A">Esta OS já tem ${x.ja.length} nota de serviço autorizada. Emita outra só se for mesmo necessário.</div>`:''}
+    <div class="section-label">Cliente (tomador)</div>
+    <div class="grid2"><div class="field"><label>CPF ou CNPJ (vazio = consumidor sem identificação)</label><input inputmode="numeric" value="${esc(t.doc)}" oninput="nfseCtx.tomador.doc=this.value" onchange="renderNotaServico()"></div>
+      <div class="field"><label>Nome / razão social</label><input value="${esc(t.nome)}" oninput="nfseCtx.tomador.nome=this.value"></div></div>
+    ${doc?`<div class="s" style="margin:-4px 0 8px;color:var(--muted)">${endOk?esc([t.xLgr,t.nro,t.xCpl,t.xBairro].filter(Boolean).join(', ')+' · CEP '+t.cep):'Sem endereço completo no cadastro do cliente: a nota sai sem o endereço (é opcional).'}</div>`:''}
+    <div class="section-label">Serviço</div>
+    <div class="field"><label>Descrição (sai na nota)</label><textarea rows="3" oninput="nfseCtx.descricao=this.value">${esc(x.descricao)}</textarea></div>
+    <div class="field"><label>Informação complementar</label><input value="${esc(x.info)}" oninput="nfseCtx.info=this.value"></div>
+    <div class="os-total"><span class="l">Mão de obra</span><span class="v">${moneyFmt(x.valor)}</span></div>
+    ${x.desconto>0?`<div class="os-total"><span class="l">Desconto</span><span class="v">− ${moneyFmt(x.desconto)}</span></div>`:''}
+    <label style="display:flex;gap:8px;align-items:center;justify-content:flex-start;text-align:left;margin:10px 0;cursor:pointer;${cnpj?'':'opacity:.5'}"><input type="checkbox" style="width:18px;height:18px;flex:none;margin:0" ${x.issRetido?'checked':''} ${cnpj?'':'disabled'} onchange="nfseCtx.issRetido=this.checked; renderNotaServico()"><span>ISS retido pelo cliente${cnpj?'':' (só empresa com CNPJ)'}</span></label>
+    ${x.issRetido?`<div class="note" style="white-space:normal">ISS retido de ${aliq.toFixed(2).replace('.',',')}%: ${moneyFmt(iss)}. O cliente paga ${moneyFmt(liq-iss)} e recolhe o ISS.</div>`:''}
+    <div class="os-total"><span class="l"><b>Valor da nota</b></span><span class="v"><b>${moneyFmt(liq)}</b></span></div>
+    <div id="nfseRes"></div>
+    <div class="form-actions" style="flex-wrap:wrap"><button class="btn gold" onclick="enviarNotaServico(false)">${nfseCfg.tpAmb===2?'Emitir nota de serviço de teste':'Emitir nota de serviço'}</button>
+      <button class="btn" onclick="enviarNotaServico(true)">Conferir na prefeitura (sem emitir)</button><button class="btn ghost" onclick="closeModal()">Voltar</button></div>`);
+}
+function errosNfseHtml(l){ return (l||[]).map(e=>`<div><b>${esc(e.codigo||'')}</b> ${esc(e.mensagem||'')}${e.correcao?` <span style="color:var(--muted)">— ${esc(e.correcao)}</span>`:''}</div>`).join(''); }
+async function enviarNotaServico(validar){
+  const x=nfseCtx, res=document.getElementById('nfseRes'); const bts=[...document.querySelectorAll('#overlay .form-actions button')];
+  const liberar=()=>bts.forEach(b=>b.disabled=false); bts.forEach(b=>b.disabled=true);
+  res.innerHTML=`<div class="note">${validar?'Conferindo na prefeitura…':'Enviando para a prefeitura…'}</div>`;
+  try{
+    const r=await fiscalPost('nfse_emitir',{ ordem_id:x.oid, os:(getOS(x.oid)||{}).codigo||'', tomador:x.tomador, descricao:x.descricao, infoCompl:x.info,
+      valor:x.valor, desconto:x.desconto, iss_retido:x.issRetido, validar });
+    if(validar){ liberar();
+      res.innerHTML=r.ok?`<div class="note" style="white-space:normal;border-color:#48B98A">✓ A prefeitura conferiu e não achou erro.${r.semNumero?' (Ainda sem número de DPS liberado para a 3M.)':''}${(r.alertas||[]).length?'<br>Avisos:'+errosNfseHtml(r.alertas):''}</div>`
+        :`<div class="note" style="white-space:normal;color:#E5675C">A prefeitura apontou:${errosNfseHtml(r.erros)||'<div>resposta inesperada (guardada para análise)</div>'}</div>`;
+      return; }
+    carregarNotasOS(x.oid);
+    if(r.status==='autorizada'){ logAcao('Emitiu nota de serviço','NFS-e '+(r.numero||''),x.oid);
+      openModal(`<h3>✓ Nota de serviço autorizada</h3><div class="note" style="white-space:normal">NFS-e nº <b>${esc(r.numero||'')}</b> ${nfeAmbChip(r.tpAmb)}<br>Chave ${esc(r.chave||'')}</div>
+        <div class="form-actions"><a class="btn gold" href="${API_FISCAL}/nfse_xml?id=${r.id}">⬇️ XML</a><button class="btn" onclick="closeModal()">Fechar</button></div>`); return; }
+    liberar(); res.innerHTML=`<div class="note" style="white-space:normal;color:#E5675C">A prefeitura recusou a nota (nada foi emitido):${errosNfseHtml(r.erros)||'<div>resposta inesperada (guardada para análise)</div>'}</div>`;
+  }catch(e){ liberar(); res.innerHTML=`<div class="note" style="white-space:normal;color:#E5675C">${esc(e instanceof TypeError?'A resposta do servidor não chegou (internet). Antes de tentar de novo, feche e veja na OS se a nota já apareceu.':e.message)}</div>`; }
+}
+function cancelarNfseSaida(id,oid){
+  openModal(`<h3>Cancelar nota de serviço</h3><div class="note" style="white-space:normal">O cancelamento vai para a prefeitura e não pode ser desfeito.</div>
+    <div class="field"><label>Motivo</label><select id="nsMot"><option value="1">Erro na emissão</option><option value="2">Serviço não prestado</option><option value="9">Outros</option></select></div>
+    <div class="field"><label>Explique (mínimo 15 letras)</label><input id="nsJust" placeholder="Ex.: nota emitida com valor errado"></div>
+    <div class="form-actions"><button class="btn" style="color:#E5675C" id="nsOk" onclick='confirmarCancelNfse("${id}","${oid}")'>Cancelar na prefeitura</button><button class="btn" onclick="closeModal()">Voltar</button></div>`);
+}
+async function confirmarCancelNfse(id,oid){ const b=document.getElementById('nsOk'); if(b){ b.disabled=true; b.textContent='Enviando…'; }
+  try{ await fiscalPost('nfse_cancelar',{id, cMotivo:val('nsMot'), xMotivo:val('nsJust')}); logAcao('Cancelou nota de serviço','',id); toast('Nota de serviço cancelada ✓'); closeModal(); carregarNotasOS(oid); }
+  catch(e){ if(b){ b.disabled=false; b.textContent='Cancelar na prefeitura'; } carregarNotasOS(oid);
+    alert(e instanceof TypeError?'A resposta não chegou (internet). Veja na OS se a nota já aparece como cancelada antes de tentar de novo.':e.message); } }
+
 async function abrirEmissaoNota(oid){
   const o=getOS(oid); if(!o) return;
   openModal('<div class="note">Carregando dados fiscais…</div>');
@@ -4071,7 +4169,23 @@ async function desenharEmissaoCfg(){
     <div class="section-label">Próximo número</div>
     <table style="width:100%;font-size:13px;border-collapse:collapse">${[2,1].map(tp=>['55','65'].map(m=>linhaNum(tp,m)).join('')).join('')}</table>
     <div class="note" style="white-space:normal;font-size:12px">A NF-e de produção continua da nº 353 (emitida pelo contador em 23/10/2026). Para a NFC-e de produção, informe o próximo número se a 3M já tiver emitido alguma.</div>
-    <div class="section-label">Notas emitidas (${notas.length})</div><div class="rows">${notas.map(n=>linhaNotaSaida(n)).join('')||emptyState('Nenhuma nota emitida','Emita pela OS: botão “Emitir nota das peças”.')}</div>`;
+    <div class="section-label">Notas emitidas (${notas.length})</div><div class="rows">${notas.map(n=>linhaNotaSaida(n)).join('')||emptyState('Nenhuma nota emitida','Emita pela OS: botão “Emitir nota das peças”.')}</div>
+    <div class="section-label" style="margin-top:16px">Nota de serviço (NFS-e de Goiânia)</div><div id="nfseCfgBox"><div class="note">Carregando…</div></div>`;
+  desenharNfseCfg();
+}
+async function desenharNfseCfg(){
+  const el=document.getElementById('nfseCfgBox'); if(!el) return;
+  try{ const r=await fetch(API_FISCAL+'/nfse_config'); nfseCfg=await r.json(); if(nfseCfg.error) throw new Error(nfseCfg.error); }catch(e){ el.innerHTML='<div class="note">Erro: '+esc(e.message)+'</div>'; return; }
+  const c=nfseCfg;
+  el.innerHTML=`<div class="note" style="white-space:normal">Ambiente: ${nfeAmbChip(c.tpAmb)} — separado da nota de peças.<br>
+    ${c.tpAmb===2?'As notas de serviço vão para a prefeitura de <b>homologação</b> (teste, sem valor fiscal).':'As notas de serviço são <b>notas fiscais de verdade</b>.'}
+    ISS retido: ${Number(c.aliquota).toFixed(2).replace('.',',')}% · tributos aproximados (Simples): ${Number(c.pTotTribSN).toFixed(2).replace('.',',')}%.
+    ${ehAdmin()?`<div style="margin-top:8px"><button class="btn sm" onclick="trocarAmbienteNfse(${c.tpAmb===2?1:2})">${c.tpAmb===2?'Passar nota de serviço para produção':'Voltar nota de serviço para homologação'}</button></div>`:''}</div>`;
+}
+function trocarAmbienteNfse(tp){
+  const ir=async()=>{ try{ nfseCfg=await fiscalPost('nfse_config',{tpAmb:tp}); logAcao(tp===1?'Passou nota de serviço para produção':'Voltou nota de serviço para homologação','',''); desenharNfseCfg(); }catch(e){ alert(e.message); } };
+  if(tp===1){ confirmar('Passar a nota de serviço para PRODUÇÃO?\n\nA partir daqui as notas de serviço emitidas são notas fiscais de verdade.', ir, 'Passar para produção', 'red'); return; }
+  ir();
 }
 async function salvarProximoNumero(id,valor){ try{ emissaoCfg=await fiscalPost('emissao_config',{proximo:{id,valor:parseInt(valor)}}); toast('Número salvo ✓'); }catch(e){ alert(e.message); } }
 function trocarAmbienteEmissao(tp){
