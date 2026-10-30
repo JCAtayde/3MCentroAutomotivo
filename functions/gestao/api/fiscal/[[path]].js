@@ -222,11 +222,18 @@ async function ultimoCodigo(DB) {
 
 async function ponte(env, pedido) {
   if (!env.PONTE_FISCAL_URL || !env.PONTE_FISCAL_TOKEN) throw new Error('Ponte fiscal não configurada (PONTE_FISCAL_URL / PONTE_FISCAL_TOKEN).');
-  const r = await fetch(env.PONTE_FISCAL_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-ponte-token': env.PONTE_FISCAL_TOKEN },
-    body: JSON.stringify(pedido),
-  });
+  // A ponte dorme sem uso (Fly autostop) e leva ~2 s para acordar: nesse intervalo o Fly responde
+  // 502/503 sem o pedido chegar nela — então dá para repetir com segurança.
+  let r;
+  for (let tentativa = 0; ; tentativa++) {
+    r = await fetch(env.PONTE_FISCAL_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-ponte-token': env.PONTE_FISCAL_TOKEN },
+      body: JSON.stringify(pedido),
+    });
+    if (![502, 503].includes(r.status) || tentativa >= 3) break;
+    await new Promise((ok) => setTimeout(ok, 2500));
+  }
   const dados = await r.json().catch(() => ({ erro: `ponte respondeu ${r.status}` }));
   if (!r.ok) throw new Error(dados.erro || `ponte respondeu ${r.status}`);
   return dados;
