@@ -1175,7 +1175,7 @@ function renderPainelTopo(){
   const podeFin=ehAdmin()||pode('valores');
   const recent=feitos.map(o=>{ const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
     return `<div class="card srv" onclick='go("os","${o.id}")'><div class="row"><div><div class="t">${esc(v?nomeVeiculo(v):'Veículo')}${v&&v.placa?` · ${esc(v.placa)}`:''}</div><div class="s">${esc((c&&c.nome)||'—')} · ${o.data?fmtBR(parseISO(o.data)):'—'}</div></div>${podeFin?`<span class="valor-tag" style="color:var(--green)">${moneyFmt(osTotal(o))}</span>`:''}</div></div>`; }).join('');
-  box.innerHTML=alertaComprasHtml()+alertaLib+`
+  box.innerHTML=alertaCertificadoHtml()+alertaComprasHtml()+alertaLib+`
     <div class="painel-search" onclick='goTab("servicos")'>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       <span>Buscar cliente, placa ou serviço…</span></div>
@@ -3379,6 +3379,13 @@ function aplicarBadgeMais(){
     s.textContent=n; s.title=n+' nota(s) de compra nova(s)';
   });
 }
+/* Certificado enviado pela tela vencendo (30 dias) ou vencido: aviso no Painel. */
+function alertaCertificadoHtml(){
+  const v=alertaCompras&&alertaCompras.certificadoVence; if(!v) return '';
+  const d=diasAte(v); if(d>30) return '';
+  return `<div class="alert-lib" style="border-color:${d<0?'#E5675C':'#E8B23A'}"><div class="al-head" style="color:${d<0?'#E5675C':'#E8B23A'}">🔐 Certificado digital ${d<0?'VENCIDO — as notas fiscais não saem':'vence em '+d+' dia(s)'}</div>
+    <div class="al-row" onclick='fiscalAba="empresa"; goTab("fiscal")'><div><div class="t">Renove com a certificadora e envie o novo em Fiscal → Empresa →</div></div></div></div>`;
+}
 function alertaComprasHtml(){
   const a=alertaCompras; if(!a.novas||!telaLiberada('fornecedores')) return '';
   return `<div class="alert-lib" style="border-color:#D9A83E"><div class="al-head" style="color:#D9A83E">🧾${a.novas===1?'Chegou 1 nota de compra nova':'Chegaram '+a.novas+' notas de compra novas'} da SEFAZ</div>`+
@@ -4189,7 +4196,8 @@ async function desenharEmpresaCfg(){
   const ed=ehAdmin(), dis=ed?'':'disabled';
   const campo=(k,rot,extra='')=>`<div class="field"><label>${rot}</label><input id="emp_${k}" value="${esc(e[k]??'')}" ${dis} ${extra}></div>`;
   const sel=(k,rot,ops)=>`<div class="field"><label>${rot}</label><select id="emp_${k}" ${dis}>${ops.map(([v,t])=>`<option value="${v}" ${String(e[k])===String(v)?'selected':''}>${t}</option>`).join('')}</select></div>`;
-  el.innerHTML=`<div class="note" style="white-space:normal">Estes dados saem nas <b>notas de peças</b> (NF-e), nas <b>notas de serviço</b> (NFS-e) e nos PDFs.
+  el.innerHTML=`<div class="section-label">Certificado digital (A1)</div><div id="certBox"><div class="note">Consultando o certificado…</div></div>
+    <div class="note" style="white-space:normal">Estes dados saem nas <b>notas de peças</b> (NF-e), nas <b>notas de serviço</b> (NFS-e) e nos PDFs.
       ${ed?'Confira com o cartão CNPJ e com o contador antes de salvar: dado errado faz a SEFAZ ou a prefeitura recusar a nota.':'Só o administrador altera.'}</div>
     <div class="section-label">Empresa</div>
     <div class="grid2">${campo('razao','Razão social')}${campo('fantasia','Nome fantasia')}</div>
@@ -4212,8 +4220,45 @@ async function desenharEmpresaCfg(){
     <div class="section-label">Texto da nota de peças</div>
     <div class="field"><label>Informação complementar (Simples Nacional)</label><textarea id="emp_textoSimples" rows="2" ${dis}>${esc(e.textoSimples||'')}</textarea></div>
     ${ed?'<div class="form-actions"><button class="btn gold" onclick="salvarEmpresaCfg()">Salvar dados da empresa</button></div>':''}
-    <div class="note" style="white-space:normal;font-size:12px;color:var(--muted);margin-top:12px">Fora desta tela, por segurança: o <b>certificado digital A1</b> e o <b>CSC</b> da NFC-e ficam guardados na ponte fiscal, e a ponte hoje se comunica com a <b>SEFAZ de Goiás</b> e com a nota de serviço do <b>ISS.net/NotaControl</b>. Outra empresa usa o próprio certificado; outro estado ou outro sistema de prefeitura precisa de ajuste na ponte.</div>`;
+    <div class="note" style="white-space:normal;font-size:12px;color:var(--muted);margin-top:12px">Fora desta tela: o <b>CSC</b> da NFC-e fica guardado na ponte fiscal, e a ponte hoje se comunica com a <b>SEFAZ de Goiás</b> e com a nota de serviço do <b>ISS.net/NotaControl</b>. Outro estado ou outro sistema de prefeitura precisa de ajuste na ponte.</div>`;
+  desenharCertificado();
 }
+/* ---- Certificado digital: enviado pela tela (fica criptografado; só a ponte abre) ---- */
+const diasAte=d=>Math.ceil((new Date(d)-Date.now())/86400000);
+async function desenharCertificado(){
+  const el=document.getElementById('certBox'); if(!el) return;
+  let d; try{ const r=await fetch(API_FISCAL+'/certificado'); d=await r.json(); if(d.error) throw new Error(d.error); }
+  catch(e){ el.innerHTML='<div class="note">Não foi possível consultar: '+esc(e.message)+'</div>'; return; }
+  const p=d.ponte||{}, a=p.atual, ed=ehAdmin();
+  const dias=a?diasAte(a.validoAte):null;
+  const cor=dias==null?'':dias<0?'#E5675C':dias<=30?'#E8B23A':'#48B98A';
+  const situacao=a?`<div class="note" style="white-space:normal;border-color:${cor}">
+      <b>${esc(a.titular||'')}</b><br>CNPJ ${esc(a.cnpj||'')} · válido até <b style="color:${cor}">${new Date(a.validoAte).toLocaleDateString('pt-BR')}</b>
+      ${dias<0?' — <b>VENCIDO</b>: as notas não saem até trocar.':dias<=30?` — vence em ${dias} dia(s): renove e envie o novo.`:` (${dias} dias)`}
+      <br><span style="color:var(--muted);font-size:12px">${a.origem==='tela'&&d.enviado?`Enviado pela tela em ${new Date(d.enviado.enviadoEm).toLocaleString('pt-BR')}${d.enviado.quem?' por '+esc(d.enviado.quem):''}.`:'Instalado direto na ponte fiscal.'}</span></div>`
+    :`<div class="note" style="white-space:normal;color:#E5675C">${d.erroPonte?'A ponte fiscal não respondeu: '+esc(d.erroPonte):'Nenhum certificado: as notas não saem até enviar um.'}</div>`;
+  const semProtecao=ed&&p&&p.protecao===false?`<div class="note" style="white-space:normal;color:#E8B23A">A ponte fiscal ainda não tem a chave que protege o certificado enviado pela tela. Peça ao suporte para configurar (CERT_KEK) antes de enviar.</div>`:'';
+  el.innerHTML=situacao+semProtecao+(ed?`
+    <div class="grid2"><div class="field"><label>Arquivo do certificado (.pfx ou .p12)</label><input id="certArq" type="file" accept=".pfx,.p12,application/x-pkcs12"></div>
+      <div class="field"><label>Senha do certificado</label><input id="certSenha" type="password" autocomplete="new-password"></div></div>
+    <div class="form-actions" style="flex-wrap:wrap"><button class="btn gold" id="certOk" onclick="enviarCertificado()">Enviar certificado</button>
+      ${d.enviado?'<button class="btn ghost" onclick="removerCertificado()">Voltar a usar o da ponte</button>':''}</div>
+    <div class="s" style="color:var(--muted);font-size:12px">A senha só serve para abrir o arquivo e não é guardada. O certificado fica criptografado; só a ponte fiscal consegue usar.</div>`:'');
+}
+async function enviarCertificado(){
+  const f=(document.getElementById('certArq')||{}).files; const arq=f&&f[0]; const senha=val('certSenha');
+  if(!arq){ toast('Escolha o arquivo .pfx'); return; } if(!senha){ toast('Digite a senha do certificado'); return; }
+  if(arq.size>40000){ alert('Arquivo grande demais para um certificado A1 (.pfx).'); return; }
+  const b=document.getElementById('certOk'); if(b){ b.disabled=true; b.textContent='Conferindo…'; }
+  try{
+    const pfx=await new Promise((ok,erro)=>{ const fr=new FileReader(); fr.onload=()=>ok(String(fr.result).replace(/^data:[^,]*,/,'')); fr.onerror=()=>erro(new Error('Não foi possível ler o arquivo.')); fr.readAsDataURL(arq); });
+    const r=await fiscalPost('certificado',{pfx,senha});
+    logAcao('Enviou certificado digital','',r.info.titular||''); toast('Certificado instalado ✓'); desenharCertificado(); atualizarAlertaCompras();
+  }catch(e){ if(b){ b.disabled=false; b.textContent='Enviar certificado'; } alert(e.message); }
+}
+function removerCertificado(){
+  confirmar('Voltar a usar o certificado instalado na ponte fiscal?\n\nO certificado enviado pela tela é apagado do sistema.', async()=>{
+    try{ await fiscalPost('certificado_remover',{}); logAcao('Removeu certificado enviado pela tela','',''); toast('Certificado removido'); desenharEmpresaCfg(); }catch(e){ alert(e.message); } }, 'Remover', 'red'); }
 async function empresaBuscarCep(){ const cep=normDoc(val('emp_cep')); if(cep.length!==8){ toast('CEP com 8 números'); return; }
   try{ const j=await (await fetch('https://viacep.com.br/ws/'+cep+'/json/')).json(); if(!j||j.erro){ toast('CEP não encontrado'); return; }
     const p=(k,v)=>{ const i=document.getElementById('emp_'+k); if(i&&v) i.value=v; };

@@ -36,7 +36,9 @@ import https from "node:https";
 import tls from "node:tls";
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
-import { createSign, createHash, timingSafeEqual, X509Certificate } from "node:crypto";
+import { createSign, createHash, timingSafeEqual, X509Certificate, createPrivateKey, createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
+import forge from "node-forge";
 import { pathToFileURL } from "node:url";
 
 const LIMITE_CORPO = 256 * 1024;
@@ -61,24 +63,98 @@ function deBase64(nome) {
 }
 
 const TOKEN = process.env.PONTE_TOKEN ?? "";
-const CNPJ = (process.env.CNPJ ?? "").replace(/\D/g, "");
 const UF = (process.env.UF ?? "52").replace(/\D/g, "");
 const AMBIENTE = process.env.AMBIENTE === "2" ? 2 : 1;
-const CADEIA = deBase64("CERT_CADEIA_B64");
-const CHAVE = deBase64("CERT_CHAVE_B64");
-const TEM_CERTIFICADO = CADEIA.includes("BEGIN CERTIFICATE") && CHAVE.includes("BEGIN PRIVATE KEY");
-
-// O primeiro certificado da cadeia é o da 3M (vai no KeyInfo da assinatura).
-const CERT_PEM = (CADEIA.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/) ?? [""])[0];
-const CERT_CORPO = CERT_PEM.replace(/-----(BEGIN|END) CERTIFICATE-----|\s/g, "");
 
 // O servidor de produção da SEFAZ-GO usa certificado ICP-Brasil (Raiz v10), que o Node
 // não conhece: as autoridades públicas + a cadeia ICP-Brasil (icp-brasil.pem, pública).
 let ICP_BRASIL = "";
 try { ICP_BRASIL = readFileSync(new URL("./icp-brasil.pem", import.meta.url), "utf8"); } catch { /* sem o arquivo: só as públicas */ }
-const agente = TEM_CERTIFICADO
-  ? new https.Agent({ cert: CADEIA, key: CHAVE, ca: [...tls.rootCertificates, ICP_BRASIL].filter(Boolean), keepAlive: true, maxSockets: 4 })
-  : null;
+
+// ---------- Certificado A1: o da ponte (fly secrets) ou o enviado pela tela do sistema ----------
+//
+// Enviado pela tela: o sistema manda o .pfx e a senha uma vez (acao certificado_preparar); a ponte
+// abre, confere e devolve a chave + cadeia criptografadas (AES-256-GCM) com CERT_KEK, que só a ponte
+// tem. O sistema guarda esse pacote no banco e o manda em cada pedido (campo "certificado"); a senha
+// não é guardada em lugar nenhum e o sistema nunca vê a chave aberta.
+
+/** Monta a credencial (conexão mTLS + assinatura) a partir da cadeia e da chave em PEM. */
+function credencial(cadeia, chave, origem) {
+  if (!cadeia.includes("BEGIN CERTIFICATE") || !/BEGIN (RSA )?PRIVATE KEY/.test(chave)) return null;
+  // O primeiro certificado da cadeia é o da empresa (vai no KeyInfo da assinatura).
+  const certPem = (cadeia.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/) ?? [""])[0];
+  const x = new X509Certificate(certPem);
+  const cn = x.subject.split("\n").find((l) => l.startsWith("CN=")) ?? "";
+  return {
+    origem, certPem, chave,
+    certCorpo: certPem.replace(/-----(BEGIN|END) CERTIFICATE-----|\s/g, ""),
+    cnpj: (cn.match(/:(\d{14})\s*$/) ?? [])[1] ?? "",
+    titular: cn.replace(/^CN=/, ""), validoDe: x.validFrom, validoAte: x.validTo,
+    agente: new https.Agent({ cert: cadeia, key: chave, ca: [...tls.rootCertificates, ICP_BRASIL].filter(Boolean), keepAlive: true, maxSockets: 4 }),
+  };
+}
+
+const credPonte = credencial(deBase64("CERT_CADEIA_B64"), deBase64("CERT_CHAVE_B64"), "ponte");
+// O CNPJ do fly.toml vale só se a ponte não tiver certificado próprio.
+if (credPonte && !credPonte.cnpj) credPonte.cnpj = (process.env.CNPJ ?? "").replace(/\D/g, "");
+
+const contexto = new AsyncLocalStorage();
+/** Credencial do pedido atual: a enviada pela tela (se veio) ou a da ponte. */
+const cred = () => contexto.getStore() ?? credPonte;
+const cnpjAtual = () => (cred()?.cnpj ?? (process.env.CNPJ ?? "").replace(/\D/g, ""));
+
+const chaveKek = () => (process.env.CERT_KEK ? createHash("sha256").update(process.env.CERT_KEK).digest() : null);
+
+function cifrar(obj) {
+  const k = chaveKek(); if (!k) throw new Error("A ponte ainda não tem a chave de proteção (CERT_KEK).");
+  const iv = randomBytes(12), c = createCipheriv("aes-256-gcm", k, iv);
+  const dados = Buffer.concat([c.update(JSON.stringify(obj), "utf8"), c.final()]);
+  return "v1:" + Buffer.concat([iv, c.getAuthTag(), dados]).toString("base64");
+}
+function decifrar(pacote) {
+  const k = chaveKek(); if (!k) throw new Error("A ponte ainda não tem a chave de proteção (CERT_KEK).");
+  const b = Buffer.from(String(pacote).replace(/^v1:/, ""), "base64");
+  const d = createDecipheriv("aes-256-gcm", k, b.subarray(0, 12)); d.setAuthTag(b.subarray(12, 28));
+  return JSON.parse(Buffer.concat([d.update(b.subarray(28)), d.final()]).toString("utf8"));
+}
+
+const credsTela = new Map(); // pacote (hash) → credencial aberta, para não decifrar a cada pedido
+function credDoPacote(pacote) {
+  const h = createHash("sha256").update(String(pacote)).digest("hex");
+  if (!credsTela.has(h)) {
+    const { cadeia, chave } = decifrar(pacote);
+    const c = credencial(cadeia, chave, "tela");
+    if (!c) throw new Error("Certificado enviado inválido.");
+    if (credsTela.size > 8) credsTela.clear();
+    credsTela.set(h, c);
+  }
+  return credsTela.get(h);
+}
+
+/** Abre o .pfx/.p12 com a senha, confere e devolve o pacote criptografado + os dados do certificado. */
+function prepararCertificado(pfxBase64, senha) {
+  let p12;
+  try { p12 = forge.pkcs12.pkcs12FromAsn1(forge.asn1.fromDer(forge.util.decode64(pfxBase64)), false, String(senha ?? "")); }
+  catch (e) { throw new Error(/password|MAC|Invalid/i.test(String(e && e.message)) ? "Senha do certificado incorreta (ou arquivo não é um .pfx)." : "Não foi possível abrir o arquivo do certificado."); }
+  const oid = forge.pki.oids;
+  const bolsas = (tipo) => p12.getBags({ bagType: tipo })[tipo] ?? [];
+  const bolsaChave = bolsas(oid.pkcs8ShroudedKeyBag)[0] ?? bolsas(oid.keyBag)[0];
+  if (!bolsaChave?.key) throw new Error("O arquivo não tem a chave privada (exporte o certificado com a chave).");
+  const chave = createPrivateKey(forge.pki.privateKeyToPem(bolsaChave.key)).export({ type: "pkcs8", format: "pem" });
+  const certs = bolsas(oid.certBag).map((b) => b.cert).filter(Boolean);
+  // O certificado da empresa é o que casa com a chave; os outros são a cadeia (autoridades).
+  const modulo = bolsaChave.key.n.toString(16);
+  const folha = certs.find((c) => c.publicKey?.n?.toString(16) === modulo);
+  if (!folha) throw new Error("O certificado do arquivo não corresponde à chave privada.");
+  const cadeia = [folha, ...certs.filter((c) => c !== folha)].map((c) => forge.pki.certificateToPem(c)).join("\n");
+  const c = credencial(cadeia, chave, "tela");
+  if (!c) throw new Error("Certificado inválido.");
+  if (!c.cnpj) throw new Error("Não achei o CNPJ no certificado (precisa ser e-CNPJ A1).");
+  if (new Date(c.validoAte) < new Date()) throw new Error(`Certificado vencido em ${c.validoAte}.`);
+  return { certificado: cifrar({ cadeia, chave }), info: { titular: c.titular, cnpj: c.cnpj, validoDe: c.validoDe, validoAte: c.validoAte } };
+}
+
+const infoCred = (c) => (c ? { origem: c.origem, titular: c.titular, cnpj: c.cnpj, validoDe: c.validoDe, validoAte: c.validoAte } : null);
 
 function autorizado(req) {
   const recebido = Buffer.from(String(req.headers["x-ponte-token"] ?? ""));
@@ -119,8 +195,8 @@ function chamarSoap(url, envelope, comCertificado = true, cabecalhos = { "conten
       timeout: 60_000,
     };
     if (comCertificado) {
-      if (!agente) return reject(new Error("Certificado da 3M ausente na ponte (fly secrets)."));
-      opcoes.agent = agente;
+      if (!cred()) return reject(new Error("Nenhum certificado digital na ponte: envie o certificado em Fiscal → Empresa."));
+      opcoes.agent = cred().agente;
     }
     const req = https.request(url, opcoes, (res) => {
       const partes = [];
@@ -138,8 +214,8 @@ function chamarSoap(url, envelope, comCertificado = true, cabecalhos = { "conten
 /** GET com o certificado da 3M (só leitura): usado para conferir o WSDL da NFS-e de Goiânia. */
 function obterComCertificado(url) {
   return new Promise((resolve) => {
-    if (!agente) return resolve({ status: 0, corpo: "" });
-    const req = https.request(url, { method: "GET", agent: agente, timeout: 20_000 }, (res) => {
+    if (!cred()) return resolve({ status: 0, corpo: "" });
+    const req = https.request(url, { method: "GET", agent: cred().agente, timeout: 20_000 }, (res) => {
       const partes = [];
       res.on("data", (p) => partes.push(p));
       res.on("end", () => resolve({ status: res.statusCode ?? 0, corpo: Buffer.concat(partes).toString("utf8") }));
@@ -182,7 +258,7 @@ async function distribuicao(consulta) {
   const xml =
     `<nfeDistDFeInteresse xmlns="{{WSDL}}"><nfeDadosMsg>` +
     `<distDFeInt xmlns="${NS_NFE}" versao="1.01"><tpAmb>${AMBIENTE}</tpAmb><cUFAutor>${UF}</cUFAutor>` +
-    `<CNPJ>${CNPJ}</CNPJ>${consulta}</distDFeInt>` +
+    `<CNPJ>${cnpjAtual()}</CNPJ>${consulta}</distDFeInt>` +
     `</nfeDadosMsg></nfeDistDFeInteresse>`;
   const r = await chamarSoap(URLS[AMBIENTE].dist, envelope(wsdl, xml));
   if (r.status !== 200) throw erroSoap(r);
@@ -312,17 +388,17 @@ function assinar(elemento, id, ns = NS_NFE) {
     `</SignedInfo>`;
   const assinatura = createSign("RSA-SHA1")
     .update(signedInfo.replace("<SignedInfo>", `<SignedInfo xmlns="${NS_DSIG}">`), "utf8")
-    .sign(CHAVE, "base64");
+    .sign(cred().chave, "base64");
   return (
     `<Signature xmlns="${NS_DSIG}">${signedInfo}<SignatureValue>${assinatura}</SignatureValue>` +
-    `<KeyInfo><X509Data><X509Certificate>${CERT_CORPO}</X509Certificate></X509Data></KeyInfo></Signature>`
+    `<KeyInfo><X509Data><X509Certificate>${cred().certCorpo}</X509Certificate></X509Data></KeyInfo></Signature>`
   );
 }
 
 function eventoCiencia(chave) {
   const id = `ID210210${chave}01`;
   const infEvento =
-    `<infEvento Id="${id}"><cOrgao>91</cOrgao><tpAmb>${AMBIENTE}</tpAmb><CNPJ>${CNPJ}</CNPJ>` +
+    `<infEvento Id="${id}"><cOrgao>91</cOrgao><tpAmb>${AMBIENTE}</tpAmb><CNPJ>${cnpjAtual()}</CNPJ>` +
     `<chNFe>${chave}</chNFe><dhEvento>${dataHoraBrasilia()}</dhEvento><tpEvento>210210</tpEvento>` +
     `<nSeqEvento>1</nSeqEvento><verEvento>1.00</verEvento>` +
     `<detEvento versao="1.00"><descEvento>Ciencia da Operacao</descEvento></detEvento></infEvento>`;
@@ -390,10 +466,10 @@ async function autorizarGo(infNFe) {
   if (!m) throw new Error("infNFe inválido.");
   const chave = m[1];
   const emit = tag(infNFe, "emit") ?? "";
-  if ((tag(emit, "CNPJ") ?? "") !== CNPJ) throw new Error("A nota não é do CNPJ da 3M.");
+  if ((tag(emit, "CNPJ") ?? "") !== cnpjAtual()) throw new Error("A nota não é do CNPJ da 3M.");
   const mod = tag(infNFe, "mod"), tpAmb = Number(tag(infNFe, "tpAmb"));
   if (!["55", "65"].includes(mod) || ![1, 2].includes(tpAmb)) throw new Error("Modelo ou ambiente inválido.");
-  if (chave.slice(0, 2) !== UF || chave.slice(6, 20) !== CNPJ) throw new Error("Chave de acesso não confere com a 3M.");
+  if (chave.slice(0, 2) !== UF || chave.slice(6, 20) !== cnpjAtual()) throw new Error("Chave de acesso não confere com a 3M.");
 
   const supl = mod === "65" ? infNFeSupl(chave, tpAmb) : null;
   const nfe = `<NFe xmlns="${NS_NFE}">${infNFe}${supl ? supl.xml : ""}${assinar(infNFe, "NFe" + chave)}</NFe>`;
@@ -433,7 +509,7 @@ async function cancelarGo(chave, nProt, xJust, tpAmb) {
   const id = `ID110111${chave}01`;
   const just = String(xJust).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[<>&"']/g, " ").trim();
   const infEvento =
-    `<infEvento Id="${id}"><cOrgao>${UF}</cOrgao><tpAmb>${tpAmb}</tpAmb><CNPJ>${CNPJ}</CNPJ>` +
+    `<infEvento Id="${id}"><cOrgao>${UF}</cOrgao><tpAmb>${tpAmb}</tpAmb><CNPJ>${cnpjAtual()}</CNPJ>` +
     `<chNFe>${chave}</chNFe><dhEvento>${dataHoraBrasilia()}</dhEvento><tpEvento>110111</tpEvento>` +
     `<nSeqEvento>1</nSeqEvento><verEvento>1.00</verEvento>` +
     `<detEvento versao="1.00"><descEvento>Cancelamento</descEvento><nProt>${nProt}</nProt><xJust>${just}</xJust></detEvento></infEvento>`;
@@ -516,7 +592,7 @@ function mensagensNfse(xml, grupo) {
   return lista.filter((e) => !/^S/i.test(String(e.codigo || "")));
 }
 
-const consultaDisponivel = (im) => `<ConsultarDpsDisponivelEnvio xmlns="${NS_NFSE}"><Prestador><CNPJ>${CNPJ}</CNPJ><IM>${im}</IM></Prestador><Pagina>1</Pagina></ConsultarDpsDisponivelEnvio>`;
+const consultaDisponivel = (im) => `<ConsultarDpsDisponivelEnvio xmlns="${NS_NFSE}"><Prestador><CNPJ>${cnpjAtual()}</CNPJ><IM>${im}</IM></Prestador><Pagina>1</Pagina></ConsultarDpsDisponivelEnvio>`;
 
 /** Sondagem (só consulta, homologação): qual forma de cabeçalho a prefeitura aceita. */
 async function sondarFormatoNfse(im) {
@@ -570,14 +646,14 @@ function pedidoCancelamentoNfse(tpAmb, chave, cMotivo, xMotivo) {
   const id = `PRE${chave}101101`;
   const inf =
     `<infPedReg Id="${id}"><tpAmb>${tpAmb}</tpAmb><verAplic>${VER_APLIC}</verAplic><dhEvento>${dataHoraBrasilia()}</dhEvento>` +
-    `<CNPJAutor>${CNPJ}</CNPJAutor><chNFSe>${chave}</chNFSe>` +
+    `<CNPJAutor>${cnpjAtual()}</CNPJAutor><chNFSe>${chave}</chNFSe>` +
     `<e101101><xDesc>Cancelamento de NFS-e</xDesc><cMotivo>${cMotivo}</cMotivo><xMotivo>${escXml(xMotivo)}</xMotivo></e101101></infPedReg>`;
   return `<CancelarNfseEnvio xmlns="${NS_NFSE}"><pedRegEvento versao="${VERSAO_NFSE}">${inf}${assinar(inf, id, NS_NFSE)}</pedRegEvento></CancelarNfseEnvio>`;
 }
 
 /** Links oficiais da NFS-e (visualização e verificação de autenticidade), pelo número. Só consulta. */
 async function nfseLinks(tpAmb, im, numero, municipio) {
-  const envio = `<ConsultarUrlNfseEnvio xmlns="${NS_NFSE}"><Prestador><CNPJ>${CNPJ}</CNPJ><IM>${im}</IM></Prestador><NumeroNfse>${numero}</NumeroNfse><Pagina>1</Pagina></ConsultarUrlNfseEnvio>`;
+  const envio = `<ConsultarUrlNfseEnvio xmlns="${NS_NFSE}"><Prestador><CNPJ>${cnpjAtual()}</CNPJ><IM>${im}</IM></Prestador><NumeroNfse>${numero}</NumeroNfse><Pagina>1</Pagina></ConsultarUrlNfseEnvio>`;
   const xml = await soapNfse(tpAmb, "ConsultarUrlNfse", envio, undefined, municipio);
   const l = tag(xml, "Links") ?? "";
   return { visualizar: tag(l, "UrlVisualizacaoNfse"), autenticidade: tag(l, "UrlVerificaAutenticidade"),
@@ -601,7 +677,6 @@ const servidor = http.createServer(async (req, res) => {
     if (req.method === "GET" && req.url === "/saude") return responder(res, 200, { ok: true });
     if (!autorizado(req)) return responder(res, 401, { erro: "não autorizado" });
     if (req.method !== "POST") return responder(res, 405, { erro: "use POST" });
-    if (CNPJ.length !== 14) return responder(res, 500, { erro: "CNPJ não configurado na ponte" });
 
     let pedido;
     try {
@@ -610,14 +685,25 @@ const servidor = http.createServer(async (req, res) => {
       return responder(res, 400, { erro: "JSON inválido" });
     }
 
+    // Certificado enviado pela tela: abre e confere (a senha só passa por aqui; a ponte não guarda nada).
+    if (pedido.acao === "certificado_preparar") {
+      try { return responder(res, 200, prepararCertificado(String(pedido.pfx ?? ""), pedido.senha)); }
+      catch (e) { return responder(res, 422, { erro: e instanceof Error ? e.message : String(e) }); }
+    }
+    let credPedido = null;
+    if (pedido.certificado) {
+      try { credPedido = credDoPacote(pedido.certificado); }
+      catch (e) { return responder(res, 422, { erro: "Certificado guardado no sistema: " + (e instanceof Error ? e.message : String(e)) }); }
+    }
+    if (pedido.acao === "certificado_info")
+      return responder(res, 200, { atual: infoCred(credPedido ?? credPonte), ponte: infoCred(credPonte), protecao: !!process.env.CERT_KEK });
+
+    // Tudo daqui para baixo usa a credencial deste pedido (cred(), cnpjAtual()).
+    return await contexto.run(credPedido ?? credPonte, async () => {
+    if (cnpjAtual().length !== 14) return responder(res, 500, { erro: "Nenhum certificado digital na ponte: envie em Fiscal → Empresa." });
     try {
       if (pedido.diagnostico) {
-        const saida = { regiao: process.env.FLY_REGION ?? null, node: process.version, ambiente: AMBIENTE, certificado: TEM_CERTIFICADO };
-        if (CERT_PEM) {
-          const c = new X509Certificate(CERT_PEM);
-          saida.titular = c.subject.split("\n").find((l) => l.startsWith("CN=")) ?? c.subject;
-          saida.validoAte = c.validTo;
-        }
+        const saida = { regiao: process.env.FLY_REGION ?? null, node: process.version, ambiente: AMBIENTE, certificado: !!cred(), ...infoCred(cred()) };
         // CSC sem revelar o código: só o ID, o tamanho e se ficou o texto de exemplo.
         const resumoCsc = (c) => (c.csc ? { id: c.id, tamanho: c.csc.length, exemplo: /COLE_AQUI/i.test(c.csc) } : null);
         saida.csc = { producao: resumoCsc(csc(1)), homologacao: process.env.CSC_HOM ? resumoCsc(csc(2)) : "não gravado (usa o de produção)" };
@@ -663,7 +749,7 @@ const servidor = http.createServer(async (req, res) => {
           const infDPS = String(pedido.infDPS ?? "");
           // Só DPS do CNPJ do certificado: Id = DPS + município (7) + tipo 2 + CNPJ + série (5) + número (15).
           const prefixo = /^<infDPS Id="DPS(\d{7})2(\d{14})\d{20}">/.exec(infDPS);
-          if (!prefixo || prefixo[2] !== CNPJ || !infDPS.endsWith("</infDPS>") || infDPS.length > 60_000)
+          if (!prefixo || prefixo[2] !== cnpjAtual() || !infDPS.endsWith("</infDPS>") || infDPS.length > 60_000)
             return responder(res, 400, { erro: "DPS inválida" });
           return responder(res, 200, await nfseGerar(tpAmb, infDPS, !!pedido.validar, pedido.municipio));
         }
@@ -674,7 +760,7 @@ const servidor = http.createServer(async (req, res) => {
         }
         if (pedido.acao === "nfse_cancelar") {
           const chave = String(pedido.chave ?? "");
-          if (!/^[0-9]{9}[0-9A-Z]{12}[0-9]{29}$/.test(chave) || !chave.includes(CNPJ)) return responder(res, 400, { erro: "chave da NFS-e inválida" });
+          if (!/^[0-9]{9}[0-9A-Z]{12}[0-9]{29}$/.test(chave) || !chave.includes(cnpjAtual())) return responder(res, 400, { erro: "chave da NFS-e inválida" });
           if (!["1", "2", "9"].includes(String(pedido.cMotivo))) return responder(res, 400, { erro: "motivo inválido" });
           if (String(pedido.xMotivo ?? "").trim().length < 15) return responder(res, 400, { erro: "motivo com menos de 15 letras" });
           return responder(res, 200, await nfseCancelar(tpAmb, chave, String(pedido.cMotivo), String(pedido.xMotivo).trim().slice(0, 255), pedido.municipio));
@@ -683,7 +769,7 @@ const servidor = http.createServer(async (req, res) => {
       }
       if (pedido.acao === "nfe_cancelar") {
         const chave = String(pedido.chave ?? "");
-        if (!CHAVE_NFE.test(chave) || chave.slice(6, 20) !== CNPJ) return responder(res, 400, { erro: "chave de acesso inválida" });
+        if (!CHAVE_NFE.test(chave) || chave.slice(6, 20) !== cnpjAtual()) return responder(res, 400, { erro: "chave de acesso inválida" });
         if (!/^\d{15}$/.test(String(pedido.nProt ?? ""))) return responder(res, 400, { erro: "protocolo inválido" });
         if (String(pedido.xJust ?? "").trim().length < 15) return responder(res, 400, { erro: "justificativa com menos de 15 letras" });
         return responder(res, 200, await cancelarGo(chave, String(pedido.nProt), String(pedido.xJust), Number(pedido.tpAmb) === 1 ? 1 : 2));
@@ -695,6 +781,7 @@ const servidor = http.createServer(async (req, res) => {
       // 422, não 502: o proxy do Fly troca a resposta 502 do app pela página dele e o motivo se perdia.
       return responder(res, 422, { erro });
     }
+    });
   } catch (e) {
     return responder(res, 500, { erro: e instanceof Error ? e.message : String(e) });
   }
@@ -702,7 +789,7 @@ const servidor = http.createServer(async (req, res) => {
 
 // Importado (testes) não sobe o servidor.
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) servidor.listen(Number(process.env.PORT ?? 8080), "0.0.0.0", () => {
-  console.log(`ponte fiscal da 3M no ar (região ${process.env.FLY_REGION ?? "local"}, ambiente ${AMBIENTE}, certificado: ${TEM_CERTIFICADO})`);
+  console.log(`ponte fiscal no ar (região ${process.env.FLY_REGION ?? "local"}, ambiente ${AMBIENTE}, certificado da ponte: ${credPonte ? credPonte.titular : "nenhum"}, proteção p/ certificado da tela: ${!!process.env.CERT_KEK})`);
 });
 
-export { eventoCiencia, lerDocumento, assinar, infNFeSupl, NS_NFSE, VERSAO_NFSE, pedidoCancelamentoNfse };
+export { eventoCiencia, lerDocumento, assinar, infNFeSupl, NS_NFSE, VERSAO_NFSE, pedidoCancelamentoNfse, contexto, credDoPacote, prepararCertificado };

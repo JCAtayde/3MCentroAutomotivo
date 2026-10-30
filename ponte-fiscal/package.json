@@ -1,0 +1,8 @@
+{
+  "name": "ponte-fiscal",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "node-forge": "1.3.1"
+  }
+}

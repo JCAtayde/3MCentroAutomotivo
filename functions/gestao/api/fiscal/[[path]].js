@@ -47,6 +47,9 @@
  *   GET  nfse_xml?id=          XML da NFS-e (e o do cancelamento: &evento=cancelamento)
  *
  * Dados da empresa emitente (functions/_lib/empresa.js):
+ *   GET  certificado            o certificado em uso (enviado pela tela ou o da ponte) e a validade
+ *   POST certificado            { pfx (base64), senha } — só o administrador; a senha não é guardada
+ *   POST certificado_remover    volta a usar o certificado da ponte
  *   GET  empresa / POST empresa { razao, cnpj, ie, im, endereço, regime, códigos da NFS-e… } — POST só o administrador
  *   GET  nfse_danfse?id=       DANFSe em HTML (imprimir / salvar PDF), com o QR Code do link oficial
  *
@@ -230,6 +233,11 @@ async function ponte(env, pedido) {
   // A ponte dorme sem uso (Fly autostop) e leva ~2 s para acordar: nesse intervalo quem responde
   // 502/503 é o Fly, sem JSON e sem o pedido chegar nela — só esse caso é repetido. O 502 da própria
   // ponte (erro ao falar com a SEFAZ/prefeitura) vem em JSON e não se repete: pode ter havido emissão.
+  // Certificado enviado pela tela (Fiscal → Empresa): vai criptografado em cada pedido; só a ponte abre.
+  if (pedido.acao !== 'certificado_preparar' && env.DB) {
+    const c = await env.DB.prepare("SELECT valor FROM fiscal_config WHERE chave='certificado_pacote'").first().catch(() => null);
+    if (c && c.valor) pedido = { ...pedido, certificado: c.valor };
+  }
   let r, dados;
   for (let tentativa = 0; ; tentativa++) {
     r = await fetch(env.PONTE_FISCAL_URL, {
@@ -1027,7 +1035,10 @@ export async function onRequest(context) {
         DB.prepare("SELECT valor FROM fiscal_config WHERE chave='auto_ultima'").first(),
       ]);
       let ultimaAuto = null; try { ultimaAuto = auto ? JSON.parse(auto.valor) : null; } catch (e) { /* ignora */ }
-      return jsonResp({ novas: n ? n.n : 0, lista: lista.results || [], auto: ultimaAuto });
+      // Vencimento do certificado enviado pela tela (aviso no Painel).
+      const cert = await DB.prepare("SELECT valor FROM fiscal_config WHERE chave='certificado_info'").first();
+      let certVence = null; try { certVence = cert ? JSON.parse(cert.valor).validoAte : null; } catch (e) { /* ignora */ }
+      return jsonResp({ novas: n ? n.n : 0, lista: lista.results || [], auto: ultimaAuto, certificadoVence: certVence });
     }
     if (request.method === 'GET' && acao === 'regras') return jsonResp({ pecas: await regrasPorPeca(DB) });
     if (request.method === 'GET' && acao === 'regra_ncm') {
@@ -1039,6 +1050,12 @@ export async function onRequest(context) {
     if (request.method === 'GET' && acao === 'emissao_config') return jsonResp(await configEmissao(DB));
     if (request.method === 'GET' && acao === 'nfse_config') return jsonResp(await configNfse(DB));
     if (request.method === 'GET' && acao === 'empresa') return jsonResp(await carregarEmpresa(DB));
+    if (request.method === 'GET' && acao === 'certificado') {
+      const i = await DB.prepare("SELECT valor FROM fiscal_config WHERE chave='certificado_info'").first();
+      let ponteInfo = null, erroPonte = null;
+      try { ponteInfo = await ponte(env, { acao: 'certificado_info' }); } catch (e) { erroPonte = e.message; }
+      return jsonResp({ enviado: i ? JSON.parse(i.valor) : null, ponte: ponteInfo, erroPonte });
+    }
     if (request.method === 'GET' && acao === 'nfse_saidas') {
       const oid = url.searchParams.get('ordem_id');
       const r = await DB.prepare(`SELECT id,ordem_id,tp_amb,serie,n_dps,chave,numero,status,erros,valor,desconto,iss_retido,tomador_doc,tomador_nome,descricao,cancel_just,quem,criado
@@ -1100,6 +1117,25 @@ export async function onRequest(context) {
       }
       if (acao === 'nfe_status') return jsonResp(await ponte(env, { acao: 'nfe_status', tpAmb: (await configEmissao(DB)).tpAmb }));
       if (acao === 'emitir') return jsonResp(await emitirNota(DB, env, body));
+      if (acao === 'certificado' || acao === 'certificado_remover') {
+        if (!(context.data.usuario && context.data.usuario.papel === 'admin')) return jsonResp({ error: 'Só o administrador troca o certificado digital.' }, 403);
+        if (acao === 'certificado_remover') {
+          await DB.prepare("DELETE FROM fiscal_config WHERE chave IN ('certificado_pacote','certificado_info')").run();
+          return jsonResp({ ok: true });
+        }
+        const pfx = String(body.pfx || '').replace(/^data:[^,]*,/, '').replace(/\s/g, '');
+        if (!pfx || pfx.length > 60000) throw new Error('Escolha o arquivo do certificado (.pfx ou .p12).');
+        // A senha só abre o arquivo na ponte; não é guardada.
+        const r = await ponte(env, { acao: 'certificado_preparar', pfx, senha: String(body.senha || '') });
+        const emp = await carregarEmpresa(DB);
+        if (r.info.cnpj !== emp.cnpj) throw new Error(`Este certificado é do CNPJ ${r.info.cnpj}, mas a empresa em Fiscal → Empresa é ${emp.cnpj}. Confira o arquivo ou os dados da empresa.`);
+        const info = { ...r.info, enviadoEm: Date.now(), quem: (context.data.usuario && context.data.usuario.nome) || '' };
+        await DB.batch([
+          DB.prepare("INSERT INTO fiscal_config (chave,valor) VALUES ('certificado_pacote',?) ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor").bind(r.certificado),
+          DB.prepare("INSERT INTO fiscal_config (chave,valor) VALUES ('certificado_info',?) ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor").bind(JSON.stringify(info)),
+        ]);
+        return jsonResp({ ok: true, info });
+      }
       if (acao === 'empresa') {
         if (!(context.data.usuario && context.data.usuario.papel === 'admin')) return jsonResp({ error: 'Só o administrador muda os dados da empresa.' }, 403);
         return jsonResp(await salvarEmpresa(DB, body));
