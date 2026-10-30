@@ -984,7 +984,16 @@ export async function onRequest(context) {
     }
 
     if (request.method === 'POST' && acao === 'sincronizar') return jsonResp(await sincronizar(DB, env));
-    if (request.method === 'POST' && acao === 'diagnostico') return jsonResp(await ponte(env, { diagnostico: true }));
+    if (request.method === 'POST' && acao === 'diagnostico') {
+      const d = await ponte(env, { diagnostico: true });
+      // WSDL da NFS-e (público para quem tem certificado): guardado para consulta, fora da resposta.
+      const wsdl = d.nfse && d.nfse.homologacao && d.nfse.homologacao.wsdl;
+      if (wsdl) {
+        await DB.prepare("INSERT INTO fiscal_config (chave,valor) VALUES ('nfse_wsdl',?) ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor").bind(wsdl).run();
+        delete d.nfse.homologacao.wsdl;
+      }
+      return jsonResp(d);
+    }
 
     if (request.method === 'GET' && acao === 'estoque') return jsonResp({ pecas: await estoque(DB) });
     if (request.method === 'GET' && acao === 'alertas') {

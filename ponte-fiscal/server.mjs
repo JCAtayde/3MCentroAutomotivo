@@ -482,6 +482,7 @@ const servidor = http.createServer(async (req, res) => {
             enderecos: [...new Set([...r.corpo.matchAll(/address\s+location=["']([^"']+)/g)].map((m) => m[1]))],
             operacoes: [...new Set([...r.corpo.matchAll(/<(?:\w+:)?operation\s+name=["']([^"']+)/g)].map((m) => m[1]))],
             tamanho: r.corpo.length,
+            wsdl: nome === "homologacao" && r.status === 200 ? r.corpo : undefined, // a API guarda e tira da resposta
             inicio: r.corpo && !/definitions/.test(r.corpo) ? r.corpo.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 160) : undefined,
           };
         }
