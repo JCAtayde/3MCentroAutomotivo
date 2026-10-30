@@ -3728,10 +3728,10 @@ async function carregarRegrasFiscais(){
 function renderFiscal(){
   const box=document.getElementById('fiscalBox'); if(!box) return;
   if(!telaLiberada('fornecedores')&&!ehGestor()){ box.innerHTML='<div class="note empty-note">Sem permissão.</div>'; return; }
-  const abas=[['regras','Regras das peças'],['emissao','Nota de peças'],['servico','Nota de serviço'],['simples','Simples (estimativa)']].filter(a=>a[0]!=='simples'||ehGestor());
+  const abas=[['regras','Regras das peças'],['emissao','Nota de peças'],['servico','Nota de serviço'],['simples','Simples (estimativa)'],['empresa','Empresa']].filter(a=>a[0]!=='simples'||ehGestor());
   if(!abas.some(a=>a[0]===fiscalAba)) fiscalAba='regras';
   box.innerHTML=`<div class="seg" style="display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap">${abas.map(a=>`<button class="btn sm ${fiscalAba===a[0]?'gold':''}" onclick="fiscalAba='${a[0]}'; renderFiscal()">${a[1]}</button>`).join('')}</div><div id="fiscalConteudo"><div class="note">Carregando…</div></div>`;
-  const pronto=()=>{ if(fiscalAba==='regras') desenharRegrasFiscais(); else if(fiscalAba==='emissao') desenharEmissaoCfg(); else if(fiscalAba==='servico') desenharServicoCfg(); else desenharSimples(); };
+  const pronto=()=>{ if(fiscalAba==='regras') desenharRegrasFiscais(); else if(fiscalAba==='emissao') desenharEmissaoCfg(); else if(fiscalAba==='servico') desenharServicoCfg(); else if(fiscalAba==='empresa') desenharEmpresaCfg(); else desenharSimples(); };
   const precisa=[]; if(!fiscalRegras) precisa.push(carregarRegrasFiscais()); if(fiscalAba==='simples'&&!notasCompra) precisa.push(carregarNotasCompra());
   if(precisa.length) Promise.all(precisa).then(pronto).catch(e=>{ const c=document.getElementById('fiscalConteudo'); if(c) c.innerHTML='<div class="note">Erro ao carregar: '+esc(e.message)+'</div>'; });
   else pronto();
@@ -3967,7 +3967,14 @@ function linhasNotaDaOS(o){
   });
   return linhas;
 }
-/* ---- Nota de serviço (NFS-e de Goiânia) da mão de obra — API fiscal nfse_* ---- */
+/* ---- Dados da empresa emitente (Fiscal → Empresa; API fiscal/empresa) ---- */
+let empresaCfg=null;
+async function carregarEmpresaCfg(forcar){ if(!empresaCfg||forcar){ const r=await fetch(API_FISCAL+'/empresa'); const d=await r.json(); if(d.error) throw new Error(d.error); empresaCfg=d; } return empresaCfg; }
+const semAcento=t=>String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').trim().toLowerCase();
+/* Cliente sem cidade, ou na mesma cidade da oficina: usa o código IBGE do município da empresa. */
+function cidadeDaEmpresa(c){ return !(c&&c.cidade) || semAcento(c.cidade)===semAcento((empresaCfg||{}).xMun); }
+
+/* ---- Nota de serviço (NFS-e) da mão de obra — API fiscal nfse_* ---- */
 function linhaNfse(n){
   let erros=[]; try{ erros=JSON.parse(n.erros||'[]'); }catch(e){}
   return `<div class="row" style="display:block"><div class="main"><div class="t">NFS-e ${n.numero?('nº '+esc(n.numero)):('DPS '+esc(n.n_dps||''))} ${nfeStChip(n.status)} ${nfeAmbChip(n.tp_amb)}${n.iss_retido?' <span class="badge">ISS retido</span>':''}</div>
@@ -3995,17 +4002,17 @@ async function abrirNotaServico(oid){
   openModal('<div class="note">Carregando…</div>');
   let ja=[];
   try{ const q='?ordem_id='+encodeURIComponent(oid);
-    const [cfg,lista]=await Promise.all([fetch(API_FISCAL+'/nfse_config').then(r=>r.json()), fetch(API_FISCAL+'/nfse_saidas'+q).then(r=>r.json())]);
+    const [cfg,lista]=await Promise.all([fetch(API_FISCAL+'/nfse_config').then(r=>r.json()), fetch(API_FISCAL+'/nfse_saidas'+q).then(r=>r.json()), carregarEmpresaCfg()]);
     if(cfg.error) throw new Error(cfg.error); nfseCfg=cfg; ja=((lista&&lista.notas)||[]).filter(n=>n.status==='autorizada'); }
   catch(e){ openModal(`<div class="note">Não foi possível carregar: ${esc(e.message)}</div><button class="btn" onclick="closeModal()">Fechar</button>`); return; }
   const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const m=mdoDaNota(o);
-  const goiania=/goi[aâ]nia/i.test((c&&c.cidade)||'')||!(c&&c.cidade);
+  const mesmaCidade=cidadeDaEmpresa(c);
   nfseCtx={ oid, ja, valor:m.valor, desconto:m.desconto, issRetido:false,
     descricao:m.linhas.map(x=>String(x.desc||'Serviço').trim()).join('; ').toUpperCase(),
     info:[o.codigo?('OS '+o.codigo):'', v?[nomeVeiculo(v), v.placa?('placa '+v.placa):''].filter(Boolean).join(' '):''].filter(Boolean).join(' · '),
     tomador:{ doc:normDoc(c&&c.cpf), nome:(c&&(c.razao||c.nome))||'', xLgr:(c&&c.rua)||'', nro:(c&&c.numero)||'SN',
       xCpl:[(c&&c.quadra)?'QD '+c.quadra:'',(c&&c.lote)?'LT '+c.lote:'',(c&&c.complemento)||''].filter(Boolean).join(' '),
-      xBairro:(c&&c.setor)||'', cep:normDoc(c&&c.cep), cMun:goiania?'5208707':'', fone:normDoc(c&&(c.telefone1||c.telefone)) } };
+      xBairro:(c&&c.setor)||'', cep:normDoc(c&&c.cep), cMun:mesmaCidade?((empresaCfg||{}).cMun||''):'', fone:normDoc(c&&(c.telefone1||c.telefone)) } };
   renderNotaServico();
   const t=nfseCtx.tomador;
   if(!t.cMun&&t.cep.length===8){ try{ const j=await (await fetch('https://viacep.com.br/ws/'+t.cep+'/json/')).json(); if(j&&!j.erro){ t.cMun=j.ibge||''; if(!t.xLgr) t.xLgr=j.logradouro||''; if(!t.xBairro) t.xBairro=j.bairro||''; renderNotaServico(); } }catch(e){} }
@@ -4069,15 +4076,15 @@ async function abrirEmissaoNota(oid){
   openModal('<div class="note">Carregando dados fiscais…</div>');
   let jaEmitidas=[];
   try{ const [, , , ja]=await Promise.all([carregarEmissaoCfg(), fiscalRegras?null:carregarRegrasFiscais(), notasCompra?null:carregarNotasCompra(),
-      fetch(API_FISCAL+'/saidas?ordem_id='+encodeURIComponent(oid)).then(r=>r.json())]);
+      fetch(API_FISCAL+'/saidas?ordem_id='+encodeURIComponent(oid)).then(r=>r.json()), carregarEmpresaCfg()]);
     jaEmitidas=((ja&&ja.notas)||[]).filter(n=>n.status==='autorizada'); }
   catch(e){ openModal(`<div class="note">Não foi possível carregar: ${esc(e.message)}</div><button class="btn" onclick="closeModal()">Fechar</button>`); return; }
   const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null;
   const doc=normDoc(c&&c.cpf);
-  const goiania=/goi[aâ]nia/i.test((c&&c.cidade)||'')||!(c&&c.cidade);
+  const E=empresaCfg||{}, mesmaCidade=cidadeDaEmpresa(c);
   emissaoCtx={ oid, jaEmitidas, modelo:doc.length===14?'55':'65', linhas:linhasNotaDaOS(o), pagamento:'20',
     dest:{ doc, nome:(c&&(c.razao||c.nome))||'', IE:'', xLgr:(c&&c.rua)||'', nro:(c&&c.numero)||'SN', xCpl:[(c&&c.quadra)?'QD '+c.quadra:'',(c&&c.lote)?'LT '+c.lote:'',(c&&c.complemento)||''].filter(Boolean).join(' '),
-      xBairro:(c&&c.setor)||'', xMun:(c&&c.cidade)||'Goiania', UF:(c&&c.estado)||'GO', CEP:normDoc(c&&c.cep), cMun:goiania?'5208707':'', fone:normDoc(c&&(c.telefone1||c.telefone)), email:'' } };
+      xBairro:(c&&c.setor)||'', xMun:(c&&c.cidade)||E.xMun||'', UF:(c&&c.estado)||E.uf||'', CEP:normDoc(c&&c.cep), cMun:mesmaCidade?(E.cMun||''):'', fone:normDoc(c&&(c.telefone1||c.telefone)), email:'' } };
   renderEmissaoNota();
   if(!emissaoCtx.dest.cMun&&emissaoCtx.dest.CEP.length===8) buscarCepEmissao();
 }
@@ -4169,9 +4176,58 @@ async function desenharEmissaoCfg(){
       ${ehAdmin()?`<div style="margin-top:8px"><button class="btn sm" onclick="trocarAmbienteEmissao(${c.tpAmb===2?1:2})">${c.tpAmb===2?'Passar para produção':'Voltar para homologação'}</button> <button class="btn sm ghost" onclick="testarSefazGo()">Testar conexão com a SEFAZ-GO</button></div>`:''}</div>
     <div class="section-label">Próximo número</div>
     <table style="width:100%;font-size:13px;border-collapse:collapse">${[2,1].map(tp=>['55','65'].map(m=>linhaNum(tp,m)).join('')).join('')}</table>
-    <div class="note" style="white-space:normal;font-size:12px">A NF-e de produção continua da nº 353 (emitida pelo contador em 23/10/2026). Para a NFC-e de produção, informe o próximo número se a 3M já tiver emitido alguma.</div>
+    <div class="note" style="white-space:normal;font-size:12px">Se a empresa já emitiu notas por outro sistema, informe aqui o próximo número de produção de cada série (para não repetir número).</div>
     <div class="section-label">Notas emitidas (${notas.length})</div><div class="rows">${notas.map(n=>linhaNotaSaida(n)).join('')||emptyState('Nenhuma nota emitida','Emita pela OS: botão “Emitir nota das peças”.')}</div>`;
 }
+/* ---- Fiscal → Empresa: dados do emitente usados nas notas (só o administrador edita) ---- */
+const UFS='AC AL AM AP BA CE DF ES GO MA MG MS MT PA PB PE PI PR RJ RN RO RR RS SC SE SP TO'.split(' ');
+async function desenharEmpresaCfg(){
+  const el=document.getElementById('fiscalConteudo'); if(!el) return;
+  let e, n;
+  try{ [e,n]=await Promise.all([carregarEmpresaCfg(true), fetch(API_FISCAL+'/nfse_config').then(r=>r.json())]); nfseCfg=n; }
+  catch(err){ el.innerHTML='<div class="note">Erro: '+esc(err.message)+'</div>'; return; }
+  const ed=ehAdmin(), dis=ed?'':'disabled';
+  const campo=(k,rot,extra='')=>`<div class="field"><label>${rot}</label><input id="emp_${k}" value="${esc(e[k]??'')}" ${dis} ${extra}></div>`;
+  const sel=(k,rot,ops)=>`<div class="field"><label>${rot}</label><select id="emp_${k}" ${dis}>${ops.map(([v,t])=>`<option value="${v}" ${String(e[k])===String(v)?'selected':''}>${t}</option>`).join('')}</select></div>`;
+  el.innerHTML=`<div class="note" style="white-space:normal">Estes dados saem nas <b>notas de peças</b> (NF-e), nas <b>notas de serviço</b> (NFS-e) e nos PDFs.
+      ${ed?'Confira com o cartão CNPJ e com o contador antes de salvar: dado errado faz a SEFAZ ou a prefeitura recusar a nota.':'Só o administrador altera.'}</div>
+    <div class="section-label">Empresa</div>
+    <div class="grid2">${campo('razao','Razão social')}${campo('fantasia','Nome fantasia')}</div>
+    <div class="grid2">${campo('cnpj','CNPJ','inputmode="numeric"')}${campo('ie','Inscrição estadual','inputmode="numeric"')}</div>
+    <div class="grid2">${campo('im','Inscrição municipal','inputmode="numeric"')}${sel('crt','Regime tributário (CRT)',[['1','1 — Simples Nacional'],['2','2 — Simples Nacional, excesso de sublimite']])}</div>
+    <div class="grid2">${campo('fone','Telefone','inputmode="numeric"')}${campo('email','E-mail')}</div>
+    <div class="section-label">Endereço</div>
+    <div class="grid2">${campo('xLgr','Logradouro')}${campo('nro','Número')}</div>
+    <div class="grid2">${campo('xCpl','Complemento (quadra, lote…)')}${campo('xBairro','Bairro')}</div>
+    <div class="grid2">${campo('cep','CEP','inputmode="numeric"')}<div class="field"><label>&nbsp;</label>${ed?'<button class="btn sm" type="button" onclick="empresaBuscarCep()">Preencher cidade pelo CEP</button>':''}</div></div>
+    <div class="grid2">${campo('xMun','Município')}${sel('uf','UF',UFS.map(u=>[u,u]))}</div>
+    <div class="grid2">${campo('cMun','Código IBGE do município','inputmode="numeric"')}<div></div></div>
+    <div class="section-label">Nota de serviço (NFS-e)</div>
+    <div class="grid2">${campo('cTribNac','Código de tributação nacional (ex.: 140101)','inputmode="numeric"')}${campo('cTribMun','Código de tributação municipal','inputmode="numeric"')}</div>
+    <div class="grid2">${campo('cNBS','Código NBS (ex.: 120013110)','inputmode="numeric"')}${campo('municipioWs','Município no webservice ISS.net (ex.: goiania)')}</div>
+    <div class="grid2">${sel('opSimpNac','Situação no Simples Nacional',[['3','ME / EPP'],['2','MEI'],['1','Não optante']])}${sel('regApTribSN','Apuração no Simples',[['1','Federais e municipal pelo SN'],['2','Federais pelo SN, ISS por fora'],['3','Federais e municipal por fora']])}</div>
+    <div class="grid2">${sel('regEspTrib','Regime especial do ISS',[['0','Nenhum'],['1','Ato cooperado'],['2','Estimativa'],['3','Microempresa municipal'],['4','Notário ou registrador'],['5','Profissional autônomo'],['6','Sociedade de profissionais'],['9','Outros']])}<div></div></div>
+    <div class="grid2"><div class="field"><label>Alíquota do ISS quando retido (%)</label><input id="emp_aliquota" inputmode="decimal" value="${String(n.aliquota).replace('.',',')}" ${dis}></div>
+      <div class="field"><label>Tributos aproximados — Simples (%)</label><input id="emp_pTotTribSN" inputmode="decimal" value="${String(n.pTotTribSN).replace('.',',')}" ${dis}></div></div>
+    <div class="section-label">Texto da nota de peças</div>
+    <div class="field"><label>Informação complementar (Simples Nacional)</label><textarea id="emp_textoSimples" rows="2" ${dis}>${esc(e.textoSimples||'')}</textarea></div>
+    ${ed?'<div class="form-actions"><button class="btn gold" onclick="salvarEmpresaCfg()">Salvar dados da empresa</button></div>':''}
+    <div class="note" style="white-space:normal;font-size:12px;color:var(--muted);margin-top:12px">Fora desta tela, por segurança: o <b>certificado digital A1</b> e o <b>CSC</b> da NFC-e ficam guardados na ponte fiscal, e a ponte hoje se comunica com a <b>SEFAZ de Goiás</b> e com a nota de serviço do <b>ISS.net/NotaControl</b>. Outra empresa usa o próprio certificado; outro estado ou outro sistema de prefeitura precisa de ajuste na ponte.</div>`;
+}
+async function empresaBuscarCep(){ const cep=normDoc(val('emp_cep')); if(cep.length!==8){ toast('CEP com 8 números'); return; }
+  try{ const j=await (await fetch('https://viacep.com.br/ws/'+cep+'/json/')).json(); if(!j||j.erro){ toast('CEP não encontrado'); return; }
+    const p=(k,v)=>{ const i=document.getElementById('emp_'+k); if(i&&v) i.value=v; };
+    p('cMun',j.ibge); p('xMun',j.localidade); p('uf',j.uf); if(!val('emp_xLgr')) p('xLgr',j.logradouro); if(!val('emp_xBairro')) p('xBairro',j.bairro); toast('Cidade preenchida ✓'); }catch(e){ toast('Não foi possível consultar o CEP'); } }
+async function salvarEmpresaCfg(){
+  const ks=['razao','fantasia','cnpj','ie','im','crt','fone','email','xLgr','nro','xCpl','xBairro','cep','xMun','uf','cMun','cTribNac','cTribMun','cNBS','municipioWs','opSimpNac','regApTribSN','regEspTrib','textoSimples'];
+  const b={}; ks.forEach(k=>{ b[k]=val('emp_'+k); });
+  const num=v=>{ const t=String(v||'').trim(); return Number(t.includes(',')?t.replace(/\./g,'').replace(',','.'):t); };
+  try{ empresaCfg=await fiscalPost('empresa',b);
+    nfseCfg=await fiscalPost('nfse_config',{aliquota:num(val('emp_aliquota')), pTotTribSN:num(val('emp_pTotTribSN'))});
+    logAcao('Alterou dados da empresa (fiscal)','',''); toast('Dados da empresa salvos ✓'); desenharEmpresaCfg(); }
+  catch(e){ alert(e.message); }
+}
+
 /* ---- Fiscal → Nota de serviço: ambiente da NFS-e e notas de serviço emitidas ---- */
 async function desenharServicoCfg(){
   const el=document.getElementById('fiscalConteudo'); if(!el) return;

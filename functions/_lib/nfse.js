@@ -1,5 +1,5 @@
 /**
- * NFS-e de Goiânia (mão de obra das OS) — NotaControl / ISS.net, padrão nacional, leiaute 1.00.
+ * NFS-e (mão de obra das OS) — NotaControl / ISS.net, padrão nacional, leiaute 1.00 (feita e testada em Goiânia).
  *
  * O sistema monta a <infDPS>; a ponte fiscal (ponte-fiscal/server.mjs) assina com o certificado
  * da 3M e fala com a prefeitura. Os dados fixos vêm da NFS-e nº 25 da 3M (23/10/2026), aceita
@@ -10,8 +10,8 @@
  * (ConsultarDpsDisponivel) e usa o menor.
  */
 
-export const PRESTADOR = { CNPJ: '49958723000197', IM: '6059023', cMun: '5208707' };
-const SERVICO = { cTribNac: '140101', cTribMun: '000', cNBS: '120013110' };
+import { EMPRESA_PADRAO, carregarEmpresa } from './empresa.js';
+// Prestador e códigos do serviço vêm de Fiscal → Empresa (empresa.js); o padrão são os dados da 3M.
 const VER_APLIC = '3M-Gestao-1.0';
 
 const soDigitos = (v) => String(v ?? '').replace(/\D/g, '');
@@ -22,8 +22,8 @@ const dataHoraGO = (t = Date.now()) => new Date(t - 3 * 3600000).toISOString().s
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
 /** Id da DPS: "DPS" + município (7) + tipo de inscrição (2 = CNPJ) + CNPJ (14) + série (5) + número (15). */
-export function idDPS(serie, numero) {
-  return 'DPS' + PRESTADOR.cMun + '2' + PRESTADOR.CNPJ + soDigitos(serie).padStart(5, '0') + soDigitos(numero).padStart(15, '0');
+export function idDPS(serie, numero, emp = EMPRESA_PADRAO) {
+  return 'DPS' + emp.cMun + '2' + emp.cnpj + soDigitos(serie).padStart(5, '0') + soDigitos(numero).padStart(15, '0');
 }
 
 /**
@@ -31,6 +31,7 @@ export function idDPS(serie, numero) {
  * d = { tpAmb, serie, numero, dCompet?, tomador?, descricao, valor, desconto?, issRetido, aliquota, pTotTribSN, infoCompl? }
  */
 export function montarInfDPS(d) {
+  const emp = d.emp || EMPRESA_PADRAO;
   const valor = Math.round((Number(d.valor) || 0) * 100) / 100;
   const desconto = Math.round((Number(d.desconto) || 0) * 100) / 100;
   if (!(valor > 0)) throw new Error('Informe o valor da mão de obra.');
@@ -55,20 +56,20 @@ export function montarInfDPS(d) {
       '</toma>';
   }
 
-  const id = idDPS(d.serie, d.numero);
+  const id = idDPS(d.serie, d.numero, emp);
   const dCompet = d.dCompet || dataHoraGO().slice(0, 10);
   const info = texto(d.infoCompl, 2000);
   const infDPS =
     `<infDPS Id="${id}">` +
     `<tpAmb>${Number(d.tpAmb) === 1 ? 1 : 2}</tpAmb><dhEmi>${dataHoraGO()}</dhEmi><verAplic>${VER_APLIC}</verAplic>` +
     `<serie>${soDigitos(d.serie)}</serie><nDPS>${Number(soDigitos(d.numero))}</nDPS><dCompet>${dCompet}</dCompet>` +
-    `<tpEmit>1</tpEmit><cLocEmi>${PRESTADOR.cMun}</cLocEmi>` +
+    `<tpEmit>1</tpEmit><cLocEmi>${emp.cMun}</cLocEmi>` +
     // Emitente = prestador: nome e endereço vêm do cadastro da prefeitura.
-    `<prest><CNPJ>${PRESTADOR.CNPJ}</CNPJ><IM>${PRESTADOR.IM}</IM>` +
-    `<regTrib><opSimpNac>3</opSimpNac><regApTribSN>1</regApTribSN><regEspTrib>0</regEspTrib></regTrib></prest>` +
+    `<prest><CNPJ>${emp.cnpj}</CNPJ><IM>${emp.im}</IM>` +
+    `<regTrib><opSimpNac>${emp.opSimpNac}</opSimpNac>${emp.opSimpNac === '3' ? `<regApTribSN>${emp.regApTribSN}</regApTribSN>` : ''}<regEspTrib>${emp.regEspTrib || '0'}</regEspTrib></regTrib></prest>` +
     toma +
-    `<serv><locPrest><cLocPrestacao>${PRESTADOR.cMun}</cLocPrestacao></locPrest>` +
-    `<cServ><cTribNac>${SERVICO.cTribNac}</cTribNac><cTribMun>${SERVICO.cTribMun}</cTribMun><xDescServ>${descricao}</xDescServ><cNBS>${SERVICO.cNBS}</cNBS></cServ>` +
+    `<serv><locPrest><cLocPrestacao>${emp.cMun}</cLocPrestacao></locPrest>` +
+    `<cServ><cTribNac>${emp.cTribNac}</cTribNac><cTribMun>${emp.cTribMun || '0'}</cTribMun><xDescServ>${descricao}</xDescServ>${emp.cNBS ? `<cNBS>${emp.cNBS}</cNBS>` : ''}</cServ>` +
     (info ? `<infoCompl><xInfComp>${info}</xInfComp></infoCompl>` : '') + `</serv>` +
     `<valores><vServPrest><vServ>${dec2(valor)}</vServ></vServPrest>` +
     (desconto > 0 ? `<vDescCondIncond><vDescIncond>${dec2(desconto)}</vDescIncond></vDescCondIncond>` : '') +
@@ -117,18 +118,19 @@ const textoErros = (erros) => (erros || []).map((e) => `${e.codigo || ''} ${e.me
 /** Emite (ou só confere, com b.validar) a NFS-e da mão de obra de uma OS. */
 export async function emitirNfse(DB, ponte, b, quem) {
   const cfg = await configNfse(DB);
+  const emp = await carregarEmpresa(DB);
   // Conferir (ValidarXml, não emite) pode usar a produção: o ambiente de teste da prefeitura não tem a 3M
   // cadastrada (E043/E259 em 30/10/2026).
   const tpAmb = b.validar && b.validarProducao ? 1 : cfg.tpAmb;
-  const disp = await ponte({ acao: 'nfse_disponivel', tpAmb, im: PRESTADOR.IM });
+  const disp = await ponte({ acao: 'nfse_disponivel', tpAmb, im: emp.im, municipio: emp.municipioWs });
   const livre = (disp.dps || []).filter((x) => x.numero).sort((a, b2) => Number(a.numero) - Number(b2.numero))[0];
   if (!livre && !b.validar) {
     await guardarResposta(DB, 'disponivel', disp);
     throw new Error('A prefeitura não liberou número de DPS para a 3M' + (disp.erros && disp.erros.length ? ': ' + textoErros(disp.erros) : '.'));
   }
-  const dps = montarInfDPS({ ...b, tpAmb, serie: livre ? livre.serie : '1', numero: livre ? livre.numero : '1',
+  const dps = montarInfDPS({ ...b, emp, tpAmb, serie: livre ? livre.serie : '1', numero: livre ? livre.numero : '1',
     issRetido: !!b.iss_retido, aliquota: cfg.aliquota, pTotTribSN: cfg.pTotTribSN });
-  const r = await ponte({ acao: 'nfse_gerar', tpAmb, infDPS: dps.infDPS, validar: !!b.validar });
+  const r = await ponte({ acao: 'nfse_gerar', tpAmb, infDPS: dps.infDPS, validar: !!b.validar, municipio: emp.municipioWs });
   if (b.validar) {
     if (!r.ok) await guardarResposta(DB, 'validar', r);
     return { validacao: true, ok: r.ok, erros: r.erros || [], alertas: r.alertas || [], sucesso: r.sucesso || [], semNumero: !livre, tpAmb, resposta: r.resposta };
@@ -136,7 +138,7 @@ export async function emitirNfse(DB, ponte, b, quem) {
   if (!r.ok) await guardarResposta(DB, 'gerar', r);
   // Links oficiais (QR Code do DANFSe). Se falhar, o DANFSe busca de novo quando for aberto.
   let links = null;
-  if (r.ok && r.numero) { try { links = await ponte({ acao: 'nfse_links', tpAmb, im: PRESTADOR.IM, numero: r.numero }); } catch (e) { links = null; } }
+  if (r.ok && r.numero) { try { links = await ponte({ acao: 'nfse_links', tpAmb, im: emp.im, numero: r.numero, municipio: emp.municipioWs }); } catch (e) { links = null; } }
   const agora = Date.now(), id = uid(), t = b.tomador || {};
   const status = r.ok ? 'autorizada' : 'rejeitada';
   await DB.prepare(`INSERT INTO nfse_saida (id,ordem_id,tp_amb,serie,n_dps,chave,numero,status,erros,valor,desconto,iss_retido,tomador_doc,tomador_nome,descricao,dados,xml,dps,quem,criado,atualizado)
@@ -155,7 +157,8 @@ export async function cancelarNfse(DB, ponte, b) {
   const xMotivo = String(b.xMotivo || '').trim();
   if (xMotivo.length < 15) throw new Error('Escreva o motivo do cancelamento (mínimo de 15 letras).');
   const cMotivo = ['1', '2', '9'].includes(String(b.cMotivo)) ? String(b.cMotivo) : '9';
-  const r = await ponte({ acao: 'nfse_cancelar', tpAmb: n.tp_amb, chave: n.chave, cMotivo, xMotivo });
+  const emp = await carregarEmpresa(DB);
+  const r = await ponte({ acao: 'nfse_cancelar', tpAmb: n.tp_amb, chave: n.chave, cMotivo, xMotivo, municipio: emp.municipioWs });
   if (!r.cancelada) {
     await guardarResposta(DB, 'cancelar', r);
     throw new Error('Prefeitura: ' + (textoErros(r.erros) || 'cancelamento não confirmado.'));
@@ -175,7 +178,8 @@ export async function linksNfse(DB, ponte, n) {
   let dados = {}; try { dados = JSON.parse(n.dados || '{}'); } catch (e) { dados = {}; }
   if (dados.links || !n.numero || n.status === 'rejeitada') return dados.links || null;
   try {
-    const l = linksValidos(await ponte({ acao: 'nfse_links', tpAmb: n.tp_amb, im: PRESTADOR.IM, numero: n.numero }));
+    const emp = await carregarEmpresa(DB);
+    const l = linksValidos(await ponte({ acao: 'nfse_links', tpAmb: n.tp_amb, im: emp.im, numero: n.numero, municipio: emp.municipioWs }));
     if (l) { dados.links = l; await DB.prepare('UPDATE nfse_saida SET dados=? WHERE id=?').bind(JSON.stringify(dados), n.id).run(); }
     return l;
   } catch (e) { return null; }
@@ -187,7 +191,7 @@ const OP_SN = { 1: 'Não optante', 2: 'Optante — Microempreendedor Individual 
 const AP_SN = { 1: 'Regime de apuração dos tributos federais e municipal pelo SN', 2: 'Tributos federais pelo SN e ISSQN por fora do SN', 3: 'Tributos federais e municipal por fora do SN' };
 
 /** DANFSe (Documento Auxiliar da NFS-e) em HTML para imprimir ou salvar em PDF, a partir do XML autorizado. */
-export function danfseHtml(n, links) {
+export function danfseHtml(n, links, emp = EMPRESA_PADRAO) {
   const x = n.xml || '';
   const t = (s, nome) => { const m = String(s || '').match(new RegExp(`<(?:\\w+:)?${nome}(?:\\s[^>]*)?>([\\s\\S]*?)</(?:\\w+:)?${nome}>`)); return m ? m[1] : ''; };
   // O XML já vem escapado (&amp; &lt;): escapa o resto sem escapar de novo as entidades.
@@ -238,7 +242,7 @@ export function danfseHtml(n, links) {
 <div class="pg">${marca}
   <div class="top">
     <div class="t"><h1>DANFSe — Documento Auxiliar da NFS-e</h1>
-      <div class="s">Município: ${e(t(inf, 'xLocEmi') || 'Goiânia')} - GO · ${homolog ? 'Homologação' : 'Produção'}${cancel ? ' · <b>NFS-e CANCELADA</b>' : ''}</div>
+      <div class="s">Município: ${e(t(inf, 'xLocEmi') || emp.xMun)} - ${e(t(endE, 'UF') || emp.uf)} · ${homolog ? 'Homologação' : 'Produção'}${cancel ? ' · <b>NFS-e CANCELADA</b>' : ''}</div>
       <div style="font-size:8.5px;margin-top:6px;color:#444">CHAVE DE ACESSO DA NFS-e</div><div class="chave">${e(chave.replace(/(.{5})/g, '$1 ').trim())}</div></div>
     <div class="qrbox">${qr ? '<div id="qr"></div>' : ''}<div>A autenticidade desta NFS-e pode ser verificada ${qr ? 'pela leitura deste código QR ou ' : ''}pela consulta da chave de acesso no portal nacional da NFS-e.</div></div>
   </div>
@@ -247,8 +251,8 @@ export function danfseHtml(n, links) {
     ${campo('Número da DPS', e(t(dps, 'nDPS') || n.n_dps))}${campo('Série da DPS', e(t(dps, 'serie') || n.serie))}${campo('Emissão da DPS', dataHora(t(dps, 'dhEmi')))}${campo('Emitente', 'Prestador')}
   </div></div>
   <div class="sec"><h2>PRESTADOR / FORNECEDOR</h2><div class="g">
-    ${campo('Nome / Nome empresarial', e(t(emit, 'xNome') || 'JCMA CENTRO AUTOMOTIVO LTDA'), 's2')}${campo('CNPJ', doc(t(emit, 'CNPJ') || PRESTADOR.CNPJ))}${campo('Inscrição municipal', e(t(emit, 'IM') || PRESTADOR.IM))}
-    ${campo('Endereço', e([t(endE, 'xLgr'), t(endE, 'nro'), t(endE, 'xCpl'), t(endE, 'xBairro')].filter(Boolean).join(', ')), 's2')}${campo('Município / UF', e((t(inf, 'xLocEmi') || 'Goiânia') + ' / ' + (t(endE, 'UF') || 'GO')))}${campo('CEP', cep(t(endE, 'CEP')))}
+    ${campo('Nome / Nome empresarial', e(t(emit, 'xNome') || emp.razao), 's2')}${campo('CNPJ', doc(t(emit, 'CNPJ') || emp.cnpj))}${campo('Inscrição municipal', e(t(emit, 'IM') || emp.im))}
+    ${campo('Endereço', e([t(endE, 'xLgr'), t(endE, 'nro'), t(endE, 'xCpl'), t(endE, 'xBairro')].filter(Boolean).join(', ')), 's2')}${campo('Município / UF', e((t(inf, 'xLocEmi') || emp.xMun) + ' / ' + (t(endE, 'UF') || emp.uf)))}${campo('CEP', cep(t(endE, 'CEP')))}
     ${campo('Telefone', e(t(emit, 'fone')))}${campo('E-mail', e(t(emit, 'email')))}${campo('Simples Nacional', e(OP_SN[t(regTrib, 'opSimpNac')] || ''), 's2')}
     ${campo('Regime de apuração tributária pelo SN', e(AP_SN[t(regTrib, 'regApTribSN')] || ''), 's4')}
   </div></div>
@@ -258,12 +262,12 @@ export function danfseHtml(n, links) {
       : campo('Tomador', 'Não identificado na NFS-e', 's4')}
   </div></div>
   <div class="sec"><h2>SERVIÇO PRESTADO</h2><div class="g">
-    ${campo('Código de tributação nacional / municipal', cod(t(cServ, 'cTribNac'), 'trib') + ' / ' + e(t(cServ, 'cTribMun') || '—'), 's2')}${campo('Código da NBS', cod(t(cServ, 'cNBS'), 'nbs'))}${campo('Local da prestação', e(t(inf, 'xLocPrestacao') || 'Goiânia'))}
+    ${campo('Código de tributação nacional / municipal', cod(t(cServ, 'cTribNac'), 'trib') + ' / ' + e(t(cServ, 'cTribMun') || '—'), 's2')}${campo('Código da NBS', cod(t(cServ, 'cNBS'), 'nbs'))}${campo('Local da prestação', e(t(inf, 'xLocPrestacao') || emp.xMun))}
     ${campo('Descrição do código de tributação nacional', e(t(inf, 'xTribNac')), 's4')}
     <div class="c s4"><div class="r">Descrição do serviço</div><div class="v desc">${e(t(cServ, 'xDescServ'))}</div></div>
   </div></div>
   <div class="sec"><h2>TRIBUTAÇÃO MUNICIPAL (ISSQN)</h2><div class="g">
-    ${campo('Tipo de tributação do ISSQN', e(TRIB_ISSQN[t(tribMun, 'tribISSQN')] || ''))}${campo('Município de incidência', e(t(inf, 'xLocIncid') || 'Goiânia'))}${campo('Retenção do ISSQN', e(RET_ISSQN[t(tribMun, 'tpRetISSQN')] || ''))}${campo('Regime especial', 'Nenhum')}
+    ${campo('Tipo de tributação do ISSQN', e(TRIB_ISSQN[t(tribMun, 'tribISSQN')] || ''))}${campo('Município de incidência', e(t(inf, 'xLocIncid') || emp.xMun))}${campo('Retenção do ISSQN', e(RET_ISSQN[t(tribMun, 'tpRetISSQN')] || ''))}${campo('Regime especial', 'Nenhum')}
     ${campo('Base de cálculo do ISSQN', brl(t(val, 'vBC')))}${campo('Alíquota aplicada', pct(t(val, 'pAliqAplic')))}${campo('ISSQN apurado', brl(t(val, 'vISSQN')))}${campo('Total das retenções', brl(t(val, 'vTotalRet') || (retido ? t(val, 'vISSQN') : '')))}
   </div></div>
   <div class="sec"><h2>VALOR TOTAL DA NFS-e</h2><div class="g">

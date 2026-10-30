@@ -474,7 +474,11 @@ function montarCabecNfse(f) {
 }
 
 /** Chama uma operação do webservice: cabeçalho e dados vão como texto (nfseCabecMsg / nfseDadosMsg). */
-async function soapNfse(tpAmb, operacao, dados, formato = FORMATO_NFSE) {
+// Produção: um endereço por município (…/wsnfsenacional/<município>/nfse.asmx); só letras, sempre no domínio do ISS.net.
+const urlNfse = (tpAmb, municipio) => tpAmb === 2 ? NFSE_URL[2]
+  : (/^[a-z]{3,40}$/.test(String(municipio || "")) ? `https://nfse.issnetonline.com.br/wsnfsenacional/${municipio}/nfse.asmx` : NFSE_URL[1]);
+
+async function soapNfse(tpAmb, operacao, dados, formato = FORMATO_NFSE, municipio) {
   const f = { ...FORMATO_NFSE, ...formato };
   // cru: o XML vai como elementos dentro do campo (o servidor pode ler o InnerXml em vez do texto).
   const texto = (t) => (f.cru ? t.replace(/^<\?xml[^>]*\?>/, "") : f.cdata ? `<![CDATA[${t}]]>` : escXml(t));
@@ -486,7 +490,7 @@ async function soapNfse(tpAmb, operacao, dados, formato = FORMATO_NFSE) {
     `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body>` +
     `${abre}<nfseCabecMsg>${texto(montarCabecNfse(f))}</nfseCabecMsg><nfseDadosMsg>${texto(dados)}</nfseDadosMsg>${fecha}` +
     `</soap:Body></soap:Envelope>`;
-  const r = await chamarSoap(NFSE_URL[tpAmb], env, true, { "content-type": "text/xml; charset=utf-8", SOAPAction: `"${NS_NFSE}/${operacao}"` });
+  const r = await chamarSoap(urlNfse(tpAmb, municipio), env, true, { "content-type": "text/xml; charset=utf-8", SOAPAction: `"${NS_NFSE}/${operacao}"` });
   // O WSDL fala em <outputXML> (texto), mas Goiânia devolve o XML direto dentro de <{operação}Response>.
   let saida = tag(r.corpo, "outputXML");
   if (saida == null) saida = tag(r.corpo, `${operacao}Response`);
@@ -534,20 +538,20 @@ async function sondarFormatoNfse(im) {
   return saida;
 }
 
-async function nfseDisponivel(tpAmb, im) {
-  const xml = await soapNfse(tpAmb, "ConsultarDpsDisponivel", consultaDisponivel(im));
+async function nfseDisponivel(tpAmb, im, municipio) {
+  const xml = await soapNfse(tpAmb, "ConsultarDpsDisponivel", consultaDisponivel(im), undefined, municipio);
   const dps = [...xml.matchAll(/<(?:\w+:)?DpsDisponivel>([\s\S]*?)<\/(?:\w+:)?DpsDisponivel>/g)]
     .map((m) => ({ numero: tag(m[1], "NumDPS"), serie: tag(m[1], "SerieDPS") }));
   return { dps, erros: mensagensNfse(xml, "ListaMensagemRetorno"), resposta: dps.length ? undefined : xml.slice(0, 2000) };
 }
 
 /** Assina a <infDPS> montada pelo sistema e envia (ou só valida). */
-async function nfseGerar(tpAmb, infDPS, validar) {
+async function nfseGerar(tpAmb, infDPS, validar, municipio) {
   const id = (infDPS.match(/^<infDPS Id="(DPS[0-9A-Z]{42})">/) ?? [])[1];
   if (!id) throw new Error("infDPS sem Id válido");
   const dps = `<DPS versao="${VERSAO_NFSE}">${infDPS}${assinar(infDPS, id, NS_NFSE)}</DPS>`;
   const envio = `<GerarNfseEnvio xmlns="${NS_NFSE}">${dps}</GerarNfseEnvio>`;
-  const xml = await soapNfse(tpAmb, validar ? "ValidarXml" : "GerarNfse", envio);
+  const xml = await soapNfse(tpAmb, validar ? "ValidarXml" : "GerarNfse", envio, undefined, municipio);
   const erros = mensagensNfse(xml, "ListaMensagemRetorno");
   const alertas = mensagensNfse(xml, "ListaMensagemAlertaRetorno");
   const sucesso = [...xml.matchAll(/<(?:\w+:)?Codigo>(S\d+)<\/(?:\w+:)?Codigo>\s*<(?:\w+:)?Mensagem>([^<]*)/g)].map((m) => `${m[1]} ${m[2].trim()}`);
@@ -572,16 +576,16 @@ function pedidoCancelamentoNfse(tpAmb, chave, cMotivo, xMotivo) {
 }
 
 /** Links oficiais da NFS-e (visualização e verificação de autenticidade), pelo número. Só consulta. */
-async function nfseLinks(tpAmb, im, numero) {
+async function nfseLinks(tpAmb, im, numero, municipio) {
   const envio = `<ConsultarUrlNfseEnvio xmlns="${NS_NFSE}"><Prestador><CNPJ>${CNPJ}</CNPJ><IM>${im}</IM></Prestador><NumeroNfse>${numero}</NumeroNfse><Pagina>1</Pagina></ConsultarUrlNfseEnvio>`;
-  const xml = await soapNfse(tpAmb, "ConsultarUrlNfse", envio);
+  const xml = await soapNfse(tpAmb, "ConsultarUrlNfse", envio, undefined, municipio);
   const l = tag(xml, "Links") ?? "";
   return { visualizar: tag(l, "UrlVisualizacaoNfse"), autenticidade: tag(l, "UrlVerificaAutenticidade"),
     nacional: tag(l, "UrlVisualizacaoNfseNacional"), erros: mensagensNfse(xml, "ListaMensagemRetorno") };
 }
 
-async function nfseCancelar(tpAmb, chave, cMotivo, xMotivo) {
-  const xml = await soapNfse(tpAmb, "CancelarNfse", pedidoCancelamentoNfse(tpAmb, chave, cMotivo, xMotivo));
+async function nfseCancelar(tpAmb, chave, cMotivo, xMotivo, municipio) {
+  const xml = await soapNfse(tpAmb, "CancelarNfse", pedidoCancelamentoNfse(tpAmb, chave, cMotivo, xMotivo), undefined, municipio);
   const erros = mensagensNfse(xml, "ListaMensagemRetorno");
   const evento = tag(xml, "ListaEvento");
   return { cancelada: !!evento && !erros.length, erros, xml: evento ? `<?xml version="1.0" encoding="UTF-8"?>${xml}` : null,
@@ -653,26 +657,27 @@ const servidor = http.createServer(async (req, res) => {
         if (pedido.acao === "nfse_disponivel") {
           const im = String(pedido.im ?? "").replace(/\D/g, "");
           if (!im || im.length > 15) return responder(res, 400, { erro: "inscrição municipal inválida" });
-          return responder(res, 200, await nfseDisponivel(tpAmb, im));
+          return responder(res, 200, await nfseDisponivel(tpAmb, im, pedido.municipio));
         }
         if (pedido.acao === "nfse_gerar") {
           const infDPS = String(pedido.infDPS ?? "");
-          // Só DPS do próprio CNPJ da 3M (Id = DPS + município + tipo 2 + CNPJ + série + número).
-          if (!infDPS.startsWith(`<infDPS Id="DPS52087072${CNPJ}`) ||!infDPS.endsWith("</infDPS>") || infDPS.length > 60_000)
+          // Só DPS do CNPJ do certificado: Id = DPS + município (7) + tipo 2 + CNPJ + série (5) + número (15).
+          const prefixo = /^<infDPS Id="DPS(\d{7})2(\d{14})\d{20}">/.exec(infDPS);
+          if (!prefixo || prefixo[2] !== CNPJ || !infDPS.endsWith("</infDPS>") || infDPS.length > 60_000)
             return responder(res, 400, { erro: "DPS inválida" });
-          return responder(res, 200, await nfseGerar(tpAmb, infDPS, !!pedido.validar));
+          return responder(res, 200, await nfseGerar(tpAmb, infDPS, !!pedido.validar, pedido.municipio));
         }
         if (pedido.acao === "nfse_links") {
           const im = String(pedido.im ?? "").replace(/\D/g, ""), numero = String(pedido.numero ?? "").replace(/\D/g, "");
           if (!im || !numero || numero.length > 15) return responder(res, 400, { erro: "número da NFS-e inválido" });
-          return responder(res, 200, await nfseLinks(tpAmb, im, numero));
+          return responder(res, 200, await nfseLinks(tpAmb, im, numero, pedido.municipio));
         }
         if (pedido.acao === "nfse_cancelar") {
           const chave = String(pedido.chave ?? "");
           if (!/^[0-9]{9}[0-9A-Z]{12}[0-9]{29}$/.test(chave) || !chave.includes(CNPJ)) return responder(res, 400, { erro: "chave da NFS-e inválida" });
           if (!["1", "2", "9"].includes(String(pedido.cMotivo))) return responder(res, 400, { erro: "motivo inválido" });
           if (String(pedido.xMotivo ?? "").trim().length < 15) return responder(res, 400, { erro: "motivo com menos de 15 letras" });
-          return responder(res, 200, await nfseCancelar(tpAmb, chave, String(pedido.cMotivo), String(pedido.xMotivo).trim().slice(0, 255)));
+          return responder(res, 200, await nfseCancelar(tpAmb, chave, String(pedido.cMotivo), String(pedido.xMotivo).trim().slice(0, 255), pedido.municipio));
         }
         return responder(res, 400, { erro: "ação desconhecida" });
       }

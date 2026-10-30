@@ -45,12 +45,16 @@
  *   POST nfse_cancelar         { id, cMotivo (1 erro, 2 não prestado, 9 outros), xMotivo }
  *   GET  nfse_saidas?ordem_id= notas de serviço (sem o XML)
  *   GET  nfse_xml?id=          XML da NFS-e (e o do cancelamento: &evento=cancelamento)
+ *
+ * Dados da empresa emitente (functions/_lib/empresa.js):
+ *   GET  empresa / POST empresa { razao, cnpj, ie, im, endereço, regime, códigos da NFS-e… } — POST só o administrador
  *   GET  nfse_danfse?id=       DANFSe em HTML (imprimir / salvar PDF), com o QR Code do link oficial
  *
  * Notas anteriores à ativação do estoque (dfe_controle.estoque_desde) ficam como
  * histórico: dá para ligar as peças às OS (rastreio/garantia), mas não somam no estoque.
  */
 
+import { EMPRESA_PADRAO, COD_UF, carregarEmpresa, salvarEmpresa, emitenteNFe } from '../../../_lib/empresa.js';
 import { garantirTabelaNfse, configNfse, salvarConfigNfse, emitirNfse, cancelarNfse, danfseHtml, linksNfse } from '../../../_lib/nfse.js';
 
 // Regra da SEFAZ: sem documentos novos (137) ou já no fim da fila, esperar 1 hora
@@ -693,15 +697,12 @@ async function salvarRegra(DB, b) {
 // 23/10/2026), já na forma canônica; a ponte assina, põe o QR Code (NFC-e) e envia.
 // A numeração só avança quando a SEFAZ autoriza (ou acusa duplicidade).
 
-const EMITENTE = {
-  CNPJ: '49958723000197', xNome: 'JCMA CENTRO AUTOMOTIVO LTDA', xFant: '3M CENTRO AUTOMOTIVO', IE: '200201557', CRT: '1',
-  xLgr: 'AV MADRI', nro: '101', xCpl: 'QD 174 LT 22', xBairro: 'JARDIM EUROPA', cMun: '5208707', xMun: 'Goiania', UF: 'GO', CEP: '74330550', fone: '6231000115',
-};
-const TEXTO_SIMPLES = 'EMPRESA OPTANTE PELO SIMPLES NACIONAL, NÃO GERA DIREITO A CRÉDITO DO ICMS E IPI.';
+// Emitente: vem de Fiscal → Empresa (functions/_lib/empresa.js); emitirNota passa em n.emit.
+const EMITENTE = emitenteNFe({ ...EMPRESA_PADRAO, codUF: COD_UF[EMPRESA_PADRAO.uf] });
 const HOMOLOG_NOME = 'NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL';
 const HOMOLOG_ITEM = 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL';
-// Próximo número em produção quando ainda não há controle: NF-e série 1 continua da 353.
-const NUMERO_INICIAL = { '1-55-1': 354 };
+// Próximo número de produção sem controle gravado: informado em Fiscal → Nota de peças.
+const NUMERO_INICIAL = {};
 
 const xmlTexto = (s, max) => String(s ?? '').replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim()
   .slice(0, max || 500).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -721,20 +722,20 @@ function montarInfNFe(n) {
   const dhEmi = dataHoraGO();
   const aamm = dhEmi.slice(2, 4) + dhEmi.slice(5, 7);
   const cNF = String(n.cNF).padStart(8, '0');
-  const c43 = '52' + aamm + EMITENTE.CNPJ + mod.padStart(2, '0') + serie.padStart(3, '0') + nNF.padStart(9, '0') + '1' + cNF;
+  const E = n.emit || EMITENTE;
+  const c43 = E.cUF + aamm + E.CNPJ + mod.padStart(2, '0') + serie.padStart(3, '0') + nNF.padStart(9, '0') + '1' + cNF;
   const cDV = dvChave(c43), chave = c43 + cDV;
   const nfce = mod === '65';
   const d = n.dest || {};
-  const foraGO = !nfce && d.UF && d.UF !== 'GO';
+  const foraGO = !nfce && d.UF && d.UF !== E.UF; // cliente de outro estado
 
-  const ide = el('cUF', '52') + el('cNF', cNF) + el('natOp', 'VENDA') + el('mod', mod) + el('serie', serie) + el('nNF', nNF) +
-    el('dhEmi', dhEmi) + el('tpNF', '1') + el('idDest', foraGO ? '2' : '1') + el('cMunFG', EMITENTE.cMun) + el('tpImp', nfce ? '4' : '1') +
+  const ide = el('cUF', E.cUF) + el('cNF', cNF) + el('natOp', 'VENDA') + el('mod', mod) + el('serie', serie) + el('nNF', nNF) +
+    el('dhEmi', dhEmi) + el('tpNF', '1') + el('idDest', foraGO ? '2' : '1') + el('cMunFG', E.cMun) + el('tpImp', nfce ? '4' : '1') +
     el('tpEmis', '1') + el('cDV', String(cDV)) + el('tpAmb', String(tpAmb)) + el('finNFe', '1') + el('indFinal', '1') + el('indPres', '1') +
     el('procEmi', '0') + el('verProc', '3M-Gestao-1.0');
-  const E = EMITENTE;
   const emit = el('CNPJ', E.CNPJ) + el('xNome', xmlTexto(E.xNome, 60)) + el('xFant', xmlTexto(E.xFant, 60)) +
-    el('enderEmit', el('xLgr', E.xLgr) + el('nro', E.nro) + el('xCpl', E.xCpl) + el('xBairro', E.xBairro) + el('cMun', E.cMun) + el('xMun', E.xMun) +
-      el('UF', E.UF) + el('CEP', E.CEP) + el('cPais', '1058') + el('xPais', 'BRASIL') + el('fone', E.fone)) + el('IE', E.IE) + el('CRT', E.CRT);
+    el('enderEmit', el('xLgr', xmlTexto(E.xLgr, 60)) + el('nro', xmlTexto(E.nro, 60)) + (E.xCpl ? el('xCpl', xmlTexto(E.xCpl, 60)) : '') + el('xBairro', xmlTexto(E.xBairro, 60)) +
+      el('cMun', E.cMun) + el('xMun', xmlTexto(E.xMun, 60)) + el('UF', E.UF) + el('CEP', E.CEP) + el('cPais', '1058') + el('xPais', 'BRASIL') + (E.fone ? el('fone', E.fone) : '')) + el('IE', E.IE) + el('CRT', E.CRT);
 
   let dest = '';
   const doc = soDigitos(d.doc);
@@ -787,9 +788,9 @@ function montarInfNFe(n) {
   const tPag = String(n.pagamento || '01').padStart(2, '0');
   const cartao = ['03', '04'].includes(tPag) ? el('card', el('tpIntegra', '2')) : '';
   const pag = el('pag', el('detPag', el('tPag', tPag) + (tPag === '99' ? el('xPag', 'Outros') : '') + el('vPag', dec(vNF, 2)) + cartao));
-  const infCpl = xmlTexto([TEXTO_SIMPLES, n.os ? 'OS ' + n.os : ''].filter(Boolean).join(' '), 5000);
-  const rt = n.respTec && n.respTec.email ? el('infRespTec', el('CNPJ', EMITENTE.CNPJ) + el('xContato', xmlTexto(n.respTec.contato || 'Suporte', 60)) +
-    el('email', xmlTexto(n.respTec.email, 60)) + el('fone', soDigitos(n.respTec.fone || EMITENTE.fone))) : '';
+  const infCpl = xmlTexto([E.textoSimples, n.os ? 'OS ' + n.os : ''].filter(Boolean).join(' '), 5000);
+  const rt = n.respTec && n.respTec.email ? el('infRespTec', el('CNPJ', E.CNPJ) + el('xContato', xmlTexto(n.respTec.contato || 'Suporte', 60)) +
+    el('email', xmlTexto(n.respTec.email, 60)) + el('fone', soDigitos(n.respTec.fone || E.fone))) : '';
 
   const infNFe = `<infNFe Id="NFe${chave}" versao="4.00">${el('ide', ide)}${el('emit', emit)}${dest}${det}${total}${el('transp', el('modFrete', '9'))}${pag}` +
     `${el('infAdic', el('infCpl', infCpl))}${rt}</infNFe>`;
@@ -838,7 +839,9 @@ async function emitirNota(DB, env, b) {
   if (!numero) throw new Error(`Informe em Fiscal → Emissão o próximo número da ${modelo === '65' ? 'NFC-e' : 'NF-e'} de produção (série ${serie}).`);
   if (!Array.isArray(b.itens) || !b.itens.length) throw new Error('Nenhuma peça para a nota.');
   const cNF = String(Math.floor(10000000 + Math.random() * 89999999));
-  const nota = montarInfNFe({ modelo, tpAmb, serie, numero, cNF, dest: b.dest, itens: b.itens, pagamento: b.pagamento, os: b.os, respTec: cfg.respTec });
+  const emit = emitenteNFe(await carregarEmpresa(DB));
+  if (!emit.cUF) throw new Error('UF da empresa inválida (Fiscal → Empresa).');
+  const nota = montarInfNFe({ emit, modelo, tpAmb, serie, numero, cNF, dest: b.dest, itens: b.itens, pagamento: b.pagamento, os: b.os, respTec: cfg.respTec });
   const r = await ponte(env, { acao: 'nfe_autorizar', infNFe: nota.infNFe });
   const agora = Date.now(), id = uid();
   const dup = ['204', '539'].includes(String(r.cStat));
@@ -1035,6 +1038,7 @@ export async function onRequest(context) {
     }
     if (request.method === 'GET' && acao === 'emissao_config') return jsonResp(await configEmissao(DB));
     if (request.method === 'GET' && acao === 'nfse_config') return jsonResp(await configNfse(DB));
+    if (request.method === 'GET' && acao === 'empresa') return jsonResp(await carregarEmpresa(DB));
     if (request.method === 'GET' && acao === 'nfse_saidas') {
       const oid = url.searchParams.get('ordem_id');
       const r = await DB.prepare(`SELECT id,ordem_id,tp_amb,serie,n_dps,chave,numero,status,erros,valor,desconto,iss_retido,tomador_doc,tomador_nome,descricao,cancel_just,quem,criado
@@ -1045,7 +1049,7 @@ export async function onRequest(context) {
       const n = await DB.prepare('SELECT * FROM nfse_saida WHERE id=?').bind(String(url.searchParams.get('id') || '')).first();
       if (!n || !n.xml) return new Response('Nota de serviço não encontrada ou não autorizada.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
       const links = await linksNfse(DB, (p) => ponte(env, p), n);
-      return new Response(danfseHtml(n, links), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+      return new Response(danfseHtml(n, links, await carregarEmpresa(DB)), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
     }
     if (request.method === 'GET' && acao === 'nfse_xml') {
       const n = await DB.prepare('SELECT * FROM nfse_saida WHERE id=?').bind(String(url.searchParams.get('id') || '')).first();
@@ -1096,6 +1100,10 @@ export async function onRequest(context) {
       }
       if (acao === 'nfe_status') return jsonResp(await ponte(env, { acao: 'nfe_status', tpAmb: (await configEmissao(DB)).tpAmb }));
       if (acao === 'emitir') return jsonResp(await emitirNota(DB, env, body));
+      if (acao === 'empresa') {
+        if (!(context.data.usuario && context.data.usuario.papel === 'admin')) return jsonResp({ error: 'Só o administrador muda os dados da empresa.' }, 403);
+        return jsonResp(await salvarEmpresa(DB, body));
+      }
       if (acao === 'nfse_config') {
         if (!(context.data.usuario && context.data.usuario.papel === 'admin')) return jsonResp({ error: 'Só o administrador muda o ambiente da nota de serviço.' }, 403);
         return jsonResp(await salvarConfigNfse(DB, body));
