@@ -504,9 +504,11 @@ async function soapNfse(tpAmb, operacao, dados, formato = FORMATO_NFSE) {
 function mensagensNfse(xml, grupo) {
   const bloco = tag(xml, grupo);
   if (!bloco) return [];
-  return [...bloco.matchAll(/<(?:\w+:)?MensagemRetorno>([\s\S]*?)<\/(?:\w+:)?MensagemRetorno>/g)].map((m) => ({
+  const lista = [...bloco.matchAll(/<(?:\w+:)?MensagemRetorno>([\s\S]*?)<\/(?:\w+:)?MensagemRetorno>/g)].map((m) => ({
     codigo: tag(m[1], "Codigo"), mensagem: tag(m[1], "Mensagem"), correcao: tag(m[1], "Correcao") ?? undefined,
   }));
+  // Códigos "S…" são de sucesso (ex.: S000 "XML válido. Validação realizada com sucesso.") e vêm na mesma lista.
+  return lista.filter((e) => !/^S/i.test(String(e.codigo || "")));
 }
 
 const consultaDisponivel = (im) => `<ConsultarDpsDisponivelEnvio xmlns="${NS_NFSE}"><Prestador><CNPJ>${CNPJ}</CNPJ><IM>${im}</IM></Prestador><Pagina>1</Pagina></ConsultarDpsDisponivelEnvio>`;
@@ -547,11 +549,12 @@ async function nfseGerar(tpAmb, infDPS, validar) {
   const xml = await soapNfse(tpAmb, validar ? "ValidarXml" : "GerarNfse", envio);
   const erros = mensagensNfse(xml, "ListaMensagemRetorno");
   const alertas = mensagensNfse(xml, "ListaMensagemAlertaRetorno");
+  const sucesso = [...xml.matchAll(/<(?:\w+:)?Codigo>(S\d+)<\/(?:\w+:)?Codigo>\s*<(?:\w+:)?Mensagem>([^<]*)/g)].map((m) => `${m[1]} ${m[2].trim()}`);
   const nfse = (xml.match(/<(?:\w+:)?NFSe[\s>][\s\S]*<\/(?:\w+:)?NFSe>/) ?? [])[0] ?? null;
   const chave = nfse ? ((nfse.match(/<(?:\w+:)?infNFSe[^>]*\sId="NFS([0-9A-Z]{50})"/) ?? [])[1] ?? null) : null;
   return {
     ok: validar ? erros.length === 0 : !!chave,
-    validacao: !!validar, chave, numero: nfse ? tag(nfse, "nNFSe") : null, cStat: nfse ? tag(nfse, "cStat") : null,
+    validacao: !!validar, sucesso, chave, numero: nfse ? tag(nfse, "nNFSe") : null, cStat: nfse ? tag(nfse, "cStat") : null,
     dhProc: nfse ? tag(nfse, "dhProc") : null, erros, alertas,
     xml: nfse ? `<?xml version="1.0" encoding="UTF-8"?>${nfse}` : null, dps,
     resposta: !nfse && !erros.length ? xml.slice(0, 2000) : undefined,

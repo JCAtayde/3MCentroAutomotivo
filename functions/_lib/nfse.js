@@ -131,7 +131,7 @@ export async function emitirNfse(DB, ponte, b, quem) {
   const r = await ponte({ acao: 'nfse_gerar', tpAmb, infDPS: dps.infDPS, validar: !!b.validar });
   if (b.validar) {
     if (!r.ok) await guardarResposta(DB, 'validar', r);
-    return { validacao: true, ok: r.ok, erros: r.erros || [], alertas: r.alertas || [], semNumero: !livre, resposta: r.resposta };
+    return { validacao: true, ok: r.ok, erros: r.erros || [], alertas: r.alertas || [], sucesso: r.sucesso || [], semNumero: !livre, tpAmb, resposta: r.resposta };
   }
   if (!r.ok) await guardarResposta(DB, 'gerar', r);
   const agora = Date.now(), id = uid(), t = b.tomador || {};

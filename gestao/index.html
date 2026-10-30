@@ -4043,7 +4043,7 @@ async function enviarNotaServico(validar){
     const r=await fiscalPost('nfse_emitir',{ ordem_id:x.oid, os:(getOS(x.oid)||{}).codigo||'', tomador:x.tomador, descricao:x.descricao, infoCompl:x.info,
       valor:x.valor, desconto:x.desconto, iss_retido:x.issRetido, validar, validarProducao:validar&&nfseCfg.tpAmb===2 });
     if(validar){ liberar();
-      res.innerHTML=r.ok?`<div class="note" style="white-space:normal;border-color:#48B98A">✓ A prefeitura conferiu e não achou erro.${r.semNumero?' (Ainda sem número de DPS liberado para a 3M.)':''}${(r.alertas||[]).length?'<br>Avisos:'+errosNfseHtml(r.alertas):''}</div>`
+      res.innerHTML=r.ok?`<div class="note" style="white-space:normal;border-color:#48B98A;color:#48B98A">✓ A prefeitura${r.tpAmb===1?' (produção)':''} conferiu e não achou erro.${(r.sucesso||[]).length?' <span style="color:var(--muted)">'+esc(r.sucesso.join(' · '))+'</span>':''} Nada foi emitido.${r.semNumero?' (Ainda sem número de DPS liberado para a 3M.)':''}${(r.alertas||[]).length?'<br>Avisos:'+errosNfseHtml(r.alertas):''}</div>`
         :`<div class="note" style="white-space:normal;color:#E5675C">A prefeitura apontou:${errosNfseHtml(r.erros)||'<div>resposta inesperada (guardada para análise)</div>'}</div>`;
       return; }
     carregarNotasOS(x.oid);
