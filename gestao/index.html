@@ -1396,27 +1396,33 @@ function contaLojistaPanel(c){
   const os=osReceberLojista(c.id); const total=os.reduce((s,o)=>s+restanteOS(o),0);
   const podeReceber=ehAdmin()||pode('valores');
   const lista=os.map(o=>{ const v=getVeiculo(o.veiculo_id); const serv=[...(o.itens||[]).map(i=>i.nome),...(o.maodeobra||[]).map(m=>m.desc).filter(Boolean)].slice(0,2).join(' · ');
-    return `<div class="row click" onclick='go("os","${o.id}")'><div class="main"><div class="t">${esc(v?nomeVeiculo(v):'Carro')} <span class="plate">${esc((v&&v.placa)||'—')}</span></div><div class="s">${o.data?fmtBR(parseISO(o.data)):'—'}${serv?(' · '+esc(serv)):''}</div></div><span class="valor-tag" style="color:var(--amber)">${moneyFmt(restanteOS(o))}</span></div>`; }).join('');
+    return `<div class="row click" onclick='go("os","${o.id}")'><div class="main"><div class="t">${esc(v?nomeVeiculo(v):'Carro')} <span class="plate">${esc((v&&v.placa)||'—')}</span></div><div class="s">${o.data?fmtBR(parseISO(o.data)):'—'}${serv?(' · '+esc(serv)):''}</div></div><div class="acts"><span class="valor-tag" style="color:var(--amber)">${moneyFmt(restanteOS(o))}</span>${podeReceber?`<button class="btn sm green" onclick='event.stopPropagation(); pagamentoModal("${o.id}","final")'>Receber</button>`:''}</div></div>`; }).join('');
   return `<div class="panel" style="margin-top:12px;border-color:#a97bd6">
-    <div class="row" style="margin-bottom:8px"><div class="t" style="color:#c9a3ec">💰 Conta do lojista</div>${podeReceber&&os.length?`<button class="btn sm green" onclick='receberMesLojista("${c.id}")'>Receber o mês</button>`:''}</div>
+    <div class="row" style="margin-bottom:8px"><div class="t" style="color:#c9a3ec">💰 Conta do lojista</div>${podeReceber&&os.length?`<button class="btn sm green" onclick='receberMesLojista("${c.id}")'>Receber vários</button>`:''}</div>
     <div class="kv" style="margin-bottom:${os.length?'8px':'0'}"><span class="k">A receber (serviços entregues, não pagos)</span><span class="v" style="font-size:17px;font-weight:800;color:var(--amber)">${moneyFmt(total)}</span></div>
     ${os.length?`<div class="rows">${lista}</div>`:'<div class="note">Nada a receber no momento. 👍</div>'}</div>`;
 }
 function receberMesLojista(cid){ if(!ehAdmin()&&!pode('valores')){ toast('Sem permissão'); return; }
   const c=getCliente(cid); const os=osReceberLojista(cid); const total=os.reduce((s,o)=>s+restanteOS(o),0);
   if(!os.length){ toast('Nada a receber deste lojista'); return; }
-  openModal(`<h3>Receber o mês — ${esc(c.nome)}</h3><p class="sub">${os.length} serviço(s) entregue(s) · total <b>${moneyFmt(total)}</b></p>
+  const linhas=os.map(o=>{ const v=getVeiculo(o.veiculo_id);
+    return `<label class="row" style="display:flex;gap:10px;align-items:center;cursor:pointer;margin:0"><input type="checkbox" class="rlOS" value="${o.id}" data-valor="${restanteOS(o)}" checked onchange="rlAtualizaTotal()" style="width:18px;height:18px;flex:none;margin:0"><div class="main"><div class="t">${esc(v?nomeVeiculo(v):'Carro')} <span class="plate">${esc((v&&v.placa)||'—')}</span></div><div class="s">${o.data?fmtBR(parseISO(o.data)):'—'}</div></div><span class="valor-tag" style="color:var(--amber)">${moneyFmt(restanteOS(o))}</span></label>`; }).join('');
+  openModal(`<h3>Receber — ${esc(c.nome)}</h3><p class="sub">Deixe marcados só os carros que foram pagos.</p>
+    <div class="rows" style="margin-bottom:10px">${linhas}</div>
     <div class="grid2">${dtField('rlData','date',toISO(hoje()),'Data do recebimento')}
       <div class="field"><label>Forma</label><select id="rlForma">${FORMAS.filter(f=>f[0]!=='boleto').map(f=>`<option value="${f[0]}" ${f[0]==='pix'?'selected':''}>${f[1]}</option>`).join('')}</select></div></div>
-    <div class="hint">Isso quita <b>todos</b> os ${os.length} serviços de uma vez e marca as OS como Executadas. O dinheiro entra em espécie (caixa) ou banco conforme a forma.</div>
-    <div class="form-actions"><button class="btn green" onclick='salvarReceberLojista("${cid}")'>Confirmar recebimento de ${moneyFmt(total)}</button>
+    <div class="hint">Quita só os carros marcados; os outros continuam a receber. O dinheiro entra em espécie (caixa) ou banco conforme a forma.</div>
+    <div class="form-actions"><button class="btn green" id="rlBtn" onclick='salvarReceberLojista("${cid}")'>Confirmar recebimento de ${moneyFmt(total)}</button>
       <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
 }
+function rlAtualizaTotal(){ const t=[...document.querySelectorAll('.rlOS:checked')].reduce((s,e)=>s+(Number(e.dataset.valor)||0),0);
+  const b=document.getElementById('rlBtn'); if(b) b.textContent='Confirmar recebimento de '+moneyFmt(t); }
 function salvarReceberLojista(cid){ if(!ehAdmin()&&!pode('valores')){ toast('Sem permissão'); return; }
-  const c=getCliente(cid); const os=osReceberLojista(cid); const data=val('rlData')||toISO(hoje()); const forma=val('rlForma')||'pix';
+  const marcadas=[...document.querySelectorAll('.rlOS:checked')].map(e=>e.value); if(!marcadas.length){ toast('Marque ao menos um carro'); return; }
+  const c=getCliente(cid); const os=osReceberLojista(cid).filter(o=>marcadas.includes(o.id)); const data=val('rlData')||toISO(hoje()); const forma=val('rlForma')||'pix';
   const conta=['dinheiro','especie'].includes(forma)?'caixa':'banco'; const mesRef=fmtBR(parseISO(data));
   let n=0, tot=0;
-  os.forEach(o=>{ const rest=restanteOS(o); if(rest<=0.005) return;
+  os.forEach(o=>{ const rest=restanteOS(o); if(rest<=0.005) return; fixarFechamentoOS(o);
     state.caixa.push({id:uid(),tipo:'entrada',data,valor:rest,forma,taxa:0,liquido:rest,conta,vencimento:'',pagamento:'',parcelas:1,cartao_tipo:'',descricao:'Fechamento lojista '+(c?c.nome:'')+' — '+mesRef,ordem_id:o.id,criado:Date.now()});
     o.status='executado'; if(!o.data) o.data=data; o.atualizado=Date.now(); n++; tot+=rest; });
   salvar(); closeModal(); refreshAtual(); toast('Recebido '+moneyFmt(tot)+' de '+n+' serviço(s) ✓');
@@ -1996,7 +2002,7 @@ function acoesFase(o,st){
   if(st==='aguardando') return `<button class="btn sm green" onclick='aprovarOrcamento("${o.id}")'>✓ Aprovado</button><button class="btn sm ghost" onclick='reagendarOS("${o.id}")'>📅 Reagendar</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>✕ Rejeitar</button>`;
   if(st==='andamento') return `${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Entregar (conta do lojista)</button>`:''}${podeLiberarOS(o)?`<button class="btn sm ${loj?'ghost':'green'}" onclick='liberarCarro("${o.id}")'>🚗 Liberar carro</button>`:''}<button class="btn sm ghost" onclick='reagendarOS("${o.id}")'>📅 Reagendar</button><button class="btn sm danger" onclick='rejeitarOS("${o.id}")'>Rejeitar</button>`;
   if(st==='liberado') return `${!ehMecanico()?`<button class="btn sm gold" onclick='avisarLiberado("${o.id}")'>📲 Avisar cliente</button>`:''}${loj?`<button class="btn sm green" onclick='entregarLojista("${o.id}")'>📦 Lançar na conta do lojista</button>`:''}${podeReceber()?`<button class="btn sm ${loj?'ghost':'green'}" onclick='finalizarOS("${o.id}")'>💵 Receber / Finalizar</button>`:''}${(ehAdmin()||pode('reabrir'))?`<button class="btn sm ghost" onclick='voltarAndamento("${o.id}")'>Voltar p/ andamento</button>`:''}`;
-  if(st==='executado') return `<span class="cx-mini">Finalizada</span>${pode('editar')?` <button class="btn sm ghost" onclick='abrirRetorno("${o.id}")'>🔁 Abrir retorno (garantia)</button>`:''}${(ehAdmin()||pode('reabrir'))?` <button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir</button>`:''}`;
+  if(st==='executado') return `<span class="cx-mini">Finalizada</span>${loj&&restanteOS(o)>0.005&&pode('valores')?` <button class="btn sm green" onclick='pagamentoModal("${o.id}","final")'>💵 Receber esta OS</button>`:''}${pode('editar')?` <button class="btn sm ghost" onclick='abrirRetorno("${o.id}")'>🔁 Abrir retorno (garantia)</button>`:''}${(ehAdmin()||pode('reabrir'))?` <button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir</button>`:''}`;
   if(st==='rejeitado'){ if(!(ehAdmin()||pode('reabrir'))) return '<span class="cx-mini">Orçamento não aprovado</span>'; if(o.revisada_para && getOS(o.revisada_para)) return `<button class="btn sm green" onclick='go("os","${o.revisada_para}")'>Ver ficha revisada →</button>`; return `<button class="btn sm green" onclick='reabrirParaRevisao("${o.id}")'>↩ Reabrir para revisão</button> <button class="btn sm ghost" onclick='reabrirOrcamento("${o.id}")'>Reabrir orçamento</button>`; }
   return '';
 }
@@ -2233,8 +2239,8 @@ function dtPrompt(titulo,valorPadrao,onOk){ openModal(`<h3>${titulo}</h3>${dtFie
 let dtPromptCb=null;
 function dtPromptOk(){ const v=val('dtpVal')||toISO(hoje()); const cb=dtPromptCb; dtPromptCb=null; closeModal(); if(cb) cb(v); }
 function pagamentoModal(oid,modo){ const o=getOS(oid); if(!o) return; if(!pode('valores')){ toast('Sem permissão'); return; }
-  const rest=restanteOS(o); const valPad = rest; pgBolParc=[];
-  openModal(`<h3>${modo==='final'?'Receber / Finalizar':'Adiantamento'}</h3>
+  const rest=restanteOS(o); const valPad = rest; pgBolParc=[]; const contaLoj=modo==='final'&&osEhLojista(o);
+  openModal(`<h3>${contaLoj?'Receber esta OS':(modo==='final'?'Receber / Finalizar':'Adiantamento')}</h3>
     <div class="pg-info">Total ${moneyFmt(osTotal(o))} · ${modo==='final'?'Pago':'Adiantado'} ${moneyFmt(pagoOS(o.id))} · <b>Restante ${moneyFmt(rest)}</b></div>
     ${modo==='final'?`<div class="form-actions" style="margin-top:0;margin-bottom:4px"><button class="btn sm ghost" onclick='closeModal(); descontoModal("${oid}")'>− Aplicar desconto</button></div>`:`<div class="hint" style="margin-top:0">Valor adiantado pelo cliente (ex.: para compra de peças). O restante continua em aberto.</div>`}
     <div class="grid2">${dtField('pgData','date',toISO(hoje()),'Data')}
@@ -2252,8 +2258,8 @@ function pagamentoModal(oid,modo){ const o=getOS(oid); if(!o) return; if(!pode('
       <div class="field"><label>Intervalo entre parcelas (dias)</label><input id="pgBolInt" inputmode="numeric" value="30" oninput="pgBolRebuild()"></div>
       <div id="pgBolLista"></div>
       <div class="hint" style="margin-bottom:0">Digite um valor numa parcela para fixá-lo; o restante é redividido automaticamente nas outras. O boleto vira saldo no banco quando você confirmar o pagamento (aba Saldos).</div></div>
-    ${modo==='final'?`<div class="hint">A OS só vai para <b>Executado</b> quando <b>não houver valor em aberto</b>. Se ainda faltar, o recebimento é registrado e a OS continua em "Carro liberado".</div>`:`<div class="hint">Recebimento parcial: o restante continua em aberto.</div>`}
-    <div class="form-actions"><button id="pgBtn" class="btn green" disabled style="opacity:.5" onclick='salvarPagamento("${oid}","${modo}")'>${modo==='final'?'Receber / Finalizar':'Registrar adiantamento'}</button>
+    ${contaLoj?`<div class="hint">Baixa só neste carro. Se receber menos que o restante, a diferença continua na Conta do lojista.</div>`:modo==='final'?`<div class="hint">A OS só vai para <b>Executado</b> quando <b>não houver valor em aberto</b>. Se ainda faltar, o recebimento é registrado e a OS continua em "Carro liberado".</div>`:`<div class="hint">Recebimento parcial: o restante continua em aberto.</div>`}
+    <div class="form-actions"><button id="pgBtn" class="btn green" disabled style="opacity:.5" onclick='salvarPagamento("${oid}","${modo}")'>${contaLoj?'Receber':(modo==='final'?'Receber / Finalizar':'Registrar adiantamento')}</button>
       <button class="btn ghost" onclick="descartarModal()">Cancelar</button></div>`);
   pgToggle();
 }
@@ -2289,6 +2295,7 @@ function salvarPagamento(oid,modo){ const o=getOS(oid); if(!o) return; const for
   const liq=forma==='cartao'?(val('pgLiquido').trim()?moneyParse(val('pgLiquido')):valor):valor; const taxa=forma==='cartao'?Math.max(0,valor-liq):0;
   const cartaoTipo=forma==='cartao'?val('pgCartaoTipo'):''; const parcelas=(forma==='cartao'&&cartaoTipo==='parcelado')?(parseInt(val('pgParc'))||2):1; const data=val('pgData')||toISO(hoje());
   const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const nomeCli=(c?c.nome:'')+(v?(' — '+nomeVeiculo(v)):'');
+  if(modo==='final'&&osEhLojista(o)) fixarFechamentoOS(o);
   if(forma==='boleto'){
     if(!pgBolParc.length) pgBolRebuild();
     const validas=pgBolParc.filter(p=>p.valor>0.005);
@@ -2298,6 +2305,11 @@ function salvarPagamento(oid,modo){ const o=getOS(oid); if(!o) return; const for
     const conta=['dinheiro','especie'].includes(forma)?'caixa':'banco';
     state.caixa.push({id:uid(),tipo:'entrada',data,valor,forma,taxa,liquido:valor-taxa,parcelas,cartao_tipo:cartaoTipo,conta,vencimento:'',pagamento:'',descricao:(modo==='final'?'OS (final) ':'OS (parcial) ')+nomeCli,ordem_id:oid,criado:Date.now()});
   }
+  // Conta do lojista: a baixa não muda a data da OS e o carro já foi entregue; volta para a tela de onde veio.
+  if(modo==='final'&&osEhLojista(o)){
+    const rest=restanteOS(o); if(rest<=0.005){ o.status='executado'; if(!o.data) o.data=data; }
+    o.atualizado=Date.now(); logAcao('Recebeu OS de lojista', o.codigo?('OS '+o.codigo):'OS', moneyFmt(forma==='boleto'?pgBolParc.reduce((s,p)=>s+p.valor,0):valor));
+    salvar(); closeModal(); refreshAtual(); toast(rest>0.005?('Recebimento registrado. Faltam '+moneyFmt(rest)+' deste carro.'):'Carro quitado ✓ Os outros continuam a receber.'); return; }
   if(modo==='final'){
     const rest=restanteOS(o);
     if(rest>0.005){ o.atualizado=Date.now(); salvar(); closeModal(); renderOsDet(oid); toast('Recebimento registrado. Ainda faltam '+moneyFmt(rest)+' — só finaliza quando estiver quitado.'); return; }
@@ -4837,6 +4849,8 @@ function nomeMesComp(comp){ const p=comp.split('-'); return MESES_PT[parseInt(p[
 function adiantamentosFunc(fid,comp){ const [y,m]=comp.split('-').map(Number); const de=comp+'-01'; const ate=comp+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); return (state.caixa||[]).filter(x=>x.tipo==='saida'&&x.categoria==='adiantamento'&&x.funcionario_id===fid&&x.data&&x.data>=de&&x.data<=ate); }
 function folhaMudarMes(){ const v=val('folhaMes'); if(v) folhaComp=v; renderFolha(); }
 function ehSocioFunc(f){ return f && (f.socio==='1'||f.socio===1||f.socio===true); }
+// Recebimento depois da entrega não pode mudar o mês da comissão: guarda a data antes de mexer em "atualizado".
+function fixarFechamentoOS(o){ if(!o.fechado_em) o.fechado_em=dataFechamentoOS(o)||toISO(hoje()); }
 function dataFechamentoOS(o){ if(o.fechado_em) return o.fechado_em; if(restanteOS(o)>0.005 && o.atualizado){ try{ return toISO(new Date(o.atualizado)); }catch(e){} } return o.data||''; }
 function osFinalizadaComissao(o){ const st=osStatus(o); return osEhLojista(o) ? (st==='liberado'||st==='executado') : (st==='executado'); }
 function bannerFechamento(o,st){ if(!['liberado','executado'].includes(st)) return ''; if(!ehAdmin()&&!pode('valores')) return ''; const d=dataFechamentoOS(o); return `<div class="panel" style="margin-top:8px"><div class="row" style="align-items:center"><div class="main"><div class="t">Data de fechamento <span style="color:var(--muted);font-weight:400">(conta a comissão)</span></div><div class="s">${d?fmtBR(parseISO(d)):'—'}</div></div><button class="btn sm ghost" onclick='editarFechamento("${o.id}")'>&#9998; Ajustar</button></div></div>`; }
