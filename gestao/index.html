@@ -2749,6 +2749,60 @@ function copiarTexto(t){ if(navigator.clipboard&&navigator.clipboard.writeText){
    FORM: ORDEM DE SERVIÇO
 ================================================================== */
 let osItens=[], osFixoVeiculo=null;
+/* Editar OS → ligar a peça a uma nota/estoque. A ligação é gravada na hora, como em Notas de compra → Destinar. */
+let osFormId=null, osVinc=null;
+function podeVincularOS(){ return pode('editar')&&pode('valores')&&!ehMecRestrito(); }
+function normPeca(t){ return String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); }
+const PECA_PALAVRAS_VAZIAS=new Set(['de','da','do','das','dos','com','para','em','un','und','pc','pcs']);
+function tokensPeca(t){ return normPeca(t).split(/[^a-z0-9]+/).filter(x=>x.length>=2&&!PECA_PALAVRAS_VAZIAS.has(x)); }
+// Nota de compra abrevia e o orçamento não ("PAST FREIO DIANT" × "Pastilha de freio dianteira"): o começo da palavra também conta.
+function palavraParecida(a,b){ if(a===b) return 1; const c=a.length<=b.length?a:b, l=a.length<=b.length?b:a; return c.length>=3&&l.startsWith(c)?0.8:0; }
+function semelhancaPeca(nome,texto){ const ts=tokensPeca(nome), cs=tokensPeca(texto); if(!ts.length) return 0;
+  return ts.reduce((s,t)=>s+cs.reduce((m,c)=>Math.max(m,palavraParecida(t,c)),0),0)/ts.length; }
+function osVincLinha(row){ if(!osFormId||!podeVincularOS()) return '';
+  if(!row._orig||!row._orig.id) return '<div class="hint" style="margin:0 0 8px;font-size:12px">Salve a OS para buscar esta peça na nota ou no estoque.</div>';
+  const q=parseInt(row.qtde)||1, ligada=itemOsVinculado(row._orig), falta=q-ligada;
+  const orig=(row._orig.origens||[]).map(x=>`<div class="s" style="font-size:12px;color:var(--muted)">🔗 ${nfeQtd(x.qtde)} × ${esc(x.descricao||'')} · ${x.nf?('NF '+esc(x.nf)):'sem nota'} · ${esc(x.fornecedor||'—')} <a href="#" style="color:#e57373;margin-left:4px" onclick='event.preventDefault(); osVincDesfazer("${row.id}","${x.destino_id}")'>desfazer</a></div>`).join('');
+  const aberto=osVinc&&osVinc.rowId===row.id;
+  return `<div style="margin:0 0 8px">${orig}${falta>0?`<button type="button" class="btn sm ghost" onclick='osVincAbrir("${row.id}")'>${aberto?'Fechar busca':('🔗 Buscar peça em nota / estoque'+(ligada>0?(' (faltam '+nfeQtd(falta)+')'):''))}</button>`:''}<div id="vinc-${row.id}"></div></div>`; }
+async function osVincAbrir(rowId){ if(osVinc&&osVinc.rowId===rowId){ osVinc=null; renderOsItens(); return; }
+  osVinc={rowId,filtro:'',carregando:true,erro:''}; renderOsItens();
+  const atual=osVinc; try{ await carregarNotasCompra(); }catch(e){ atual.erro=e.message||'falha'; }
+  atual.carregando=false; if(osVinc===atual) osVincPainel(); }
+function osVincPainel(){ if(!osVinc) return; const el=document.getElementById('vinc-'+osVinc.rowId); if(!el) return;
+  if(osVinc.carregando){ el.innerHTML='<div class="note" style="margin-top:6px">Buscando peças…</div>'; return; }
+  if(osVinc.erro){ el.innerHTML='<div class="note" style="margin-top:6px;color:#e57373">Não foi possível carregar as notas: '+esc(osVinc.erro)+'</div>'; return; }
+  el.innerHTML=`<div style="margin-top:6px;padding:8px;background:var(--bg2);border:1px solid var(--line2);border-radius:10px">
+    <input id="vincBusca" autocomplete="off" placeholder="Outro nome, código, fornecedor ou nº da nota" value="${esc(osVinc.filtro)}" oninput="osVinc.filtro=this.value; osVincLista()">
+    <div class="hint" style="margin:6px 0">Ao ligar, grava na hora, mesmo que você cancele a edição da OS.</div><div id="vincLista"></div></div>`;
+  osVincLista(); }
+function osVincCandidatos(row){ const q=normPeca(osVinc.filtro).trim(), termos=q.split(/\s+/).filter(Boolean), lista=[];
+  ((notasCompra&&notasCompra.notas)||[]).forEach(n=>{ if(n.status!=='completa'&&n.status!=='manual') return;
+    (n.itens||[]).forEach(i=>{ if(!(Number(i.saldo)>1e-9)) return; const texto=[i.descricao,i.codigo,i.peca_codigo].join(' ');
+      if(termos.length){ const tudo=normPeca(texto+' '+(n.nome_emit||'')+' '+(n.numero||'')); if(!termos.every(t=>tudo.includes(t))) return; lista.push({n,i,nota:1}); return; }
+      const nota=semelhancaPeca(row.nome,texto); if(nota>0) lista.push({n,i,nota}); }); });
+  return lista.sort((a,b)=>b.nota-a.nota||String(b.n.dh_emi||'').localeCompare(String(a.n.dh_emi||''))).slice(0,30); }
+function osVincLista(){ const el=document.getElementById('vincLista'); if(!el||!osVinc) return; const row=osItens.find(x=>x.id===osVinc.rowId); if(!row) return;
+  const falta=Math.max(1,(parseInt(row.qtde)||1)-itemOsVinculado(row._orig||{})); const cands=osVincCandidatos(row);
+  const titulo=osVinc.filtro.trim()?'Resultado da busca':`Parecidas com "${esc(row.nome||'')}"`;
+  el.innerHTML=cands.length?`<div class="s" style="margin-bottom:4px"><b>${titulo}</b></div><div class="rows">${cands.map(({n,i})=>`<div class="row" style="flex-wrap:wrap"><div class="main"><div class="t">${esc(i.descricao||'')}</div>
+      <div class="s">${n.historico?'📄 Nota (fora do estoque)':'📦 Em estoque'} · ${n.status==='manual'?'compra sem nota':('NF '+esc(n.numero||'—'))} · ${esc(n.nome_emit||'—')} · ${nfeFmtData(n.dh_emi)}${i.codigo?(' · cód. '+esc(i.codigo)):''}</div>
+      <div class="s">${nfeQtd(i.saldo)} ${esc(i.unidade||'')} disponíveis · custo ${moneyFmt(nfeCustoItem(i))} cada</div></div>
+      <div class="acts"><input id="vq-${i.id}" inputmode="decimal" title="Quantidade" style="width:60px" value="${nfeQtd(Math.min(falta,Number(i.saldo)))}"><button type="button" class="btn sm gold" onclick='osVincLigar(this,"${n.chave}","${i.id}")'>Ligar</button></div></div>`).join('')}</div>`
+    :`<div class="note empty-note" style="margin:0">${osVinc.filtro.trim()?'Nada encontrado com essa busca.':'Nenhuma peça parecida com saldo. Tente outro nome na busca acima.'}</div>`; }
+function osVincAtualizarLinha(row){ const o=getOS(osFormId); const it=o&&(o.itens||[]).find(x=>x.id===row.id); if(!it) return; row._orig=it; row.custo=(it.custo!=null&&it.custo!=='')?String(it.custo).replace('.',','):''; }
+async function osVincLigar(btn,chave,itemId){ const row=osVinc&&osItens.find(x=>x.id===osVinc.rowId); if(!row) return;
+  const qtde=parseFloat(String(val('vq-'+itemId)||'').replace(/\./g,'').replace(',','.')); if(!(qtde>0)){ toast('Informe a quantidade'); return; }
+  btn.disabled=true; btn.textContent='Ligando…';
+  try{ await registrarDestino(chave,itemId,osFormId,row.id,qtde); osVincAtualizarLinha(row);
+    if((parseInt(row.qtde)||1)-itemOsVinculado(row._orig)<=0) osVinc=null;
+    renderOsItens(); toast('Peça ligada à OS ✓'); carregarNotasCompra().catch(()=>{}); }
+  catch(e){ btn.disabled=false; btn.textContent='Ligar'; toast('Não foi possível ligar: '+e.message); } }
+async function osVincDesfazer(rowId,destId){ const row=osItens.find(x=>x.id===rowId); if(!row||!window.confirm('Desfazer esta ligação? A quantidade volta para a nota/estoque.')) return;
+  try{ await fiscalPost('desfazer_destino',{id:destId}); const o=getOS(osFormId); const it=o&&(o.itens||[]).find(x=>x.id===rowId);
+    if(it){ it.origens=(it.origens||[]).filter(x=>x.destino_id!==destId); recalcCustoItemOS(it); o.atualizado=Date.now(); salvar(); }
+    logAcao('Desfez destino de peça', o&&o.codigo?('OS '+o.codigo):'OS', destId); osVincAtualizarLinha(row); renderOsItens(); toast('Ligação desfeita'); carregarNotasCompra().catch(()=>{}); }
+  catch(e){ toast('Não foi possível desfazer: '+e.message); } }
 function renderOsItens(){ const box=document.getElementById('osItensBox');
   const verCusto=pode('valores');
   box.innerHTML=osItens.map(row=>`<div class="os-item-wrap"><div class="os-row">
@@ -2764,8 +2818,9 @@ function renderOsItens(){ const box=document.getElementById('osItensBox');
     ${verCusto?(row._orig&&(row._orig.origens||[]).length
       ?`<div class="os-custo-row"><span class="ocl">🔒 Custo da nota (un.)</span><input class="os-custo" readonly title="Peça ligada a nota de compra: o custo vem da nota" value="${esc(row.custo||'')}"><span class="os-lucro-mini" id="lucro-${row.id}"></span></div>`
       :`<div class="os-custo-row"><span class="ocl">🔒 Custo interno (un.)</span><input class="os-custo" inputmode="decimal" placeholder="R$ 0,00" value="${esc(row.custo||'')}" oninput="setOsItem('${row.id}','custo',this.value)"><span class="os-lucro-mini" id="lucro-${row.id}"></span></div>`):''}
+    ${osVincLinha(row)}
   </div>`).join('');
-  atualizaTotal(); calcOsPrevia(); atualizaLucroPecas(); }
+  atualizaTotal(); calcOsPrevia(); atualizaLucroPecas(); osVincPainel(); }
 function atualizaLucroPecas(){ if(!pode('valores')) return; let tv=0,tc=0;
   osItens.forEach(r=>{ const q=Number(r.qtde)||1; const v=moneyParse(r.valor)*q; const c=moneyParse(r.custo)*q; tv+=v; tc+=c;
     const el=document.getElementById('lucro-'+r.id); if(el){ const temCusto=(r.custo!==''&&r.custo!=null); const l=v-c; el.textContent=temCusto?('lucro '+moneyFmt(l)+(c>0?(' · '+Math.round((l/c)*100)+'% s/ custo'):'')):'informe o custo'; el.style.color=temCusto?(l>=0?'var(--green)':'var(--red)'):'var(--muted)'; } });
@@ -2901,7 +2956,7 @@ function veicComboPick(vid){ const v=getVeiculo(vid); if(!v) return; const c=get
 }
 function openOS(id, veiculoFixo){ if(!pode('editar')){ toast('Sem permissão para editar'); return; }
   if(!state.veiculos.length){ toast('Cadastre um veículo primeiro'); goTab('veiculos'); return; }
-  const o=id?getOS(id):null; osFixoVeiculo = o?o.veiculo_id : (veiculoFixo||null);
+  const o=id?getOS(id):null; osFormId=o?id:null; osVinc=null; osFixoVeiculo = o?o.veiculo_id : (veiculoFixo||null);
   osItens = o?(o.itens||[]).map(i=>({id:i.id||uid(),_orig:i,nome:i.nome,qtde:i.qtde?String(i.qtde):'1',valor:i.valor?String(i.valor).replace('.',','):'',custo:(i.custo!=null&&i.custo!=='')?String(i.custo).replace('.',','):''})) : [{id:uid(),nome:'',qtde:'1',valor:'',custo:''}];
   osMdo = o?(o.maodeobra||[]).map(m=>({id:uid(),desc:m.desc||'',mecanico_id:m.mecanico_id||'',valor:m.valor?String(m.valor).replace('.',','):'',
     terc:!!m.terc,prestador:m.prestador||'',custo:m.custo?String(m.custo).replace('.',','):''})) : [];
@@ -3593,8 +3648,8 @@ function abrirDestino(chave,itemId){
 function renderDestinoOS(){
   const {chave,itemId,filtro}=destinoCtx; const n=notasCompra.notas.find(x=>x.chave===chave); const i=n.itens.find(x=>x.id===itemId);
   const q=(filtro||'').trim().toLowerCase();
-  // Peça comprada vai para OS em aberto. Concluídas só se pedir (rastreio de compra antiga).
-  const abertas=['agendamento','aguardando','andamento'];
+  // Peça comprada vai para OS ainda não fechada (liberado inclui: o carro só espera a entrega). Executadas só se pedir.
+  const abertas=['agendamento','aguardando','andamento','liberado'];
   const lista=(state.ordens||[]).filter(o=>(o.itens||[]).length&&(destinoCtx.todas?osStatus(o)!=='rejeitado':abertas.includes(osStatus(o))))
     .filter(o=>!q||nfeOsRotulo(o).toLowerCase().includes(q)||(o.itens||[]).some(it=>(it.nome||'').toLowerCase().includes(q)))
     .sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))).slice(0,40);
@@ -3604,8 +3659,8 @@ function renderDestinoOS(){
     <div class="note">${esc(i.descricao)}\n${nfeQtd(i.saldo)} ${esc(i.unidade||'')} disponíveis nesta nota</div>
     <div class="field" style="margin-top:10px"><input id="dstBusca" placeholder="Buscar por placa, cliente, OS ou peça" value="${esc(filtro)}"
       oninput="destinoCtx.filtro=this.value; clearTimeout(window._dstT); window._dstT=setTimeout(()=>{ renderDestinoOS(); const e=document.getElementById('dstBusca'); if(e){ e.focus(); e.setSelectionRange(e.value.length,e.value.length); } },250)"></div>
-    <label style="display:flex;gap:8px;align-items:center;justify-content:flex-start;text-align:left;font-size:13px;margin:0 0 8px;color:var(--muted);cursor:pointer"><input type="checkbox" style="width:18px;height:18px;flex:none;margin:0" ${destinoCtx.todas?'checked':''} onchange="destinoCtx.todas=this.checked; renderDestinoOS()"><span>Mostrar também OS concluídas (carro liberado / executado)</span></label>
-    <div class="rows">${rows||emptyState('Nenhuma OS encontrada',destinoCtx.todas?'A OS precisa ter a peça lançada no orçamento.':'Só aparecem OS em agendamento, aguardando orçamento ou em andamento, com a peça lançada no orçamento.')}</div>
+    <label style="display:flex;gap:8px;align-items:center;justify-content:flex-start;text-align:left;font-size:13px;margin:0 0 8px;color:var(--muted);cursor:pointer"><input type="checkbox" style="width:18px;height:18px;flex:none;margin:0" ${destinoCtx.todas?'checked':''} onchange="destinoCtx.todas=this.checked; renderDestinoOS()"><span>Mostrar também OS finalizadas (executadas)</span></label>
+    <div class="rows">${rows||emptyState('Nenhuma OS encontrada',destinoCtx.todas?'A OS precisa ter a peça lançada no orçamento.':'Só aparecem OS em agendamento, aguardando orçamento, em andamento ou carro liberado, com a peça lançada no orçamento.')}</div>
     <div style="display:flex;gap:8px;margin-top:14px"><button class="btn" onclick='openNotaCompra("${chave}")'>Voltar</button></div>`);
 }
 function escolherOSDestino(oid){
@@ -3637,23 +3692,27 @@ function recalcCustoItemOS(it){
   if(it.custo_orcado!==undefined){ it.custo=it.custo_orcado; delete it.custo_orcado; }
   delete it.origens; delete it.peca_id; delete it.peca_codigo; delete it.ncm;
 }
+async function registrarDestino(chave,itemId,oid,osItemId,qtde){
+  const u=(typeof usuarioAtual!=='undefined'&&usuarioAtual)||{};
+  const orig=await fiscalPost('destinar',{item_id:itemId,ordem_id:oid,os_item_id:osItemId,qtde,quem:u.nome||''});
+  // A OS é buscada só agora: a sincronização automática pode ter trocado os objetos durante a espera.
+  const o=getOS(oid); const it=o&&(o.itens||[]).find(x=>x.id===osItemId);
+  if(it){ if(it.custo_orcado===undefined) it.custo_orcado=(it.custo===undefined?null:it.custo);
+    it.origens=(it.origens||[]).concat([orig]); it.peca_id=orig.peca_id; it.peca_codigo=orig.peca_codigo; it.ncm=orig.ncm;
+    recalcCustoItemOS(it); o.atualizado=Date.now(); salvar(); }
+  logAcao('Destinou peça da nota à OS', o&&o.codigo?('OS '+o.codigo):'OS', nfeQtd(qtde)+' × '+(orig.descricao||'')+' · '+(orig.nf?('NF '+orig.nf):'sem nota')+' '+(orig.fornecedor||''));
+  const n=notasCompra.notas.find(x=>x.chave===chave); const ni=n&&n.itens.find(x=>x.id===itemId);
+  if(ni){ ni.destinos=(ni.destinos||[]).concat([{id:orig.destino_id,item_id:itemId,ordem_id:oid,os_item_id:osItemId,qtde}]); ni.saldo=(Number(ni.saldo)||0)-qtde; }
+  return orig;
+}
 async function confirmarDestino(){
   const {chave,itemId,oid}=destinoCtx; const osItemId=val('dstItem');
   const qtde=parseFloat(String(val('dstQtd')||'').replace(',','.'));
   if(!(qtde>0)){ toast('Informe a quantidade'); return; }
   const btn=document.getElementById('dstOk'); if(btn){ btn.disabled=true; btn.textContent='Salvando…'; }
   try{
-    const u=(typeof usuarioAtual!=='undefined'&&usuarioAtual)||{};
-    const orig=await fiscalPost('destinar',{item_id:itemId,ordem_id:oid,os_item_id:osItemId,qtde,quem:u.nome||''});
-    // A OS é buscada só agora: a sincronização automática pode ter trocado os objetos durante a espera.
-    const o=getOS(oid); const it=o&&(o.itens||[]).find(x=>x.id===osItemId);
-    if(it){ if(it.custo_orcado===undefined) it.custo_orcado=(it.custo===undefined?null:it.custo);
-      it.origens=(it.origens||[]).concat([orig]); it.peca_id=orig.peca_id; it.peca_codigo=orig.peca_codigo; it.ncm=orig.ncm;
-      recalcCustoItemOS(it); o.atualizado=Date.now(); salvar(); }
-    logAcao('Destinou peça da nota à OS', o&&o.codigo?('OS '+o.codigo):'OS', nfeQtd(qtde)+' × '+(orig.descricao||'')+' · '+(orig.nf?('NF '+orig.nf):'sem nota')+' '+(orig.fornecedor||''));
+    await registrarDestino(chave,itemId,oid,osItemId,qtde);
     // Volta já para a nota (saldo atualizado aqui mesmo) para ligar a próxima peça.
-    const n=notasCompra.notas.find(x=>x.chave===chave); const ni=n&&n.itens.find(x=>x.id===itemId);
-    if(ni){ ni.destinos=(ni.destinos||[]).concat([{id:orig.destino_id,item_id:itemId,ordem_id:oid,os_item_id:osItemId,qtde}]); ni.saldo=(Number(ni.saldo)||0)-qtde; }
     openNotaCompra(chave); toast('Peça ligada à OS ✓');
     carregarNotasCompra().then(renderNotasCompra).catch(()=>{});
   }catch(e){ if(btn){ btn.disabled=false; btn.textContent='Confirmar'; } alert('Não foi possível destinar:\n'+e.message); }
