@@ -3420,7 +3420,13 @@ function renderBoletosReceber(){
 }
 /* ---- Notas de compra (NF-e de entrada, Distribuição DF-e) ---- */
 const API_FISCAL='/gestao/api/fiscal';
-let notasCompra=null, notasCompraBusy=false;
+let notasCompra=null, notasCompraBusy=false, notasCompraEm=0, notasCompraAtualizando=null;
+function notasCompraVelhas(){ return !notasCompraEm||Date.now()-notasCompraEm>20000; }
+// Recarrega por trás e redesenha só o que estiver aberto (lista e/ou a nota).
+function atualizarNotasCompraSeVelhas(chaveAberta){ if(!notasCompra||!notasCompraVelhas()) return;
+  if(!notasCompraAtualizando) notasCompraAtualizando=carregarNotasCompra().finally(()=>{ notasCompraAtualizando=null; });
+  notasCompraAtualizando.then(()=>{ if(document.getElementById('nfeLista')) desenharListaNotas();
+    const det=document.getElementById('nfeDet'); if(chaveAberta&&det&&det.dataset.chave===chaveAberta) openNotaCompra(chaveAberta); }).catch(()=>{}); }
 function nfeFmtData(d){ return d?new Date(d).toLocaleDateString('pt-BR'):'—'; }
 /* Alerta de nota de compra nova (chegou da SEFAZ e ninguém abriu): aviso no Painel,
    número no botão Mais e etiqueta NOVA na lista. Atualiza a cada sincronização. */
@@ -3481,7 +3487,7 @@ async function carregarNotasCompra(){
   const r=await fetch(API_FISCAL+'/notas',{headers:{accept:'application/json'}});
   const d=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(d.error||('http '+r.status));
-  notasCompra=d;
+  notasCompra=d; notasCompraEm=Date.now();
   sincronizarOrigensOS();
 }
 // Custo real do item: preço da nota + parte igual, por unidade, do frete, despesas e impostos da nota (calculado no servidor).
@@ -3522,6 +3528,7 @@ function renderNotasCompra(){
   const box=document.getElementById('notasCompraBox'); if(!box) return;
   if(!telaLiberada('fornecedores')){ box.innerHTML='<div class="note empty-note">Sem permissão.</div>'; return; }
   if(!notasCompra){ box.innerHTML='<div class="note">Carregando…</div>'; carregarNotasCompra().then(renderNotasCompra).catch(e=>{ box.innerHTML='<div class="note">Erro ao carregar: '+esc(e.message)+'</div>'; }); return; }
+  atualizarNotasCompraSeVelhas();
   const ctl=notasCompra.controle, notas=notasCompra.notas||[];
   const espera=ctl&&ctl.espera_ate>Date.now()?ctl.espera_ate:0;
   const info=!notasCompra.configurada?'⚠️ Ponte fiscal ainda não configurada (certificado A1). Veja docs/certificado-a1.md.'
@@ -3559,14 +3566,14 @@ function desenharListaNotas(){
     return [n.nome_emit,n.numero,n.cnpj_emit].some(v=>String(v||'').toLowerCase().includes(q))
       || n.itens.some(i=>[i.descricao,i.codigo,i.peca_codigo].some(v=>String(v||'').toLowerCase().includes(q)));
   });
-  const linhaItem=i=>{ const usados=(Number(i.qtde)||0)-(Number(i.saldo)||0);
-    const marca=i.saldo<=0?'<span style="color:var(--green)">✓ na OS</span>':(usados>0?`<span style="color:#D9A83E">${nfeQtd(i.saldo)} sem OS</span>`:'');
+  const linhaItem=(i,n)=>{ const usados=(Number(i.qtde)||0)-(Number(i.saldo)||0);
+    const marca=i.saldo<=0?'<span style="color:var(--green)">✓ na OS</span>':(usados>0?`<span style="color:var(--green)">✓ ${nfeQtd(usados)} na OS</span> · <span style="color:#D9A83E">${nfeQtd(i.saldo)} ${n.historico?'sem OS':'no estoque'}</span>`:'');
     const destaque=q&&String(i.descricao||'').toLowerCase().includes(q)?'font-weight:700;color:var(--txt)':'';
     return `<div class="s" style="${destaque}"><b>${nfeQtd(i.qtde)} ${esc(i.unidade||'un')}</b> · ${esc(i.descricao)} ${marca}</div>`; };
   el.innerHTML=notas.length?notas.map(n=>{ const its=n.itens; const mostra=q?its.filter(i=>String(i.descricao||'').toLowerCase().includes(q)).concat(its.filter(i=>!String(i.descricao||'').toLowerCase().includes(q))):its;
     return `<div class="row click" onclick='openNotaCompra("${n.chave}")'><div class="main"><div class="t">${esc(n.nome_emit||'—')} ${nfeStatusTag(n)}</div>
     <div class="s">${n.numero?('NF '+esc(n.numero)+' · '):''}${nfeFmtData(n.dh_emi)} · ${moneyFmt(n.valor)}</div>
-    ${mostra.slice(0,4).map(linhaItem).join('')}${its.length>4?`<div class="s">+ ${its.length-4} outras peças</div>`:''}</div>${chev()}</div>`; }).join('')
+    ${mostra.slice(0,4).map(i=>linhaItem(i,n)).join('')}${its.length>4?`<div class="s">+ ${its.length-4} outras peças</div>`:''}</div>${chev()}</div>`; }).join('')
     :(q||nfeSoPend||nfeSoNovas)?emptyState('Nada encontrado','Nenhuma nota com esse filtro.')+`<div style="text-align:center;margin-top:10px"><button class="btn sm" onclick="limparFiltrosNotas()">Mostrar todas as notas</button></div>`
     :emptyState('Nenhuma nota de compra','Toque em “Buscar na SEFAZ” para puxar as notas emitidas contra o CNPJ da 3M.');
 }
@@ -3606,6 +3613,7 @@ function openNotaCompra(chave){
   const n=((notasCompra&&notasCompra.notas)||[]).find(x=>x.chave===chave); if(!n) return;
   // Abrir a nota = conferir: sai do alerta para todos.
   if(n.nova){ n.nova=false; fiscalPost('conferir',{chave}).then(()=>{ atualizarAlertaCompras(); if(document.getElementById('nfeLista')) desenharListaNotas(); }).catch(()=>{}); }
+  atualizarNotasCompraSeVelhas(chave);
   const podeDest=(n.status==='completa'||n.status==='manual')&&pode('editar');
   const manual=n.status==='manual';
   const itens=n.itens.map(i=>{
@@ -3615,12 +3623,12 @@ function openNotaCompra(chave){
     const saldoTxt=i.saldo>0?(n.historico?'':`<span style="color:#D9A83E">${nfeQtd(i.saldo)} ${esc(i.unidade||'')} no estoque</span>`):'<span style="color:var(--green)">tudo destinado</span>';
     return `<div class="row" style="display:block"><div style="display:flex;gap:8px;align-items:flex-start"><div class="main" style="flex:1">
       <div class="t">${esc(i.descricao)}</div>
-      <div style="font-size:15px;margin:4px 0"><b>Quantidade: ${nfeQtd(i.qtde)} ${esc(i.unidade||'un')}</b>${(i.destinos||[]).length?` · <span style="color:${i.saldo>0?'#D9A83E':'var(--green)'}">${i.saldo>0?('faltam '+nfeQtd(i.saldo)+' para destinar'):'todas já na OS'}</span>`:''}</div>
+      <div style="font-size:15px;margin:4px 0"><b>Quantidade: ${nfeQtd(i.qtde)} ${esc(i.unidade||'un')}</b>${(i.destinos||[]).length?` · <span style="color:var(--green)">${i.saldo>0?('✓ '+nfeQtd((Number(i.qtde)||0)-(Number(i.saldo)||0))+' na OS'):'✓ todas já na OS'}</span>`:''}</div>
       <div class="s">${i.peca_codigo?('<b>'+esc(i.peca_codigo)+'</b> · '):''}${nfeComposicaoCusto(i)} · NCM ${esc(i.ncm||'—')} · cód. forn. ${esc(i.codigo||'—')}</div>
       ${i.regra?`<div class="s">Na venda: <b>CFOP ${esc(i.regra.cfop)} · CSOSN ${esc(i.regra.csosn)} · PIS/Cofins ${esc(i.regra.pis_cst)}</b>${i.regra.conferir?' <span style="color:#E8B23A">⚠ conferir</span>':''}</div>`:''}
       <div class="s">${saldoTxt}</div>${dests}</div>
       ${podeDest&&i.saldo>0?`<button class="btn sm gold" onclick='abrirDestino("${chave}","${i.id}")'>Destinar</button>`:''}</div></div>`; }).join('');
-  openModal(`<h3>${manual?'🧾 Compra sem nota · ':''}${esc(n.nome_emit||'Nota de compra')}</h3>
+  openModal(`<h3 id="nfeDet" data-chave="${esc(chave)}">${manual?'🧾 Compra sem nota · ':''}${esc(n.nome_emit||'Nota de compra')}</h3>
     ${manual?`<div class="note">Data: ${nfeFmtData(n.dh_emi)} · Total ${moneyFmt(n.valor)}${n.cnpj_emit?('\nCNPJ/CPF '+esc(n.cnpj_emit)):''}${n.obs?('\n'+esc(n.obs)):''}</div>${n.comprovante?`<a href="/gestao/api/midia/${esc(n.comprovante)}" target="_blank"><img src="/gestao/api/midia/${esc(n.comprovante)}" style="max-width:100%;max-height:220px;border-radius:8px;margin-top:8px"></a>`:''}`:`<div class="note">${n.numero?('NF '+esc(n.numero)+' série '+esc(n.serie||'')+'\n'):''}Emissão: ${nfeFmtData(n.dh_emi)} · Total ${moneyFmt(n.valor)}
 CNPJ ${esc(n.cnpj_emit||'')}
 Chave: ${esc(n.chave)}${n.manifesto_msg?('\nCiência: '+esc(n.manifesto_msg)):''}</div>`}
@@ -4398,7 +4406,7 @@ function abrirEstoquePeca(ix){ const p=(estoqueDados||[])[ix]; if(!p) return;
     <div class="rows">${p.origens.map(o=>`<div class="row click" onclick='abrirNotaPorChave("${o.chave}")'><div class="main"><div class="t">${esc(o.fornecedor||'—')}</div>
       <div class="s">${o.nf?('NF '+esc(o.nf)):'Sem nota'} · ${nfeFmtData(o.data)} · ${nfeQtd(o.saldo)} restantes · custo ${moneyFmt(o.custo)}</div></div>${chev()}</div>`).join('')}</div>
     <div style="display:flex;gap:8px;margin-top:14px"><button class="btn" onclick="closeModal()">Fechar</button></div>`); }
-async function abrirNotaPorChave(chave){ try{ if(!notasCompra) await carregarNotasCompra(); openNotaCompra(chave); }catch(e){ alert(e.message); } }
+async function abrirNotaPorChave(chave){ try{ if(!notasCompra||notasCompraVelhas()) await carregarNotasCompra(); openNotaCompra(chave); }catch(e){ alert(e.message); } }
 
 /* ---- Fornecedores ---- */
 function getFornecedor(id){ return (state.fornecedores||[]).find(f=>f.id===id); }
