@@ -11,7 +11,7 @@ const SCHEMA = {
   ordens:   { cols:['id','veiculo_id','data','km','reclamacao','obs_mecanico','obs_admin','itens','maodeobra','status','agenda_data','agenda_hora','mecanico_id','midias','codigo','pecas_prev','descontos','retorno_de','faltou','motivo_rejeicao','fechado_em','revisao_de','revisada_para','criado','atualizado'], json:['itens','maodeobra','midias','pecas_prev','descontos','faltou'] },
   regras:   { cols:['id','nome','km','meses','ordem','preco'], json:[] },
   mecanicos:{ cols:['id','nome','percentual','ativo','telefone','salario','funcao','socio','assiduidade','folha_mensal','criado','atualizado'], json:['folha_mensal'] },
-  caixa:    { cols:['id','tipo','data','valor','forma','taxa','liquido','descricao','ordem_id','parcelas','categoria','funcionario_id','cartao_tipo','socio','conta','vencimento','pagamento','fornecedor_id','parcela_grupo','nota','criado','atualizado'], json:[] },
+  caixa:    { cols:['id','tipo','data','valor','forma','taxa','liquido','descricao','ordem_id','parcelas','categoria','funcionario_id','cartao_tipo','socio','conta','vencimento','pagamento','fornecedor_id','parcela_grupo','nota','competencia','criado','atualizado'], json:[] },
   // senha_hash e salt ficam de fora de propósito: senha só muda pelas rotas /gestao/api/auth/*.
   usuarios: { cols:['id','nome','login','status','papel','email','perms','reset','mecanico_id','modo_mec','perfil','criado','atualizado'], json:['perms'] },
   pecas:    { cols:['id','nome','preco','criado','atualizado'], json:[] },
@@ -37,6 +37,7 @@ export async function onRequest(context) {
   try { await DB.prepare('ALTER TABLE clientes ADD COLUMN reativado_em INTEGER').run(); } catch (e) { /* coluna já existe */ }
   try { await DB.prepare('ALTER TABLE ordens ADD COLUMN revisao_de TEXT').run(); } catch (e) { /* coluna já existe */ }
   try { await DB.prepare('ALTER TABLE ordens ADD COLUMN revisada_para TEXT').run(); } catch (e) { /* coluna já existe */ }
+  try { await DB.prepare('ALTER TABLE caixa ADD COLUMN competencia TEXT').run(); } catch (e) { /* coluna já existe */ }
 
   const url = new URL(request.url);
   const parts = url.pathname.split('/').filter(Boolean); // ['gestao','api','<acao>']
