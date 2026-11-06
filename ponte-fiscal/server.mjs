@@ -722,8 +722,27 @@ function resultadoNfseNac(j, dps) {
     xml: xml ? (xml.startsWith("<?xml") ? xml : XML_DECL + xml) : null, dps };
 }
 
+/**
+ * Leiaute da DPS: a produção restrita já roda o da NT 009 (20/10/2026), que exige <finNFSe> (0 = NFS-e
+ * regular) logo depois de <tpEmit>; a produção ainda pode estar no de 09/02/2026, que não tem o campo.
+ * Se a Receita recusar o esquema por causa do finNFSe (pedindo ou estranhando), troca e reenvia uma vez —
+ * a primeira tentativa foi recusada, então a mesma DPS não gera nota em dobro.
+ */
+const comFinNFSe = (inf) => inf.includes("<finNFSe>") ? inf : inf.replace("</tpEmit>", "</tpEmit><finNFSe>0</finNFSe>");
+const semFinNFSe = (inf) => inf.replace(/<finNFSe>\d<\/finNFSe>/, "");
+const finNFSePorAmb = { 1: false, 2: true };
+
 /** Assina a <infDPS> montada pelo sistema e envia à Sefin Nacional. */
 async function nfseNacGerar(tpAmb, infDPS) {
+  const primeiro = await nfseNacEnviar(tpAmb, finNFSePorAmb[tpAmb] ? comFinNFSe(infDPS) : semFinNFSe(infDPS));
+  const esquemaFin = !primeiro.ok && primeiro.erros.some((e) => e.codigo === "E1235" && /finNFSe/.test(`${e.mensagem} ${e.correcao || ""}`));
+  if (!esquemaFin) return primeiro;
+  finNFSePorAmb[tpAmb] = !finNFSePorAmb[tpAmb];
+  console.log(`[nfse nac] leiaute do ambiente ${tpAmb}: finNFSe ${finNFSePorAmb[tpAmb] ? "exigido" : "não aceito"} — reenviando`);
+  return nfseNacEnviar(tpAmb, finNFSePorAmb[tpAmb] ? comFinNFSe(infDPS) : semFinNFSe(infDPS));
+}
+
+async function nfseNacEnviar(tpAmb, infDPS) {
   const id = (infDPS.match(/^<infDPS Id="(DPS[0-9A-Z]{42})">/) ?? [])[1];
   if (!id) throw new Error("infDPS sem Id válido");
   // Documento sozinho: namespace padrão na raiz, sem prefixo (E1228) e em UTF-8 (E1229).
