@@ -30,7 +30,7 @@
  *
  * Emissão de nota de peça (NF-e 55 / NFC-e 65) na SEFAZ-GO, pela ponte:
  *   GET  emissao_config      ambiente (1 produção / 2 homologação), séries, próximos números
- *   POST emissao_config      { tpAmb?, proximo?: {id, valor}, respTec? }
+ *   POST emissao_config      { tpAmb?, proximo?: {id, valor}, serie?: {modelo: '55'|'65', valor 1–889}, respTec? }
  *   POST nfe_status          status do serviço da SEFAZ-GO no ambiente atual
  *   POST emitir              { ordem_id, os, modelo, dest, itens[{nome,codigo,ncm,cest,origem,qtde,valorUnit,desconto,regra}], pagamento, quem }
  *   POST cancelar_nota       { id, xJust }
@@ -894,9 +894,11 @@ async function configEmissao(DB) {
   const [c, nums] = await Promise.all([DB.prepare('SELECT chave, valor FROM fiscal_config').all(), DB.prepare('SELECT * FROM nfe_numeracao').all()]);
   const cfg = {}; (c.results || []).forEach(r => { cfg[r.chave] = r.valor; });
   const proximo = {}; (nums.results || []).forEach(r => { proximo[r.id] = r.proximo; });
-  for (const id of ['2-55-1', '2-65-1', '1-55-1', '1-65-1'])
+  const serie = { 55: cfg.serie_55 || '1', 65: cfg.serie_65 || '1' };
+  // Série nova (trocada em Fiscal → Emissão): homologação começa no 1; produção espera o número informado.
+  for (const id of ['2-55-' + serie[55], '2-65-' + serie[65], '1-55-' + serie[55], '1-65-' + serie[65]])
     if (proximo[id] == null) proximo[id] = id.startsWith('2-') ? 1 : (NUMERO_INICIAL[id] ?? null);
-  return { tpAmb: cfg.tp_amb === '1' ? 1 : 2, serie: { 55: cfg.serie_55 || '1', 65: cfg.serie_65 || '1' }, proximo,
+  return { tpAmb: cfg.tp_amb === '1' ? 1 : 2, serie, proximo,
     respTec: { contato: cfg.resp_contato || '', email: cfg.resp_email || '', fone: cfg.resp_fone || '' } };
 }
 
@@ -905,6 +907,12 @@ async function salvarConfigEmissao(DB, b) {
   const put = (k, v) => stmts.push(DB.prepare('INSERT INTO fiscal_config (chave,valor) VALUES (?,?) ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor').bind(k, String(v)));
   if (b.tpAmb === 1 || b.tpAmb === 2) put('tp_amb', b.tpAmb);
   if (b.respTec) { put('resp_contato', b.respTec.contato || ''); put('resp_email', b.respTec.email || ''); put('resp_fone', b.respTec.fone || ''); }
+  if (b.serie && ['55', '65'].includes(String(b.serie.modelo))) {
+    const v = Math.floor(Number(b.serie.valor));
+    // 890–999 são da SEFAZ (avulsa/contingência); 0 evita-se por ser a série "única" de emissores antigos.
+    if (!(v >= 1 && v <= 889)) throw new Error('Série inválida: use um número de 1 a 889.');
+    put('serie_' + b.serie.modelo, v);
+  }
   if (b.proximo && /^[12]-(55|65)-\d{1,3}$/.test(b.proximo.id) && Number(b.proximo.valor) >= 1)
     stmts.push(DB.prepare('INSERT INTO nfe_numeracao (id,proximo) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET proximo=excluded.proximo').bind(b.proximo.id, Math.floor(Number(b.proximo.valor))));
   if (stmts.length) await DB.batch(stmts);
