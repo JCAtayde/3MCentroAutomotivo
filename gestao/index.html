@@ -4174,7 +4174,7 @@ async function abrirNotaServico(oid){
   let ja=[];
   try{ const q='?ordem_id='+encodeURIComponent(oid);
     const [cfg,lista]=await Promise.all([fetch(API_FISCAL+'/nfse_config').then(r=>r.json()), fetch(API_FISCAL+'/nfse_saidas'+q).then(r=>r.json()), carregarEmpresaCfg()]);
-    if(cfg.error) throw new Error(cfg.error); nfseCfg=cfg; ja=((lista&&lista.notas)||[]).filter(n=>n.status==='autorizada'); }
+    if(cfg.error) throw new Error(cfg.error); nfseCfg=cfg; ja=((lista&&lista.notas)||[]).filter(n=>n.status==='autorizada'&&Number(n.tp_amb)===Number(cfg.tpAmb)); }
   catch(e){ openModal(`<div class="note">Não foi possível carregar: ${esc(e.message)}</div><button class="btn" onclick="closeModal()">Fechar</button>`); return; }
   const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const m=mdoDaNota(o);
   const mesmaCidade=cidadeDaEmpresa(c);
