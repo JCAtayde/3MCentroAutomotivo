@@ -22,6 +22,14 @@
 //   { acao: "nfse_cancelar", tpAmb, chave, cMotivo, xMotivo }  evento 101101
 //   { acao: "nfse_links", tpAmb, im, numero }        links oficiais da nota (QR Code do DANFSe)
 //
+// NFS-e pela API do Ambiente Nacional (Sefin Nacional): desde a competência 11/2026 Goiânia recusa
+// o Simples pelo webservice municipal (EM110). REST + JSON, mTLS com o certificado, XML em GZip/base64
+// (OpenAPI conferida em 06/11/2026: POST /nfse {dpsXmlGZipB64}, GET /dps/{id}, GET /nfse/{chave},
+// POST /nfse/{chave}/eventos {pedidoRegistroEventoXmlGZipB64}). tpAmb 2 = produção restrita (teste).
+//   { acao: "nfse_nac_gerar", tpAmb, infDPS }        assina a <infDPS> e envia
+//   { acao: "nfse_nac_dps", tpAmb, id }              NFS-e gerada a partir da DPS (resposta perdida)
+//   { acao: "nfse_nac_cancelar", tpAmb, chave, cMotivo, xMotivo }  evento 101101
+//
 // Segredos (fly secrets):
 //   PONTE_TOKEN        senha compartilhada com o sistema (cabeçalho x-ponte-token);
 //   CERT_CADEIA_B64    certificado + cadeia em PEM, em base64 (conexão);
@@ -35,7 +43,7 @@ import http from "node:http";
 import https from "node:https";
 import tls from "node:tls";
 import { readFileSync } from "node:fs";
-import { gunzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { createSign, createHash, timingSafeEqual, X509Certificate, createPrivateKey, createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import forge from "node-forge";
@@ -668,6 +676,91 @@ async function nfseCancelar(tpAmb, chave, cMotivo, xMotivo, municipio) {
     resposta: !evento && !erros.length ? xml.slice(0, 2000) : undefined };
 }
 
+// ---------- NFS-e: API do Ambiente Nacional ----------
+const SEFIN_NAC = { 1: "https://sefin.nfse.gov.br/SefinNacional", 2: "https://sefin.producaorestrita.nfse.gov.br/SefinNacional" };
+const XML_DECL = '<?xml version="1.0" encoding="UTF-8"?>';
+const gz64 = (xml) => gzipSync(Buffer.from(xml, "utf8")).toString("base64");
+const desgz64 = (b64) => { try { return gunzipSync(Buffer.from(String(b64 || ""), "base64")).toString("utf8"); } catch (e) { return null; } };
+
+/** Chamada JSON à Sefin Nacional com o certificado da 3M (mTLS). */
+function chamarNac(tpAmb, metodo, caminho, corpo) {
+  return new Promise((resolve, reject) => {
+    if (!cred()) return reject(new Error("Nenhum certificado digital na ponte: envie o certificado em Fiscal → Empresa."));
+    const dados = corpo ? JSON.stringify(corpo) : null;
+    const req = https.request(SEFIN_NAC[tpAmb === 1 ? 1 : 2] + caminho, {
+      method: metodo, agent: cred().agente, timeout: 60_000,
+      headers: { accept: "application/json", ...(dados ? { "content-type": "application/json", "content-length": Buffer.byteLength(dados) } : {}) },
+    }, (res) => {
+      const partes = [];
+      res.on("data", (p) => partes.push(p));
+      res.on("end", () => {
+        const txt = Buffer.concat(partes).toString("utf8");
+        let json = null; try { json = txt ? JSON.parse(txt) : null; } catch (e) { json = null; }
+        resolve({ status: res.statusCode ?? 0, json, texto: txt.slice(0, 2000) });
+      });
+      res.on("error", reject);
+    });
+    req.on("timeout", () => req.destroy(new Error("a Receita (Ambiente Nacional da NFS-e) não respondeu em 60 segundos")));
+    req.on("error", reject);
+    if (dados) req.write(dados);
+    req.end();
+  });
+}
+
+/** Mensagens da API ({codigo, descricao, complemento}, em "erros" ou "erro") no formato do sistema. */
+function mensagensNac(j) {
+  const lista = [].concat((j && (j.erros || j.Erros)) || [], (j && (j.erro || j.Erro)) ? [j.erro || j.Erro] : []);
+  return lista.filter(Boolean).map((e) => ({ codigo: String(e.codigo ?? e.Codigo ?? ""), mensagem: String(e.descricao ?? e.Descricao ?? e.mensagem ?? ""),
+    correcao: String(e.complemento ?? e.Complemento ?? "") || undefined }));
+}
+
+function resultadoNfseNac(j, dps) {
+  const xml = desgz64(j.nfseXmlGZipB64);
+  const chave = String(j.chaveAcesso || (xml && (xml.match(/<infNFSe[^>]*\sId="NFS([0-9A-Z]{50})"/) || [])[1]) || "") || null;
+  return { ok: !!(xml && chave), chave, numero: xml ? tag(xml, "nNFSe") : null, cStat: xml ? tag(xml, "cStat") : null,
+    dhProc: xml ? tag(xml, "dhProc") : (j.dataHoraProcessamento || null), erros: [], alertas: mensagensNac({ erros: j.alertas || [] }),
+    xml: xml ? (xml.startsWith("<?xml") ? xml : XML_DECL + xml) : null, dps };
+}
+
+/** Assina a <infDPS> montada pelo sistema e envia à Sefin Nacional. */
+async function nfseNacGerar(tpAmb, infDPS) {
+  const id = (infDPS.match(/^<infDPS Id="(DPS[0-9A-Z]{42})">/) ?? [])[1];
+  if (!id) throw new Error("infDPS sem Id válido");
+  // Documento sozinho: namespace padrão na raiz, sem prefixo (E1228) e em UTF-8 (E1229).
+  const dps = `<DPS xmlns="${NS_NFSE}" versao="${VERSAO_NFSE}">${infDPS}${assinar(infDPS, id, NS_NFSE)}</DPS>`;
+  const r = await chamarNac(tpAmb, "POST", "/nfse", { dpsXmlGZipB64: gz64(XML_DECL + dps) });
+  console.log(`[nfse nac gerar] ${r.status} ${r.texto.replace(/"nfseXmlGZipB64":"[^"]*"/, '"nfseXmlGZipB64":"…"').slice(0, 1200)}`);
+  if (r.status === 201 && r.json) return resultadoNfseNac(r.json, dps);
+  const erros = mensagensNac(r.json);
+  return { ok: false, chave: null, numero: null, erros: erros.length ? erros : [{ codigo: String(r.status), mensagem: "Resposta inesperada da Receita" }],
+    alertas: [], xml: null, dps, resposta: erros.length ? undefined : r.texto };
+}
+
+/** Procura a NFS-e gerada a partir de uma DPS (quando a resposta do envio se perdeu). */
+async function nfseNacPorDps(tpAmb, id) {
+  const d = await chamarNac(tpAmb, "GET", `/dps/${id}`);
+  if (d.status === 404) return { encontrada: false };
+  if (d.status !== 200 || !d.json || !d.json.chaveAcesso) return { encontrada: false, erros: mensagensNac(d.json), resposta: d.json ? undefined : d.texto };
+  const n = await chamarNac(tpAmb, "GET", `/nfse/${d.json.chaveAcesso}`);
+  if (n.status !== 200 || !n.json) return { encontrada: true, chave: d.json.chaveAcesso, ok: false, erros: mensagensNac(n.json) };
+  return { encontrada: true, ...resultadoNfseNac({ ...n.json, chaveAcesso: d.json.chaveAcesso }, null) };
+}
+
+async function nfseNacCancelar(tpAmb, chave, cMotivo, xMotivo) {
+  const id = `PRE${chave}101101`;
+  const inf =
+    `<infPedReg Id="${id}"><tpAmb>${tpAmb}</tpAmb><verAplic>${VER_APLIC}</verAplic><dhEvento>${dataHoraBrasilia()}</dhEvento>` +
+    `<CNPJAutor>${cnpjAtual()}</CNPJAutor><chNFSe>${chave}</chNFSe>` +
+    `<e101101><xDesc>Cancelamento de NFS-e</xDesc><cMotivo>${cMotivo}</cMotivo><xMotivo>${escXml(xMotivo)}</xMotivo></e101101></infPedReg>`;
+  const ped = `<pedRegEvento xmlns="${NS_NFSE}" versao="${VERSAO_NFSE}">${inf}${assinar(inf, id, NS_NFSE)}</pedRegEvento>`;
+  const r = await chamarNac(tpAmb, "POST", `/nfse/${chave}/eventos`, { pedidoRegistroEventoXmlGZipB64: gz64(XML_DECL + ped) });
+  console.log(`[nfse nac cancelar] ${r.status} ${r.texto.slice(0, 800)}`);
+  const evento = r.status === 201 && r.json ? desgz64(r.json.eventoXmlGZipB64) : null;
+  const erros = mensagensNac(r.json);
+  return { cancelada: !!evento, erros: evento ? [] : (erros.length ? erros : [{ codigo: String(r.status), mensagem: "Resposta inesperada da Receita" }]),
+    xml: evento ? (evento.startsWith("<?xml") ? evento : XML_DECL + evento) : null, resposta: evento || erros.length ? undefined : r.texto };
+}
+
 // ---------- Servidor ----------
 
 const CHAVE_NFE = /^\d{44}$/;
@@ -744,6 +837,25 @@ const servidor = http.createServer(async (req, res) => {
           const im = String(pedido.im ?? "").replace(/\D/g, "");
           if (!im || im.length > 15) return responder(res, 400, { erro: "inscrição municipal inválida" });
           return responder(res, 200, await nfseDisponivel(tpAmb, im, pedido.municipio));
+        }
+        if (pedido.acao === "nfse_nac_gerar") {
+          const infDPS = String(pedido.infDPS ?? "");
+          const prefixo = /^<infDPS Id="DPS(\d{7})2(\d{14})\d{20}">/.exec(infDPS);
+          if (!prefixo || prefixo[2] !== cnpjAtual() || !infDPS.endsWith("</infDPS>") || infDPS.length > 60_000)
+            return responder(res, 400, { erro: "DPS inválida" });
+          return responder(res, 200, await nfseNacGerar(tpAmb, infDPS));
+        }
+        if (pedido.acao === "nfse_nac_dps") {
+          const id = String(pedido.id ?? "");
+          if (!/^DPS\d{7}2\d{34}$/.test(id) || id.slice(11, 25) !== cnpjAtual()) return responder(res, 400, { erro: "id da DPS inválido" });
+          return responder(res, 200, await nfseNacPorDps(tpAmb, id));
+        }
+        if (pedido.acao === "nfse_nac_cancelar") {
+          const chave = String(pedido.chave ?? "");
+          if (!/^[0-9]{9}[0-9A-Z]{12}[0-9]{29}$/.test(chave) || !chave.includes(cnpjAtual())) return responder(res, 400, { erro: "chave da NFS-e inválida" });
+          if (!["1", "2", "9"].includes(String(pedido.cMotivo))) return responder(res, 400, { erro: "motivo inválido" });
+          if (String(pedido.xMotivo ?? "").trim().length < 15) return responder(res, 400, { erro: "motivo com menos de 15 letras" });
+          return responder(res, 200, await nfseNacCancelar(tpAmb, chave, String(pedido.cMotivo), String(pedido.xMotivo).trim().slice(0, 255)));
         }
         if (pedido.acao === "nfse_gerar") {
           const infDPS = String(pedido.infDPS ?? "");

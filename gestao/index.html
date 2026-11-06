@@ -4209,37 +4209,37 @@ function renderNotaServico(){
     <div class="os-total"><span class="l"><b>Valor da nota</b></span><span class="v"><b>${moneyFmt(liq)}</b></span></div>
     <div id="nfseRes"></div>
     <div class="form-actions" style="flex-wrap:wrap"><button class="btn gold" onclick="enviarNotaServico(false)">${nfseCfg.tpAmb===2?'Emitir nota de serviço de teste':'Emitir nota de serviço'}</button>
-      <button class="btn" onclick="enviarNotaServico(true)">${nfseCfg.tpAmb===2?'Conferir na prefeitura — produção (sem emitir)':'Conferir na prefeitura (sem emitir)'}</button><button class="btn ghost" onclick="closeModal()">Voltar</button></div>
-    ${nfseCfg.tpAmb===2?'<div class="s" style="color:var(--muted);margin-top:6px">O ambiente de teste da prefeitura ainda não tem a 3M cadastrada; por isso a conferência usa a produção. Conferir não gera nota.</div>':''}`);
+      <button class="btn" onclick="enviarNotaServico(true)">Testar na Receita (nota de teste, sem valor)</button><button class="btn ghost" onclick="closeModal()">Voltar</button></div>
+    <div class="s" style="color:var(--muted);margin-top:6px">A nota vai pela API do Ambiente Nacional da NFS-e (a prefeitura não aceita mais o Simples pelo sistema dela). "Testar na Receita" gera uma nota de teste, sem valor fiscal.</div>`);
 }
 function errosNfseHtml(l){ return (l||[]).map(e=>`<div><b>${esc(e.codigo||'')}</b> ${esc(e.mensagem||'')}${e.correcao?` <span style="color:var(--muted)">— ${esc(e.correcao)}</span>`:''}</div>`).join(''); }
 async function enviarNotaServico(validar){
   const x=nfseCtx, res=document.getElementById('nfseRes'); const bts=[...document.querySelectorAll('#overlay .form-actions button')];
   const liberar=()=>bts.forEach(b=>b.disabled=false); bts.forEach(b=>b.disabled=true);
-  res.innerHTML=`<div class="note">${validar?'Conferindo na prefeitura…':'Enviando para a prefeitura…'}</div>`;
+  res.innerHTML=`<div class="note">${validar?'Enviando a nota de teste para a Receita…':'Enviando para a Receita (Ambiente Nacional da NFS-e)…'}</div>`;
   try{
     const r=await fiscalPost('nfse_emitir',{ ordem_id:x.oid, os:(getOS(x.oid)||{}).codigo||'', tomador:x.tomador, descricao:x.descricao, infoCompl:x.info,
-      valor:x.valor, desconto:x.desconto, iss_retido:x.issRetido, validar, validarProducao:validar&&nfseCfg.tpAmb===2 });
+      valor:x.valor, desconto:x.desconto, iss_retido:x.issRetido, validar });
     if(validar){ liberar();
-      res.innerHTML=r.ok?`<div class="note" style="white-space:normal;border-color:#48B98A;color:#48B98A">✓ A prefeitura${r.tpAmb===1?' (produção)':''} conferiu e não achou erro.${(r.sucesso||[]).length?' <span style="color:var(--muted)">'+esc(r.sucesso.join(' · '))+'</span>':''} Nada foi emitido.${r.semNumero?' (Ainda sem número de DPS liberado para a 3M.)':''}${(r.alertas||[]).length?'<br>Avisos:'+errosNfseHtml(r.alertas):''}</div>`
-        :`<div class="note" style="white-space:normal;color:#E5675C">A prefeitura apontou:${errosNfseHtml(r.erros)||'<div>resposta inesperada (guardada para análise)</div>'}</div>`;
+      res.innerHTML=r.ok?`<div class="note" style="white-space:normal;border-color:#48B98A;color:#48B98A">✓ A Receita aceitou a nota de teste.${(r.sucesso||[]).length?' <span style="color:var(--muted)">'+esc(r.sucesso.join(' · '))+'</span>':''} Nenhuma nota de verdade foi emitida.${(r.alertas||[]).length?'<br>Avisos:'+errosNfseHtml(r.alertas):''}</div>`
+        :`<div class="note" style="white-space:normal;color:#E5675C">A Receita apontou:${errosNfseHtml(r.erros)||'<div>resposta inesperada (guardada para análise)</div>'}</div>`;
       return; }
     carregarNotasOS(x.oid);
     if(r.status==='autorizada'){ logAcao('Emitiu nota de serviço','NFS-e '+(r.numero||''),x.oid);
       openModal(`<h3>✓ Nota de serviço autorizada</h3><div class="note" style="white-space:normal">NFS-e nº <b>${esc(r.numero||'')}</b> ${nfeAmbChip(r.tpAmb)}<br>Chave ${esc(r.chave||'')}</div>
         <div class="form-actions"><a class="btn gold" target="_blank" href="${API_FISCAL}/nfse_danfse?id=${r.id}">📄 Abrir DANFSe / PDF</a><a class="btn" href="${API_FISCAL}/nfse_xml?id=${r.id}">⬇️ XML</a><button class="btn" onclick="closeModal()">Fechar</button></div>`); return; }
-    liberar(); res.innerHTML=`<div class="note" style="white-space:normal;color:#E5675C">A prefeitura recusou a nota (nada foi emitido):${errosNfseHtml(r.erros)||'<div>resposta inesperada (guardada para análise)</div>'}</div>`;
+    liberar(); res.innerHTML=`<div class="note" style="white-space:normal;color:#E5675C">A Receita recusou a nota (nada foi emitido):${errosNfseHtml(r.erros)||'<div>resposta inesperada (guardada para análise)</div>'}</div>`;
   }catch(e){ liberar(); res.innerHTML=`<div class="note" style="white-space:normal;color:#E5675C">${esc(e instanceof TypeError?'A resposta do servidor não chegou (internet). Antes de tentar de novo, feche e veja na OS se a nota já apareceu.':e.message)}</div>`; }
 }
 function cancelarNfseSaida(id,oid){
-  openModal(`<h3>Cancelar nota de serviço</h3><div class="note" style="white-space:normal">O cancelamento vai para a prefeitura e não pode ser desfeito.</div>
+  openModal(`<h3>Cancelar nota de serviço</h3><div class="note" style="white-space:normal">O cancelamento vai para a Receita (Ambiente Nacional da NFS-e) e não pode ser desfeito.</div>
     <div class="field"><label>Motivo</label><select id="nsMot"><option value="1">Erro na emissão</option><option value="2">Serviço não prestado</option><option value="9">Outros</option></select></div>
     <div class="field"><label>Explique (mínimo 15 letras)</label><input id="nsJust" placeholder="Ex.: nota emitida com valor errado"></div>
-    <div class="form-actions"><button class="btn" style="color:#E5675C" id="nsOk" onclick='confirmarCancelNfse("${id}","${oid}")'>Cancelar na prefeitura</button><button class="btn" onclick="closeModal()">Voltar</button></div>`);
+    <div class="form-actions"><button class="btn" style="color:#E5675C" id="nsOk" onclick='confirmarCancelNfse("${id}","${oid}")'>Cancelar a nota</button><button class="btn" onclick="closeModal()">Voltar</button></div>`);
 }
 async function confirmarCancelNfse(id,oid){ const b=document.getElementById('nsOk'); if(b){ b.disabled=true; b.textContent='Enviando…'; }
   try{ await fiscalPost('nfse_cancelar',{id, cMotivo:val('nsMot'), xMotivo:val('nsJust')}); logAcao('Cancelou nota de serviço','',id); toast('Nota de serviço cancelada ✓'); closeModal(); carregarNotasOS(oid); }
-  catch(e){ if(b){ b.disabled=false; b.textContent='Cancelar na prefeitura'; } carregarNotasOS(oid);
+  catch(e){ if(b){ b.disabled=false; b.textContent='Cancelar a nota'; } carregarNotasOS(oid);
     alert(e instanceof TypeError?'A resposta não chegou (internet). Veja na OS se a nota já aparece como cancelada antes de tentar de novo.':e.message); } }
 
 async function abrirEmissaoNota(oid){

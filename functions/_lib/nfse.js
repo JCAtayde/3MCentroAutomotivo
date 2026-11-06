@@ -6,8 +6,13 @@
  * pela prefeitura: IM 6059023, serviço 14.01.01 / municipal 000, NBS 1.2001.31.10, Simples
  * Nacional ME/EPP com apuração pelo SN, sem o grupo IBS/CBS.
  *
- * O número da DPS é da prefeitura: antes de emitir a ponte consulta os números liberados
- * (ConsultarDpsDisponivel) e usa o menor.
+ * Desde a competência 11/2026 Goiânia recusa o Simples Nacional pelo webservice municipal (EM110):
+ * a emissão vai pela API do Ambiente Nacional (Sefin Nacional), pela ponte (nfse_nac_*).
+ * Nela a série e o número da DPS são do emitente: série própria do sistema (nfse_serie_nac,
+ * padrão 900, para não cruzar com o portal da prefeitura nem o Emissor Nacional) e um contador
+ * por ambiente (nfse_prox_1 / nfse_prox_2), reservado antes de enviar — número de DPS recusada
+ * fica sem uso, o que o padrão nacional permite. "Conferir" emite na produção restrita
+ * (teste da Receita, sem valor fiscal).
  */
 
 import { EMPRESA_PADRAO, carregarEmpresa } from './empresa.js';
@@ -96,6 +101,8 @@ export async function configNfse(DB) {
   const c = {}; (r.results || []).forEach((x) => { c[x.chave] = x.valor; });
   return {
     tpAmb: c.nfse_tp_amb === '1' ? 1 : 2,
+    serieNac: c.nfse_serie_nac || '900',
+    proximo: { 1: Number(c.nfse_prox_1 || 1), 2: Number(c.nfse_prox_2 || 1) },
     aliquota: Number(c.nfse_aliquota || 2.01),     // ISS do Simples (contador, 26/10/2026)
     pTotTribSN: Number(c.nfse_ptottrib || 6),       // "Alíquota do Simples Nacional: 6%" da NFS-e nº 25
   };
@@ -107,6 +114,8 @@ export async function salvarConfigNfse(DB, b) {
   if (b.tpAmb === 1 || b.tpAmb === 2) stmts.push(put('nfse_tp_amb', b.tpAmb));
   if (Number(b.aliquota) > 0 && Number(b.aliquota) < 10) stmts.push(put('nfse_aliquota', Number(b.aliquota)));
   if (Number(b.pTotTribSN) > 0 && Number(b.pTotTribSN) < 40) stmts.push(put('nfse_ptottrib', Number(b.pTotTribSN)));
+  if (/^\d{1,5}$/.test(String(b.serieNac || '')) && Number(b.serieNac) >= 1) stmts.push(put('nfse_serie_nac', Number(b.serieNac)));
+  if (b.proximo && [1, 2].includes(Number(b.proximo.tpAmb)) && Number(b.proximo.valor) >= 1) stmts.push(put('nfse_prox_' + Number(b.proximo.tpAmb), Math.floor(Number(b.proximo.valor))));
   if (stmts.length) await DB.batch(stmts);
   return configNfse(DB);
 }
@@ -115,38 +124,49 @@ const guardarResposta = (DB, oque, r) => DB.prepare("INSERT INTO fiscal_config (
   .bind(JSON.stringify({ quando: Date.now(), oque, r })).run();
 const textoErros = (erros) => (erros || []).map((e) => `${e.codigo || ''} ${e.mensagem || ''}${e.correcao ? ' (' + e.correcao + ')' : ''}`.trim()).join(' · ');
 
-/** Emite (ou só confere, com b.validar) a NFS-e da mão de obra de uma OS. */
+/** Reserva o próximo número de DPS do ambiente (um pedido por vez no banco). */
+async function reservarNumeroDps(DB, tpAmb) {
+  const k = 'nfse_prox_' + tpAmb;
+  await DB.prepare("INSERT OR IGNORE INTO fiscal_config (chave,valor) VALUES (?, '1')").bind(k).run();
+  const r = await DB.prepare('UPDATE fiscal_config SET valor=CAST(CAST(valor AS INTEGER)+1 AS TEXT) WHERE chave=? RETURNING CAST(valor AS INTEGER)-1 AS n').bind(k).first();
+  return Number(r && r.n) || 1;
+}
+
+/** Emite a NFS-e da mão de obra de uma OS pela API do Ambiente Nacional; com b.validar, emite na produção restrita (teste). */
 export async function emitirNfse(DB, ponte, b, quem) {
   const cfg = await configNfse(DB);
   const emp = await carregarEmpresa(DB);
-  // Conferir (ValidarXml, não emite) pode usar a produção: o ambiente de teste da prefeitura não tem a 3M
-  // cadastrada (E043/E259 em 30/10/2026).
-  const tpAmb = b.validar && b.validarProducao ? 1 : cfg.tpAmb;
-  const disp = await ponte({ acao: 'nfse_disponivel', tpAmb, im: emp.im, municipio: emp.municipioWs });
-  const livre = (disp.dps || []).filter((x) => x.numero).sort((a, b2) => Number(a.numero) - Number(b2.numero))[0];
-  if (!livre && !b.validar) {
-    await guardarResposta(DB, 'disponivel', disp);
-    throw new Error('A prefeitura não liberou número de DPS para a 3M' + (disp.erros && disp.erros.length ? ': ' + textoErros(disp.erros) : '.'));
+  const tpAmb = b.validar ? 2 : cfg.tpAmb;
+  const serie = cfg.serieNac;
+  // Monta antes de reservar: erro de preenchimento não gasta número.
+  montarInfDPS({ ...b, emp, tpAmb, serie, numero: '1', issRetido: !!b.iss_retido, aliquota: cfg.aliquota, pTotTribSN: cfg.pTotTribSN });
+  const numero = await reservarNumeroDps(DB, tpAmb);
+  const dps = montarInfDPS({ ...b, emp, tpAmb, serie, numero, issRetido: !!b.iss_retido, aliquota: cfg.aliquota, pTotTribSN: cfg.pTotTribSN });
+  let r;
+  try { r = await ponte({ acao: 'nfse_nac_gerar', tpAmb, infDPS: dps.infDPS }); }
+  catch (e) {
+    // A resposta pode ter se perdido depois de a Receita gerar a nota: procura pela DPS antes de desistir.
+    let q = null; try { q = await ponte({ acao: 'nfse_nac_dps', tpAmb, id: dps.id }); } catch (e2) { q = null; }
+    if (q && q.encontrada && q.ok) r = { ...q, recuperada: true };
+    else {
+      await guardarResposta(DB, 'gerar-sem-resposta', { erro: e.message, dps: dps.id });
+      throw new Error('A Receita não respondeu (' + e.message + '). Nada foi confirmado; antes de tentar de novo, veja no Emissor Nacional se a nota da DPS ' + serie + '/' + numero + ' saiu.');
+    }
   }
-  const dps = montarInfDPS({ ...b, emp, tpAmb, serie: livre ? livre.serie : '1', numero: livre ? livre.numero : '1',
-    issRetido: !!b.iss_retido, aliquota: cfg.aliquota, pTotTribSN: cfg.pTotTribSN });
-  const r = await ponte({ acao: 'nfse_gerar', tpAmb, infDPS: dps.infDPS, validar: !!b.validar, municipio: emp.municipioWs });
   if (b.validar) {
     if (!r.ok) await guardarResposta(DB, 'validar', r);
-    return { validacao: true, ok: r.ok, erros: r.erros || [], alertas: r.alertas || [], sucesso: r.sucesso || [], semNumero: !livre, tpAmb, resposta: r.resposta };
+    return { validacao: true, ok: r.ok, erros: r.erros || [], alertas: r.alertas || [], tpAmb,
+      sucesso: r.ok ? ['Nota de teste nº ' + (r.numero || '') + ' gerada no ambiente de teste da Receita (sem valor fiscal)'] : [], resposta: r.resposta };
   }
   if (!r.ok) await guardarResposta(DB, 'gerar', r);
-  // Links oficiais (QR Code do DANFSe). Se falhar, o DANFSe busca de novo quando for aberto.
-  let links = null;
-  if (r.ok && r.numero) { try { links = await ponte({ acao: 'nfse_links', tpAmb, im: emp.im, numero: r.numero, municipio: emp.municipioWs }); } catch (e) { links = null; } }
   const agora = Date.now(), id = uid(), t = b.tomador || {};
   const status = r.ok ? 'autorizada' : 'rejeitada';
   await DB.prepare(`INSERT INTO nfse_saida (id,ordem_id,tp_amb,serie,n_dps,chave,numero,status,erros,valor,desconto,iss_retido,tomador_doc,tomador_nome,descricao,dados,xml,dps,quem,criado,atualizado)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .bind(id, String(b.ordem_id || ''), tpAmb, String(livre.serie), String(livre.numero), r.chave || null, r.numero || null, status,
+    .bind(id, String(b.ordem_id || ''), tpAmb, String(serie), String(numero), r.chave || null, r.numero || null, status,
       (r.erros || []).length ? JSON.stringify(r.erros) : null, dps.valor, dps.desconto, b.iss_retido ? 1 : 0,
       soDigitos(t.doc) || null, t.nome || null, String(b.descricao || '').slice(0, 2000),
-      JSON.stringify({ tomador: t, os: b.os || null, alertas: r.alertas || [], links: linksValidos(links) }), r.xml || null, r.dps || null, String(quem || ''), agora, agora)
+      JSON.stringify({ tomador: t, os: b.os || null, alertas: r.alertas || [], nacional: true }), r.xml || null, r.dps || null, String(quem || ''), agora, agora)
     .run();
   return { id, status, chave: r.chave, numero: r.numero, tpAmb, erros: r.erros || [], alertas: r.alertas || [], texto: textoErros(r.erros), resposta: r.resposta };
 }
@@ -158,10 +178,12 @@ export async function cancelarNfse(DB, ponte, b) {
   if (xMotivo.length < 15) throw new Error('Escreva o motivo do cancelamento (mínimo de 15 letras).');
   const cMotivo = ['1', '2', '9'].includes(String(b.cMotivo)) ? String(b.cMotivo) : '9';
   const emp = await carregarEmpresa(DB);
-  const r = await ponte({ acao: 'nfse_cancelar', tpAmb: n.tp_amb, chave: n.chave, cMotivo, xMotivo, municipio: emp.municipioWs });
+  let nac = false; try { nac = !!JSON.parse(n.dados || '{}').nacional; } catch (e) { nac = false; }
+  const r = nac ? await ponte({ acao: 'nfse_nac_cancelar', tpAmb: n.tp_amb, chave: n.chave, cMotivo, xMotivo })
+    : await ponte({ acao: 'nfse_cancelar', tpAmb: n.tp_amb, chave: n.chave, cMotivo, xMotivo, municipio: emp.municipioWs });
   if (!r.cancelada) {
     await guardarResposta(DB, 'cancelar', r);
-    throw new Error('Prefeitura: ' + (textoErros(r.erros) || 'cancelamento não confirmado.'));
+    throw new Error((nac ? 'Receita: ' : 'Prefeitura: ') + (textoErros(r.erros) || 'cancelamento não confirmado.'));
   }
   await DB.prepare("UPDATE nfse_saida SET status='cancelada', cancel_xml=?, cancel_just=?, atualizado=? WHERE id=?")
     .bind(r.xml || null, xMotivo, Date.now(), n.id).run();
@@ -176,7 +198,7 @@ const linksValidos = (l) => (l && (l.autenticidade || l.visualizar || l.nacional
 /** Links da nota (QR Code): usa os guardados; se não houver, pergunta à prefeitura e guarda. */
 export async function linksNfse(DB, ponte, n) {
   let dados = {}; try { dados = JSON.parse(n.dados || '{}'); } catch (e) { dados = {}; }
-  if (dados.links || !n.numero || n.status === 'rejeitada') return dados.links || null;
+  if (dados.links || dados.nacional || !n.numero || n.status === 'rejeitada') return dados.links || null;
   try {
     const emp = await carregarEmpresa(DB);
     const l = linksValidos(await ponte({ acao: 'nfse_links', tpAmb: n.tp_amb, im: emp.im, numero: n.numero, municipio: emp.municipioWs }));
