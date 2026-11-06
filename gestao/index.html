@@ -3566,8 +3566,8 @@ function desenharListaNotas(){
     return [n.nome_emit,n.numero,n.cnpj_emit].some(v=>String(v||'').toLowerCase().includes(q))
       || n.itens.some(i=>[i.descricao,i.codigo,i.peca_codigo].some(v=>String(v||'').toLowerCase().includes(q)));
   });
-  const linhaItem=(i,n)=>{ const usados=(Number(i.qtde)||0)-(Number(i.saldo)||0);
-    const marca=i.saldo<=0?'<span style="color:var(--green)">✓ na OS</span>':(usados>0?`<span style="color:var(--green)">✓ ${nfeQtd(usados)} na OS</span> · <span style="color:#D9A83E">${nfeQtd(i.saldo)} ${n.historico?'sem OS':'no estoque'}</span>`:'');
+  const linhaItem=(i,n)=>{ const dev=Number(i.devolvido)||0, usados=(Number(i.qtde)||0)-(Number(i.saldo)||0)-dev;
+    const marca=(dev>0?`<span style="color:#9AA3AF">↩ ${nfeQtd(dev)} devolvido${dev>1?'s':''}</span> `:'')+(i.saldo<=0&&usados<=0?'':i.saldo<=0?'<span style="color:var(--green)">✓ na OS</span>':(usados>0?`<span style="color:var(--green)">✓ ${nfeQtd(usados)} na OS</span> · <span style="color:#D9A83E">${nfeQtd(i.saldo)} ${n.historico?'sem OS':'no estoque'}</span>`:''));
     const destaque=q&&String(i.descricao||'').toLowerCase().includes(q)?'font-weight:700;color:var(--txt)':'';
     return `<div class="s" style="${destaque}"><b>${nfeQtd(i.qtde)} ${esc(i.unidade||'un')}</b> · ${esc(i.descricao)} ${marca}</div>`; };
   el.innerHTML=notas.length?notas.map(n=>{ const its=n.itens; const mostra=q?its.filter(i=>String(i.descricao||'').toLowerCase().includes(q)).concat(its.filter(i=>!String(i.descricao||'').toLowerCase().includes(q))):its;
@@ -3620,10 +3620,12 @@ function openNotaCompra(chave){
     const dests=(i.destinos||[]).map(d=>{ const o=getOS(d.ordem_id); const it=o&&(o.itens||[]).find(x=>x.id===d.os_item_id);
       return `<div style="font-size:12px;margin-top:3px;color:var(--green)">→ ${nfeQtd(d.qtde)} para ${esc(nfeOsRotulo(o))}${it?(' · '+esc(it.nome)):''}
         ${pode('editar')?`<a href="#" style="color:#e57373;margin-left:6px" onclick='desfazerDestino(event,"${chave}","${d.id}")'>desfazer</a>`:''}</div>`; }).join('');
-    const saldoTxt=i.saldo>0?(n.historico?'':`<span style="color:#D9A83E">${nfeQtd(i.saldo)} ${esc(i.unidade||'')} no estoque</span>`):'<span style="color:var(--green)">tudo destinado</span>';
+    const dev=Number(i.devolvido)||0, naOS=(Number(i.qtde)||0)-(Number(i.saldo)||0)-dev;
+    const saldoTxt=(dev>0?`<span style="color:#9AA3AF">↩ ${nfeQtd(dev)} ${esc(i.unidade||'')} devolvido ao fornecedor</span>${i.saldo>0||naOS>0?' · ':''}`:'')
+      +(i.saldo>0?(n.historico?'':`<span style="color:#D9A83E">${nfeQtd(i.saldo)} ${esc(i.unidade||'')} no estoque</span>`):(naOS>0?'<span style="color:var(--green)">tudo destinado</span>':''));
     return `<div class="row" style="display:block"><div style="display:flex;gap:8px;align-items:flex-start"><div class="main" style="flex:1">
       <div class="t">${esc(i.descricao)}</div>
-      <div style="font-size:15px;margin:4px 0"><b>Quantidade: ${nfeQtd(i.qtde)} ${esc(i.unidade||'un')}</b>${(i.destinos||[]).length?` · <span style="color:var(--green)">${i.saldo>0?('✓ '+nfeQtd((Number(i.qtde)||0)-(Number(i.saldo)||0))+' na OS'):'✓ todas já na OS'}</span>`:''}</div>
+      <div style="font-size:15px;margin:4px 0"><b>Quantidade: ${nfeQtd(i.qtde)} ${esc(i.unidade||'un')}</b>${(i.destinos||[]).length?` · <span style="color:var(--green)">${i.saldo>0||dev>0?('✓ '+nfeQtd(naOS)+' na OS'):'✓ todas já na OS'}</span>`:''}</div>
       <div class="s">${i.peca_codigo?('<b>'+esc(i.peca_codigo)+'</b> · '):''}${nfeComposicaoCusto(i)} · NCM ${esc(i.ncm||'—')} · cód. forn. ${esc(i.codigo||'—')}</div>
       ${i.regra?`<div class="s">Na venda: <b>CFOP ${esc(i.regra.cfop)} · CSOSN ${esc(i.regra.csosn)} · PIS/Cofins ${esc(i.regra.pis_cst)}</b>${i.regra.conferir?' <span style="color:#E8B23A">⚠ conferir</span>':''}</div>`:''}
       <div class="s">${saldoTxt}</div>${dests}</div>
@@ -3638,7 +3640,84 @@ Chave: ${esc(n.chave)}${n.manifesto_msg?('\nCiência: '+esc(n.manifesto_msg)):''
     ${itens?`<div class="rows" style="margin-top:10px">${itens}</div>`
       :nfeSoResumo(n)?'<div class="note" style="margin-top:10px">📄 <b>Só resumo.</b> A SEFAZ só libera a nota completa (com os itens) quando a ciência é feita em até 10 dias da emissão, e esta nota já passou do prazo. Ficam guardados o fornecedor, a data e o valor. Se precisar dos itens, peça o XML ao fornecedor ou ao contador.</div>'
       :'<div class="note" style="margin-top:10px">Os itens aparecem quando a SEFAZ liberar o XML completo (alguns minutos depois da ciência). Toque em “Buscar na SEFAZ” mais tarde.</div>'}
-    <div style="display:flex;gap:8px;margin-top:14px">${n.status==='completa'?`<a class="btn" href="${API_FISCAL}/xml?chave=${n.chave}">Baixar XML</a>`:''}${manual&&pode('editar')&&!n.itens.some(i=>(i.destinos||[]).length)?`<button class="btn" style="color:#e57373" onclick='excluirEntradaManual("${chave}")'>Excluir</button>`:''}<button class="btn" onclick="closeModal()">Fechar</button></div>`);
+    ${nfeDevolucoesHtml(n)}
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">${n.status==='completa'&&pode('editar')&&n.itens.some(i=>i.saldo>0)?`<button class="btn gold" onclick='abrirDevolucao("${chave}")'>↩ Devolver itens</button>`:''}${n.status==='completa'?`<a class="btn" href="${API_FISCAL}/xml?chave=${n.chave}">Baixar XML</a>`:''}${manual&&pode('editar')&&!n.itens.some(i=>(i.destinos||[]).length)?`<button class="btn" style="color:#e57373" onclick='excluirEntradaManual("${chave}")'>Excluir</button>`:''}<button class="btn" onclick="closeModal()">Fechar</button></div>`);
+}
+/* Devolução ao fornecedor: NF-e de devolução (finalidade 4) de parte dos itens de uma nota de compra. */
+function nfeDevolucoesHtml(n){
+  const ds=n.devolucoes||[]; if(!ds.length) return '';
+  return `<div style="margin-top:12px"><div class="s" style="font-weight:700;margin-bottom:4px">↩ Devoluções desta nota</div><div class="rows">${ds.map(d=>`<div class="row" style="display:block"><div class="main">
+    <div class="t">NF-e nº ${d.numero} ${nfeStChip(d.status)} ${nfeAmbChip(d.tp_amb)}</div>
+    <div class="s">${moneyFmt(d.valor)} · ${d.dh_emi?new Date(d.dh_emi).toLocaleString('pt-BR'):''}${d.quem?(' · '+esc(d.quem)):''}</div>
+    <div class="s">${(d.itens||[]).map(x=>esc(nfeQtd(x.qtde)+' × '+(x.descricao||'')+' (CFOP '+x.cfop+')')).join('<br>')}</div>
+    ${d.motivo?`<div class="s">Motivo: ${esc(d.motivo)}</div>`:''}
+    ${d.status==='rejeitada'?`<div class="s" style="color:#E5675C">SEFAZ: ${esc(d.cstat||'')} ${esc(d.xmotivo||'')}</div>`:''}
+    ${d.status==='cancelada'?`<div class="s">Cancelada: ${esc(d.cancel_just||'')} — as peças voltaram para a nota</div>`:''}
+    ${Number(d.tp_amb)!==1&&d.status==='autorizada'?'<div class="s" style="color:#E8B23A">Teste: não mexe no estoque</div>':''}</div>
+    ${d.status!=='rejeitada'?`<div class="form-actions" style="margin-top:6px"><a class="btn sm" target="_blank" href="${API_FISCAL}/danfe?id=${d.id}">📄 DANFE / PDF</a>
+      <a class="btn sm ghost" href="${API_FISCAL}/xml_saida?id=${d.id}">⬇️ XML</a>
+      ${d.status==='autorizada'&&pode('editar')?`<button class="btn sm ghost" style="color:#E5675C" onclick='cancelarNotaSaida("${d.id}","")'>Cancelar devolução</button>`:''}</div>`:''}</div>`).join('')}</div></div>`;
+}
+// Sugestão do CFOP: com substituição tributária na compra → 5411; sem → 5202 (o servidor troca 5→6 se o fornecedor for de fora).
+function cfopDevolucaoSug(i){ const st=['10','30','60','70','201','202','203','500'].includes(String(i.icms_cst||''))||['5401','5403','5405','6401','6403','6404','5655','6655','5656','6656'].includes(String(i.cfop||''));
+  return st?'5411':'5202'; }
+async function abrirDevolucao(chave){
+  const n=((notasCompra&&notasCompra.notas)||[]).find(x=>x.chave===chave); if(!n) return;
+  let cfg=null; try{ cfg=await carregarEmissaoCfg(); }catch(e){}
+  const prod=cfg&&cfg.tpAmb===1;
+  const its=n.itens.filter(i=>i.saldo>0);
+  openModal(`<h3>↩ Devolver ao fornecedor</h3>
+    <div class="note" style="white-space:normal">${esc(n.nome_emit||'')} · NF ${esc(n.numero||'')} de ${nfeFmtData(n.dh_emi)}<br>Escolha quanto de cada peça volta para o fornecedor. As que você ficou deixe em 0.</div>
+    <div class="note" style="white-space:normal;margin-top:8px;border-color:${prod?'#48B98A':'#E8B23A'}">${prod
+      ?'<b>Produção:</b> é uma nota fiscal de verdade, vai para a SEFAZ e as peças devolvidas saem do estoque.'
+      :'<b>Homologação (teste):</b> a nota vai para a SEFAZ de teste, sem valor fiscal, e o estoque não muda.'}</div>
+    <div class="rows" style="margin-top:10px">${its.map(i=>`<div class="row" style="display:block"><div class="main">
+      <div class="t">${esc(i.descricao)}</div>
+      <div class="s">${nfeComposicaoCusto(i)} · cód. forn. ${esc(i.codigo||'—')}</div>
+      <div style="display:flex;gap:8px;align-items:flex-end;margin-top:6px;flex-wrap:wrap">
+        <div class="field" style="margin:0;width:110px"><label>Devolver</label><input id="dv-${i.id}" inputmode="decimal" value="0" oninput="devolucaoTotal('${chave}')"></div>
+        <a href="#" class="s" style="color:#D9A83E;margin-bottom:10px" onclick="event.preventDefault();document.getElementById('dv-${i.id}').value='${nfeQtd(i.saldo)}';devolucaoTotal('${chave}')">todas (${nfeQtd(i.saldo)} ${esc(i.unidade||'')})</a>
+        <div class="field" style="margin:0;min-width:180px"><label>CFOP</label><select id="dvc-${i.id}">${[['5202','5202 — sem ST'],['5411','5411 — com ST']].map(([v,t])=>`<option value="${v}" ${cfopDevolucaoSug(i)===v?'selected':''}>${t}</option>`).join('')}</select></div>
+      </div></div></div>`).join('')}</div>
+    <div class="field" style="margin-top:10px"><label>Motivo</label><input id="dvMotivo" value="Mercadoria enviada errada"></div>
+    <div class="note" style="white-space:normal;font-size:12px">Vai tudo do XML da compra: código, descrição, NCM e preço, com desconto, ICMS, ST e IPI na proporção devolvida; o frete só volta se a devolução for da nota inteira, e a chave da nota de compra referenciada. CSOSN 900, PIS/Cofins 49. Confira as regras com o contador.</div>
+    <div class="s" id="dvTotal" style="margin-top:8px"></div>
+    <div class="form-actions"><button class="btn gold" id="dvOk" onclick='emitirDevolucao("${chave}")'>Emitir nota de devolução</button><button class="btn" onclick='openNotaCompra("${chave}")'>Voltar</button></div>`);
+  devolucaoTotal(chave);
+}
+function devolucaoLinhas(chave){
+  const n=((notasCompra&&notasCompra.notas)||[]).find(x=>x.chave===chave); if(!n) return [];
+  return n.itens.filter(i=>i.saldo>0).map(i=>{ const el=document.getElementById('dv-'+i.id); const q=el?moneyParse(el.value):0;
+    return {i, q, cfop:(document.getElementById('dvc-'+i.id)||{}).value}; }).filter(l=>l.q>0);
+}
+function devolucaoTotal(chave){ const el=document.getElementById('dvTotal'); if(!el) return;
+  const ls=devolucaoLinhas(chave); const v=ls.reduce((s,l)=>s+l.q*(Number(l.i.valor_unit)||0),0);
+  el.innerHTML=ls.length?`<b>${ls.length} peça${ls.length>1?'s':''}</b> · produtos ${moneyFmt(v)} (o total da nota soma ST e IPI da proporção; frete só na devolução total)`:'Nenhuma peça escolhida.'; }
+async function emitirDevolucao(chave){
+  const n=((notasCompra&&notasCompra.notas)||[]).find(x=>x.chave===chave); if(!n) return;
+  const ls=devolucaoLinhas(chave);
+  if(!ls.length){ alert('Escolha a quantidade de ao menos uma peça.'); return; }
+  const passou=ls.find(l=>l.q>l.i.saldo+1e-9); if(passou){ alert(`"${passou.i.descricao}": só restam ${nfeQtd(passou.i.saldo)} nesta nota.`); return; }
+  const motivo=val('dvMotivo');
+  const enviar=async()=>{ const b=document.getElementById('dvOk'); if(b){ b.disabled=true; b.textContent='Enviando para a SEFAZ…'; }
+    try{
+      const r=await fiscalPost('devolver',{chave, motivo, itens:ls.map(l=>({item_id:l.i.id, qtde:l.q, cfop:l.cfop}))});
+      logAcao(r.status==='autorizada'?'Emitiu nota de devolução':'Nota de devolução rejeitada', (n.nome_emit||'')+' · NF '+(n.numero||''), 'NF-e nº '+r.numero+' · '+r.cStat+' '+(r.xMotivo||''));
+      try{ await carregarNotasCompra(); }catch(e){}
+      if(document.getElementById('nfeLista')) desenharListaNotas();
+      if(r.status==='autorizada'){
+        openModal(`<h3>✓ Devolução autorizada</h3><div class="note" style="white-space:normal">NF-e nº <b>${r.numero}</b> série ${r.serie} ${nfeAmbChip(r.tpAmb)} · ${moneyFmt(r.valor)}<br>Protocolo ${esc(r.nProt||'')}<br>Chave ${esc(r.chave)}</div>
+          <div class="note" style="white-space:normal;margin-top:8px">${r.tpAmb===1?'As peças devolvidas saíram do estoque. Mande o DANFE (PDF) e o XML para o fornecedor junto com as peças.':'Teste: o estoque não mudou.'}</div>
+          <div class="form-actions"><a class="btn gold" target="_blank" href="${API_FISCAL}/danfe?id=${r.id}">📄 Abrir DANFE / PDF</a><a class="btn" href="${API_FISCAL}/xml_saida?id=${r.id}">⬇️ XML</a><button class="btn" onclick='openNotaCompra("${chave}")'>Voltar à nota</button></div>`);
+      } else {
+        openModal(`<h3>A SEFAZ recusou a devolução</h3><div class="note" style="white-space:normal;border-color:#E5675C"><b>${esc(r.cStat||'')}</b> ${esc(r.xMotivo||'')}</div>
+          <div class="note" style="white-space:normal">Nada foi emitido e o estoque não mudou${r.aviso?(' — '+esc(r.aviso)):''}. Se não souber o que fazer, me mande esta mensagem.</div>
+          <div class="form-actions"><button class="btn gold" onclick='abrirDevolucao("${chave}")'>Voltar e corrigir</button><button class="btn" onclick="closeModal()">Fechar</button></div>`);
+      }
+    }catch(e){ if(b){ b.disabled=false; b.textContent='Tentar de novo'; } alert('Não foi possível emitir a devolução:\n'+e.message); }
+  };
+  if(emissaoCfg&&emissaoCfg.tpAmb===1) confirmar(`Emitir a NF-e de devolução de ${ls.length} peça${ls.length>1?'s':''} para ${n.nome_emit||'o fornecedor'}?\n\nÉ nota fiscal de verdade e as peças saem do estoque.`, enviar, 'Emitir', 'gold');
+  else enviar();
 }
 async function fiscalPost(acao,body){
   const r=await fetch(API_FISCAL+'/'+acao,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})});
@@ -4025,7 +4104,7 @@ async function carregarNotasOS(oid){
 }
 function linhaNotaSaida(n){
   const tipo=n.modelo==='65'?'NFC-e':'NF-e';
-  return `<div class="row" style="display:block"><div class="main"><div class="t">${tipo} nº ${n.numero} ${nfeStChip(n.status)} ${nfeAmbChip(n.tp_amb)}</div>
+  return `<div class="row" style="display:block"><div class="main"><div class="t">${n.tipo==='devolucao'?'↩ Devolução · ':''}${tipo} nº ${n.numero} ${nfeStChip(n.status)} ${nfeAmbChip(n.tp_amb)}</div>
     <div class="s">${moneyFmt(n.valor)} · ${n.dh_emi?new Date(n.dh_emi).toLocaleString('pt-BR'):''}${n.dest_nome?(' · '+esc(n.dest_nome)):''}</div>
     ${n.status==='rejeitada'?`<div class="s" style="color:#E5675C">SEFAZ: ${esc(n.cstat||'')} ${esc(n.xmotivo||'')}</div>`:''}
     ${n.status==='cancelada'?`<div class="s">Cancelada: ${esc(n.cancel_just||'')}</div>`:''}</div>
@@ -4247,7 +4326,8 @@ function cancelarNotaSaida(id,oid){
     <div class="form-actions"><button class="btn" style="color:#E5675C" id="cnOk" onclick='confirmarCancelNota("${id}","${oid}")'>Cancelar na SEFAZ</button><button class="btn" onclick="closeModal()">Voltar</button></div>`);
 }
 async function confirmarCancelNota(id,oid){ const b=document.getElementById('cnOk'); if(b){ b.disabled=true; b.textContent='Enviando…'; }
-  try{ await fiscalPost('cancelar_nota',{id, xJust:val('cnJust')}); logAcao('Cancelou nota fiscal', '', id); toast('Nota cancelada ✓'); closeModal(); carregarNotasOS(oid); if(fiscalAba==='emissao') desenharEmissaoCfg(); }
+  try{ await fiscalPost('cancelar_nota',{id, xJust:val('cnJust')}); logAcao('Cancelou nota fiscal', '', id); toast('Nota cancelada ✓'); closeModal(); if(oid) carregarNotasOS(oid);
+    if(notasCompra) carregarNotasCompra().then(()=>{ if(document.getElementById('nfeLista')) desenharListaNotas(); }).catch(()=>{}); if(fiscalAba==='emissao') desenharEmissaoCfg(); }
   catch(e){ if(b){ b.disabled=false; b.textContent='Cancelar na SEFAZ'; }
     carregarNotasOS(oid);
     alert(e instanceof TypeError ? 'A resposta do servidor não chegou (internet caiu ou demorou). Toque em "Cancelar na SEFAZ" de novo: se a SEFAZ já tiver registrado, o sistema reconhece e marca a nota como cancelada.' : e.message); } }

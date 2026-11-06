@@ -37,6 +37,8 @@
  *   GET  saidas?ordem_id=    notas emitidas (sem o XML)
  *   GET  danfe?id=           DANFE em HTML (imprimir / salvar PDF)
  *   GET  xml_saida?id=       XML autorizado (e o do cancelamento, se houver)
+ *   POST devolver            { chave, itens:[{item_id, qtde, cfop?}], motivo } → NF-e de devolução (finalidade 4) ao fornecedor;
+ *                            em produção os itens devolvidos saem do saldo da nota (volta se a devolução for cancelada)
  *
  * Nota de serviço (NFS-e de Goiânia, mão de obra) — functions/_lib/nfse.js:
  *   GET  nfse_config           ambiente (homologação por padrão), alíquota e % do Simples
@@ -442,7 +444,7 @@ async function destinar(DB, b) {
   const qtde = Number(b.qtde);
   if (!b.item_id || !b.ordem_id || !b.os_item_id || !(qtde > 0)) throw new Error('Informe a OS, o item e a quantidade.');
   const it = await DB.prepare(`SELECT i.*, n.nome_emit, n.cnpj_emit, n.fornecedor_id, n.numero, n.serie, n.dh_emi, n.status,
-      p.codigo AS peca_codigo, (SELECT COALESCE(SUM(qtde),0) FROM nfe_destinos d WHERE d.item_id=i.id) AS destinado
+      p.codigo AS peca_codigo, (SELECT COALESCE(SUM(qtde),0) FROM nfe_destinos d WHERE d.item_id=i.id) + ${SQL_DEVOLVIDO} AS destinado
     FROM nfe_entrada_itens i JOIN nfe_entrada n ON n.chave=i.chave LEFT JOIN pecas p ON p.id=i.peca_id WHERE i.id=?`).bind(b.item_id).first();
   if (!it) throw new Error('Item da nota não encontrado.');
   if (it.status === 'cancelada') throw new Error('Esta nota foi cancelada pelo fornecedor.');
@@ -813,8 +815,18 @@ async function garantirTabelasEmissao(DB) {
     DB.prepare('CREATE INDEX IF NOT EXISTS idx_nfe_saida_os ON nfe_saida (ordem_id)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS nfe_numeracao (id TEXT PRIMARY KEY, proximo INTEGER)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS fiscal_config (chave TEXT PRIMARY KEY, valor TEXT)'),
+    DB.prepare('CREATE TABLE IF NOT EXISTS nfe_devolucao_itens (id TEXT PRIMARY KEY, saida_id TEXT, item_id TEXT, chave TEXT, qtde REAL, criado INTEGER)'),
+    DB.prepare('CREATE INDEX IF NOT EXISTS idx_nfe_dev_item ON nfe_devolucao_itens (item_id)'),
   ]);
+  for (const col of ['tipo TEXT', 'ref_chave TEXT']) {
+    try { await DB.prepare(`ALTER TABLE nfe_saida ADD COLUMN ${col}`).run(); } catch (e) { /* coluna já existe */ }
+  }
 }
+
+// Quanto de um item de nota de compra já foi devolvido ao fornecedor (só devolução autorizada em produção:
+// teste de homologação não mexe no estoque; cancelou, a quantidade volta).
+const SQL_DEVOLVIDO = `(SELECT COALESCE(SUM(v.qtde),0) FROM nfe_devolucao_itens v JOIN nfe_saida s ON s.id=v.saida_id
+  WHERE v.item_id=i.id AND s.status='autorizada' AND s.tp_amb=1)`;
 
 async function configEmissao(DB) {
   const [c, nums] = await Promise.all([DB.prepare('SELECT chave, valor FROM fiscal_config').all(), DB.prepare('SELECT * FROM nfe_numeracao').all()]);
@@ -864,6 +876,193 @@ async function emitirNota(DB, env, b) {
     ...(r.autorizada || dup ? [DB.prepare('INSERT INTO nfe_numeracao (id,proximo) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET proximo=excluded.proximo').bind(idNum, numero + 1)] : []),
   ]);
   return { id, status, modelo, numero, serie, tpAmb, chave: nota.chave, cStat: r.cStat, xMotivo: r.xMotivo, nProt: r.nProt,
+    aviso: dup ? 'A SEFAZ já tinha este número: o sistema pulou para o próximo. Tente emitir de novo.' : null };
+}
+
+// ---------- Devolução de compra (NF-e 55, finalidade 4) ----------
+//
+// A 3M devolve ao fornecedor parte de uma nota de compra. Tudo sai do XML da nota de compra:
+// fornecedor (destinatário), código, descrição, NCM, unidade e preço de cada item; frete,
+// seguro, desconto, outras despesas, ICMS, ICMS-ST e IPI entram na mesma proporção da
+// quantidade devolvida, para o fornecedor anular a entrada dele. O frete só volta na devolução total
+// (todos os itens, quantidade inteira): na parcial a 3M ficou com peça e o frete fica com ela.
+// CFOP: 5202/6202 (compra para comercialização) ou 5411/6411 (com substituição tributária).
+// ICMS: CSOSN 900 repetindo o ICMS próprio e o ST destacados na compra. IPI: grupo impostoDevol.
+// PIS/Cofins: CST 49. Pagamento: 90 (sem pagamento). Regras a confirmar com o contador.
+const CFOP_DEVOLUCAO = ['5202', '6202', '5411', '6411'];
+const CST_ST_COMPRA = ['10', '30', '60', '70', '201', '202', '203', '500'];
+const CFOP_ST_COMPRA = ['5401', '5403', '5405', '6401', '6403', '6404', '5655', '6655', '5656', '6656'];
+const tagX = (txt, nome) => { const m = String(txt || '').match(new RegExp(`<${nome}>([\\s\\S]*?)</${nome}>`)); return m ? m[1] : ''; };
+const numX = (txt, nome) => Number(tagX(txt, nome)) || 0;
+const desXml = (v) => String(v || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+
+/** Itens da nota de compra lidos do XML, por nItem, com o que a devolução precisa. */
+function itensCompraDoXml(xml) {
+  const itens = {};
+  for (const d of String(xml || '').matchAll(/<det\s+nItem="(\d+)"\s*>([\s\S]*?)<\/det>/g)) {
+    const prod = tagX(d[2], 'prod'), imp = tagX(d[2], 'imposto'), icms = tagX(imp, 'ICMS');
+    itens[d[1]] = {
+      cProd: desXml(tagX(prod, 'cProd')), xProd: desXml(tagX(prod, 'xProd')), NCM: tagX(prod, 'NCM'), CEST: tagX(prod, 'CEST'),
+      CFOP: tagX(prod, 'CFOP'), uCom: desXml(tagX(prod, 'uCom')), qCom: numX(prod, 'qCom'), vUnCom: numX(prod, 'vUnCom'), vProd: numX(prod, 'vProd'),
+      vFrete: numX(prod, 'vFrete'), vSeg: numX(prod, 'vSeg'), vDesc: numX(prod, 'vDesc'), vOutro: numX(prod, 'vOutro'),
+      orig: tagX(icms, 'orig'), cst: tagX(icms, 'CST') || tagX(icms, 'CSOSN'),
+      vBC: numX(icms, 'vBC'), pICMS: numX(icms, 'pICMS'), vICMS: numX(icms, 'vICMS'),
+      modBCST: tagX(icms, 'modBCST'), vBCST: numX(icms, 'vBCST'), pICMSST: numX(icms, 'pICMSST'), vICMSST: numX(icms, 'vICMSST'),
+      vIPI: numX(tagX(imp, 'IPITrib'), 'vIPI'),
+    };
+  }
+  return itens;
+}
+
+/** CFOP de devolução sugerido para o item: com ST → 411; sem → 202; fornecedor de fora → 6. */
+function cfopDevolucao(ix, fornUF, empUF) {
+  const st = CST_ST_COMPRA.includes(String(ix.cst || '')) || ix.vICMSST > 0 || CFOP_ST_COMPRA.includes(String(ix.CFOP || ''));
+  return (fornUF && empUF && fornUF !== empUF ? '6' : '5') + (st ? '411' : '202');
+}
+
+/** Monta o infNFe da devolução. n = { emit, tpAmb, serie, numero, cNF, forn, ref, linhas:[{ix, q, cfop}], total, infCpl, respTec } */
+function montarInfNFeDevolucao(n) {
+  const tpAmb = Number(n.tpAmb), serie = String(n.serie), nNF = String(n.numero);
+  const dhEmi = dataHoraGO();
+  const aamm = dhEmi.slice(2, 4) + dhEmi.slice(5, 7);
+  const cNF = String(n.cNF).padStart(8, '0');
+  const E = n.emit || EMITENTE, F = n.forn;
+  const c43 = E.cUF + aamm + E.CNPJ + '55' + serie.padStart(3, '0') + nNF.padStart(9, '0') + '1' + cNF;
+  const cDV = dvChave(c43), chave = c43 + cDV;
+  const fora = F.UF && F.UF !== E.UF;
+
+  const ide = el('cUF', E.cUF) + el('cNF', cNF) + el('natOp', 'DEVOLUCAO DE COMPRA') + el('mod', '55') + el('serie', serie) + el('nNF', nNF) +
+    el('dhEmi', dhEmi) + el('tpNF', '1') + el('idDest', fora ? '2' : '1') + el('cMunFG', E.cMun) + el('tpImp', '1') +
+    el('tpEmis', '1') + el('cDV', String(cDV)) + el('tpAmb', String(tpAmb)) + el('finNFe', '4') + el('indFinal', '0') + el('indPres', '0') +
+    el('procEmi', '0') + el('verProc', '3M-Gestao-1.0') + el('NFref', el('refNFe', n.ref));
+  const emit = el('CNPJ', E.CNPJ) + el('xNome', xmlTexto(E.xNome, 60)) + el('xFant', xmlTexto(E.xFant, 60)) +
+    el('enderEmit', el('xLgr', xmlTexto(E.xLgr, 60)) + el('nro', xmlTexto(E.nro, 60)) + (E.xCpl ? el('xCpl', xmlTexto(E.xCpl, 60)) : '') + el('xBairro', xmlTexto(E.xBairro, 60)) +
+      el('cMun', E.cMun) + el('xMun', xmlTexto(E.xMun, 60)) + el('UF', E.UF) + el('CEP', E.CEP) + el('cPais', '1058') + el('xPais', 'BRASIL') + (E.fone ? el('fone', E.fone) : '')) + el('IE', E.IE) + el('CRT', E.CRT);
+
+  const doc = soDigitos(F.doc);
+  if (!(doc.length === 11 || doc.length === 14)) throw new Error('A nota de compra não tem o CNPJ do fornecedor.');
+  for (const [k, rot] of [['xLgr', 'rua'], ['nro', 'número'], ['xBairro', 'bairro'], ['cMun', 'código do município'], ['xMun', 'cidade'], ['UF', 'UF']])
+    if (!String(F[k] || '').trim()) throw new Error(`Endereço do fornecedor incompleto no XML da nota: falta ${rot}.`);
+  const ie = soDigitos(F.IE), isento = /ISENT/i.test(F.IE || '');
+  const indIE = ie ? '1' : (isento ? '2' : '9');
+  const dest = el('dest', el(doc.length === 14 ? 'CNPJ' : 'CPF', doc) + el('xNome', tpAmb === 2 ? HOMOLOG_NOME : xmlTexto(F.xNome, 60)) +
+    el('enderDest', el('xLgr', xmlTexto(F.xLgr, 60)) + el('nro', xmlTexto(F.nro, 60)) + (F.xCpl ? el('xCpl', xmlTexto(F.xCpl, 60)) : '') +
+      el('xBairro', xmlTexto(F.xBairro, 60)) + el('cMun', soDigitos(F.cMun)) + el('xMun', xmlTexto(F.xMun, 60)) + el('UF', xmlTexto(F.UF, 2)) +
+      (soDigitos(F.CEP).length === 8 ? el('CEP', soDigitos(F.CEP)) : '') + el('cPais', '1058') + el('xPais', 'BRASIL') + (soDigitos(F.fone).length >= 10 ? el('fone', soDigitos(F.fone)) : '')) +
+    el('indIEDest', indIE) + (indIE === '1' ? el('IE', ie) : ''));
+
+  const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+  const T = { vBC: 0, vICMS: 0, vBCST: 0, vST: 0, vProd: 0, vFrete: 0, vSeg: 0, vDesc: 0, vOutro: 0, vIPIDevol: 0 };
+  let det = '';
+  n.linhas.forEach((l, k) => {
+    const x = l.ix, q = Number(l.q);
+    if (!(x.qCom > 0) || !(q > 0) || q > x.qCom + 1e-9) throw new Error(`Quantidade inválida para "${x.xProd}".`);
+    if (!/^\d{8}$/.test(x.NCM)) throw new Error(`Item "${x.xProd}" sem NCM no XML.`);
+    const tudo = Math.abs(q - x.qCom) < 1e-9, f = tudo ? 1 : q / x.qCom;
+    const parte = (v) => r2(tudo ? v : v * f);
+    const vProd = tudo ? r2(x.vProd) : r2(q * x.vUnCom);
+    const vFrete = n.total ? parte(x.vFrete) : 0, vSeg = parte(x.vSeg), vDesc = parte(x.vDesc), vOutro = parte(x.vOutro);
+    const vBC = x.vICMS > 0 ? parte(x.vBC) : 0, vICMS = x.vICMS > 0 ? (tudo ? r2(x.vICMS) : r2(vBC * x.pICMS / 100)) : 0;
+    const vBCST = x.vICMSST > 0 ? parte(x.vBCST) : 0, vST = x.vICMSST > 0 ? parte(x.vICMSST) : 0;
+    const vIPIDevol = parte(x.vIPI);
+    Object.entries({ vBC, vICMS, vBCST, vST, vProd, vFrete, vSeg, vDesc, vOutro, vIPIDevol }).forEach(([c, v]) => { T[c] += v; });
+    const un = xmlTexto(x.uCom || 'UN', 6);
+    const prod = el('cProd', xmlTexto(x.cProd || String(k + 1).padStart(4, '0'), 60)) + el('cEAN', 'SEM GTIN') + el('xProd', xmlTexto(x.xProd, 120)) +
+      el('NCM', x.NCM) + (/^\d{7}$/.test(x.CEST) ? el('CEST', x.CEST) : '') + el('CFOP', l.cfop) +
+      el('uCom', un) + el('qCom', dec(q, 4)) + el('vUnCom', dec(x.vUnCom, 10)) + el('vProd', dec(vProd, 2)) + el('cEANTrib', 'SEM GTIN') +
+      el('uTrib', un) + el('qTrib', dec(q, 4)) + el('vUnTrib', dec(x.vUnCom, 10)) +
+      (vFrete > 0 ? el('vFrete', dec(vFrete, 2)) : '') + (vSeg > 0 ? el('vSeg', dec(vSeg, 2)) : '') + (vDesc > 0 ? el('vDesc', dec(vDesc, 2)) : '') +
+      (vOutro > 0 ? el('vOutro', dec(vOutro, 2)) : '') + el('indTot', '1');
+    const orig = /^[0-8]$/.test(x.orig) ? x.orig : '0';
+    const icms = el('ICMS', el('ICMSSN900', el('orig', orig) + el('CSOSN', '900') +
+      (vICMS > 0 ? el('modBC', '3') + el('vBC', dec(vBC, 2)) + el('pICMS', dec(x.pICMS, 4)) + el('vICMS', dec(vICMS, 2)) : '') +
+      (vST > 0 ? el('modBCST', /^[0-6]$/.test(x.modBCST) ? x.modBCST : '4') + el('vBCST', dec(vBCST, 2)) + el('pICMSST', dec(x.pICMSST, 4)) + el('vICMSST', dec(vST, 2)) : '')));
+    const pis = el('PIS', el('PISOutr', el('CST', '49') + el('vBC', '0.00') + el('pPIS', '0.0000') + el('vPIS', '0.00')));
+    const cofins = el('COFINS', el('COFINSOutr', el('CST', '49') + el('vBC', '0.00') + el('pCOFINS', '0.0000') + el('vCOFINS', '0.00')));
+    const devol = vIPIDevol > 0 ? el('impostoDevol', el('pDevol', dec(f * 100, 2)) + el('IPI', el('vIPIDevol', dec(vIPIDevol, 2)))) : '';
+    det += `<det nItem="${k + 1}">${el('prod', prod)}${el('imposto', icms + pis + cofins)}${devol}</det>`;
+  });
+  for (const c in T) T[c] = r2(T[c]);
+  const vNF = r2(T.vProd - T.vDesc + T.vST + T.vFrete + T.vSeg + T.vOutro + T.vIPIDevol);
+  const z = '0.00';
+  const total = el('total', el('ICMSTot', el('vBC', dec(T.vBC, 2)) + el('vICMS', dec(T.vICMS, 2)) + el('vICMSDeson', z) + el('vFCP', z) + el('vBCST', dec(T.vBCST, 2)) +
+    el('vST', dec(T.vST, 2)) + el('vFCPST', z) + el('vFCPSTRet', z) + el('vProd', dec(T.vProd, 2)) + el('vFrete', dec(T.vFrete, 2)) + el('vSeg', dec(T.vSeg, 2)) +
+    el('vDesc', dec(T.vDesc, 2)) + el('vII', z) + el('vIPI', z) + el('vIPIDevol', dec(T.vIPIDevol, 2)) + el('vPIS', z) + el('vCOFINS', z) + el('vOutro', dec(T.vOutro, 2)) +
+    el('vNF', dec(vNF, 2)) + el('vTotTrib', z)));
+  const pag = el('pag', el('detPag', el('tPag', '90') + el('vPag', z)));
+  const rt = n.respTec && n.respTec.email ? el('infRespTec', el('CNPJ', E.CNPJ) + el('xContato', xmlTexto(n.respTec.contato || 'Suporte', 60)) +
+    el('email', xmlTexto(n.respTec.email, 60)) + el('fone', soDigitos(n.respTec.fone || E.fone))) : '';
+  const infNFe = `<infNFe Id="NFe${chave}" versao="4.00">${el('ide', ide)}${el('emit', emit)}${dest}${det}${total}${el('transp', el('modFrete', '9'))}${pag}` +
+    `${el('infAdic', el('infCpl', xmlTexto(n.infCpl, 5000)))}${rt}</infNFe>`;
+  return { infNFe, chave, dhEmi, vNF };
+}
+
+/** Itens que ainda dá para devolver de uma nota de compra (saldo = comprado − OS − devolvido em produção). */
+async function itensParaDevolver(DB, chave) {
+  const r = await DB.prepare(`SELECT i.*, (SELECT COALESCE(SUM(qtde),0) FROM nfe_destinos d WHERE d.item_id=i.id) AS destinado, ${SQL_DEVOLVIDO} AS devolvido
+    FROM nfe_entrada_itens i WHERE i.chave=? ORDER BY i.n_item`).bind(chave).all();
+  return (r.results || []).map(i => ({ ...i, saldo: (Number(i.qtde) || 0) - (Number(i.destinado) || 0) - (Number(i.devolvido) || 0) }));
+}
+
+/** Emite a NF-e de devolução de parte (ou de toda) uma nota de compra. */
+async function emitirDevolucao(DB, env, b, quem) {
+  const chave = soDigitos(b.chave);
+  const nota = await DB.prepare('SELECT * FROM nfe_entrada WHERE chave=?').bind(chave).first();
+  if (!nota) throw new Error('Nota de compra não encontrada.');
+  if (nota.status !== 'completa' || !nota.xml) throw new Error('Só dá para devolver nota com o XML completo da SEFAZ.');
+  const motivo = String(b.motivo || '').trim();
+  if (motivo.length < 5) throw new Error('Escreva o motivo da devolução (ex.: peça errada).');
+  const pedidos = (Array.isArray(b.itens) ? b.itens : []).filter(x => Number(x.qtde) > 0);
+  if (!pedidos.length) throw new Error('Escolha ao menos um item e a quantidade a devolver.');
+
+  const xml = nota.xml, eXml = tagX(xml, 'emit'), end = tagX(eXml, 'enderEmit');
+  const forn = { doc: tagX(eXml, 'CNPJ') || tagX(eXml, 'CPF'), xNome: desXml(tagX(eXml, 'xNome')), IE: tagX(eXml, 'IE'),
+    xLgr: desXml(tagX(end, 'xLgr')), nro: desXml(tagX(end, 'nro')), xCpl: desXml(tagX(end, 'xCpl')), xBairro: desXml(tagX(end, 'xBairro')),
+    cMun: tagX(end, 'cMun'), xMun: desXml(tagX(end, 'xMun')), UF: tagX(end, 'UF'), CEP: tagX(end, 'CEP'), fone: tagX(end, 'fone') };
+  const doXml = itensCompraDoXml(xml);
+  const doBanco = {}; (await itensParaDevolver(DB, chave)).forEach(i => { doBanco[i.id] = i; });
+
+  const cfg = await configEmissao(DB);
+  const emit = emitenteNFe(await carregarEmpresa(DB));
+  if (!emit.cUF) throw new Error('UF da empresa inválida (Fiscal → Empresa).');
+  const linhas = pedidos.map(p => {
+    const it = doBanco[String(p.item_id)];
+    if (!it) throw new Error('Item não é desta nota.');
+    const q = Number(p.qtde);
+    if (q > it.saldo + 1e-9) throw new Error(`"${it.descricao}": só restam ${it.saldo} na nota (o resto já foi para OS ou devolvido).`);
+    const ix = doXml[String(it.n_item)];
+    if (!ix) throw new Error(`Item ${it.n_item} não encontrado no XML da nota.`);
+    const sug = cfopDevolucao(ix, forn.UF, emit.UF);
+    let cfop = CFOP_DEVOLUCAO.includes(String(p.cfop)) ? String(p.cfop) : sug;
+    if ((cfop[0] === '6') !== (sug[0] === '6')) cfop = sug[0] + cfop.slice(1); // dentro/fora do estado vem do endereço do fornecedor
+    return { it, ix, q, cfop };
+  });
+
+  const modelo = '55', tpAmb = cfg.tpAmb, serie = cfg.serie[modelo];
+  const idNum = `${tpAmb}-${modelo}-${serie}`;
+  const numero = cfg.proximo[idNum];
+  if (!numero) throw new Error(`Informe em Fiscal → Emissão o próximo número da NF-e de produção (série ${serie}).`);
+  const dEmi = String(nota.dh_emi || '').slice(0, 10).split('-').reverse().join('/');
+  const total = linhas.length === Object.keys(doXml).length && linhas.every(l => Math.abs(l.q - l.ix.qCom) < 1e-9);
+  const infCpl = [`Devolucao ${total ? 'total' : 'parcial'} referente a NF-e n. ${nota.numero || ''} serie ${nota.serie || ''} de ${dEmi}, chave ${chave}.`,
+    'Motivo: ' + motivo + '.', emit.textoSimples].filter(Boolean).join(' ');
+  const cNF = String(Math.floor(10000000 + Math.random() * 89999999));
+  const nf = montarInfNFeDevolucao({ emit, tpAmb, serie, numero, cNF, forn, ref: chave, linhas, total, infCpl, respTec: cfg.respTec });
+  const r = await ponte(env, { acao: 'nfe_autorizar', infNFe: nf.infNFe });
+  const agora = Date.now(), id = uid();
+  const dup = ['204', '539'].includes(String(r.cStat));
+  const status = r.autorizada ? 'autorizada' : 'rejeitada';
+  const dados = { tipo: 'devolucao', ref: chave, motivo, itens: linhas.map(l => ({ item_id: l.it.id, descricao: l.it.descricao, qtde: l.q, cfop: l.cfop })) };
+  await DB.batch([
+    DB.prepare(`INSERT INTO nfe_saida (id,ordem_id,modelo,serie,numero,tp_amb,chave,status,cstat,xmotivo,nprot,dh_emi,valor,dest_doc,dest_nome,dados,xml,qrcode,url_chave,quem,criado,atualizado,tipo,ref_chave)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(id, '', modelo, serie, numero, tpAmb, nf.chave, status, r.cStat || null, r.xMotivo || null, r.nProt || null, nf.dhEmi, nf.vNF,
+        soDigitos(forn.doc) || null, forn.xNome || null, JSON.stringify(dados), r.xml || null, null, null, String(quem || b.quem || ''), agora, agora, 'devolucao', chave),
+    ...(r.autorizada ? linhas.map(l => DB.prepare('INSERT INTO nfe_devolucao_itens (id,saida_id,item_id,chave,qtde,criado) VALUES (?,?,?,?,?,?)')
+      .bind(uid(), id, l.it.id, chave, l.q, agora)) : []),
+    ...(r.autorizada || dup ? [DB.prepare('INSERT INTO nfe_numeracao (id,proximo) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET proximo=excluded.proximo').bind(idNum, numero + 1)] : []),
+  ]);
+  return { id, status, modelo, numero, serie, tpAmb, chave: nf.chave, valor: nf.vNF, cStat: r.cStat, xMotivo: r.xMotivo, nProt: r.nProt,
     aviso: dup ? 'A SEFAZ já tinha este número: o sistema pulou para o próximo. Tente emitir de novo.' : null };
 }
 
@@ -937,7 +1136,7 @@ function danfeHtml(n) {
   <div class="g"><div class="b" style="flex:2"><div class="l">Município</div>${t(dEnd, 'xMun')}</div><div class="b"><div class="l">UF</div>${t(dEnd, 'UF')}</div><div class="b"><div class="l">Inscrição estadual</div>${t(dest, 'IE')}</div></div>
   <b>CÁLCULO DO IMPOSTO</b>
   <div class="g">${[['Base de cálculo do ICMS', 'vBC'], ['Valor do ICMS', 'vICMS'], ['Base cálc. ICMS ST', 'vBCST'], ['Valor do ICMS ST', 'vST'], ['Valor total dos produtos', 'vProd']].map(([l, k]) => `<div class="b"><div class="l">${l}</div><div class="r">${num(t(tot, k))}</div></div>`).join('')}</div>
-  <div class="g">${[['Valor do frete', 'vFrete'], ['Valor do seguro', 'vSeg'], ['Desconto', 'vDesc'], ['Outras despesas', 'vOutro'], ['Valor do IPI', 'vIPI'], ['Valor total da nota', 'vNF']].map(([l, k]) => `<div class="b"><div class="l">${l}</div><div class="r">${num(t(tot, k))}</div></div>`).join('')}</div>
+  <div class="g">${[['Valor do frete', 'vFrete'], ['Valor do seguro', 'vSeg'], ['Desconto', 'vDesc'], ['Outras despesas', 'vOutro'], Number(t(tot, 'vIPIDevol')) > 0 ? ['IPI devolvido', 'vIPIDevol'] : ['Valor do IPI', 'vIPI'], ['Valor total da nota', 'vNF']].map(([l, k]) => `<div class="b"><div class="l">${l}</div><div class="r">${num(t(tot, k))}</div></div>`).join('')}</div>
   <b>TRANSPORTADOR/VOLUMES TRANSPORTADOS</b><div class="b">Frete: 9 - Sem frete</div>
   <b>DADOS DO PRODUTO/SERVIÇO</b>
   <table><tr><th>Código</th><th>Descrição</th><th>NCM</th><th>CSOSN</th><th>CFOP</th><th>Un</th><th>Qtd</th><th>Vlr unit.</th><th>Vlr total</th></tr>
@@ -950,7 +1149,7 @@ function danfeHtml(n) {
 /** Saldo por peça, só das notas que contam no estoque, com as notas de onde vem. */
 async function estoque(DB) {
   const r = await DB.prepare(`SELECT i.id, i.peca_id, i.descricao, i.unidade, i.qtde, COALESCE(i.custo_unit, i.valor_unit) AS valor_unit, i.ncm, n.chave, n.nome_emit, n.numero, n.dh_emi,
-      p.codigo, p.nome AS peca_nome, (SELECT COALESCE(SUM(qtde),0) FROM nfe_destinos d WHERE d.item_id=i.id) AS destinado
+      p.codigo, p.nome AS peca_nome, (SELECT COALESCE(SUM(qtde),0) FROM nfe_destinos d WHERE d.item_id=i.id) + ${SQL_DEVOLVIDO} AS destinado
     FROM nfe_entrada_itens i JOIN nfe_entrada n ON n.chave=i.chave LEFT JOIN pecas p ON p.id=i.peca_id
     WHERE n.status IN ('completa','manual') AND COALESCE(n.historico,0)=0 ORDER BY n.dh_emi`).all();
   const porPeca = {};
@@ -986,6 +1185,15 @@ export async function onRequest(context) {
         DB.prepare('SELECT id,item_id,ordem_id,os_item_id,qtde,quem,criado FROM nfe_destinos').all(),
         DB.prepare("SELECT * FROM dfe_controle WHERE id='3m'").first(),
       ]);
+      const [devIt, devNf] = await Promise.all([
+        DB.prepare(`SELECT v.item_id, v.saida_id, v.qtde, s.status, s.tp_amb FROM nfe_devolucao_itens v JOIN nfe_saida s ON s.id=v.saida_id`).all(),
+        DB.prepare(`SELECT id,serie,numero,tp_amb,chave,status,cstat,xmotivo,nprot,dh_emi,valor,cancel_just,dados,ref_chave,quem,criado FROM nfe_saida WHERE tipo='devolucao' ORDER BY criado DESC`).all(),
+      ]);
+      const devPorItem = {};
+      (devIt.results || []).forEach(v => { if (v.status === 'autorizada' && Number(v.tp_amb) === 1) devPorItem[v.item_id] = (devPorItem[v.item_id] || 0) + (Number(v.qtde) || 0); });
+      const devPorNota = {};
+      (devNf.results || []).forEach(d => { let x = {}; try { x = JSON.parse(d.dados || '{}'); } catch (e) { /* sem dados */ }
+        (devPorNota[d.ref_chave] ||= []).push({ ...d, dados: undefined, motivo: x.motivo || '', itens: x.itens || [] }); });
       const notaPorChave = {}; (notas.results || []).forEach(n => { notaPorChave[n.chave] = n; });
       const destPorItem = {};
       (dest.results || []).forEach(d => { (destPorItem[d.item_id] ||= []).push(d); });
@@ -993,12 +1201,13 @@ export async function onRequest(context) {
       (itens.results || []).forEach(i => {
         const ds = destPorItem[i.id] || [];
         i.destinos = ds;
-        i.saldo = (Number(i.qtde) || 0) - ds.reduce((s, d) => s + (Number(d.qtde) || 0), 0);
+        i.devolvido = devPorItem[i.id] || 0;
+        i.saldo = (Number(i.qtde) || 0) - ds.reduce((s, d) => s + (Number(d.qtde) || 0), 0) - i.devolvido;
         i.regra = notaPorChave[i.chave] ? regraVenda(comRegra(i), notaPorChave[i.chave]) : null;
         (porNota[i.chave] ||= []).push(i);
       });
       return jsonResp({
-        notas: (notas.results || []).map(n => ({ ...n, nova: notaNova(n), itens: porNota[n.chave] || [] })),
+        notas: (notas.results || []).map(n => ({ ...n, nova: notaNova(n), itens: porNota[n.chave] || [], devolucoes: devPorNota[n.chave] || [] })),
         controle: ctl || null,
         configurada: !!(env.PONTE_FISCAL_URL && env.PONTE_FISCAL_TOKEN),
       });
@@ -1078,7 +1287,7 @@ export async function onRequest(context) {
     }
     if (request.method === 'GET' && acao === 'saidas') {
       const oid = url.searchParams.get('ordem_id');
-      const r = await DB.prepare(`SELECT id,ordem_id,modelo,serie,numero,tp_amb,chave,status,cstat,xmotivo,nprot,dh_emi,valor,dest_doc,dest_nome,cancel_just,quem,criado
+      const r = await DB.prepare(`SELECT id,ordem_id,modelo,serie,numero,tp_amb,chave,status,cstat,xmotivo,nprot,dh_emi,valor,dest_doc,dest_nome,cancel_just,quem,criado,tipo
         FROM nfe_saida ${oid ? 'WHERE ordem_id=?' : ''} ORDER BY criado DESC LIMIT 300`).bind(...(oid ? [oid] : [])).all();
       return jsonResp({ notas: r.results || [] });
     }
@@ -1117,6 +1326,7 @@ export async function onRequest(context) {
       }
       if (acao === 'nfe_status') return jsonResp(await ponte(env, { acao: 'nfe_status', tpAmb: (await configEmissao(DB)).tpAmb }));
       if (acao === 'emitir') return jsonResp(await emitirNota(DB, env, body));
+      if (acao === 'devolver') return jsonResp(await emitirDevolucao(DB, env, body, context.data.usuario && context.data.usuario.nome));
       if (acao === 'certificado' || acao === 'certificado_remover') {
         if (!(context.data.usuario && context.data.usuario.papel === 'admin')) return jsonResp({ error: 'Só o administrador troca o certificado digital.' }, 403);
         if (acao === 'certificado_remover') {
