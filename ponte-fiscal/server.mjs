@@ -515,7 +515,8 @@ async function autorizarGo(infNFe) {
 /** Cancelamento (evento 110111) na SEFAZ-GO. */
 async function cancelarGo(chave, nProt, xJust, tpAmb) {
   const id = `ID110111${chave}01`;
-  const just = String(xJust).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[<>&"']/g, " ").trim();
+  // Só ASCII visível: aspas curvas (“ ”) e travessões do celular derrubam o schema (215).
+  const just = String(xJust).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\x20-\x7E]|[<>&"']/g, " ").replace(/\s+/g, " ").trim();
   const infEvento =
     `<infEvento Id="${id}"><cOrgao>${UF}</cOrgao><tpAmb>${tpAmb}</tpAmb><CNPJ>${cnpjAtual()}</CNPJ>` +
     `<chNFe>${chave}</chNFe><dhEvento>${dataHoraBrasilia()}</dhEvento><tpEvento>110111</tpEvento>` +
