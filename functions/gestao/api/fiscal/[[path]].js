@@ -37,6 +37,9 @@
  *   GET  saidas?ordem_id=    notas emitidas (sem o XML)
  *   GET  danfe?id=           DANFE em HTML (imprimir / salvar PDF)
  *   GET  xml_saida?id=       XML autorizado (e o do cancelamento, se houver)
+ * Devolução feita pelo fornecedor (nota de entrada dele, finalidade 4, contra o CNPJ da 3M): não é compra.
+ * O sistema liga cada peça à nota de compra (pela chave referenciada ou, sem ela, pela última compra do
+ * mesmo fornecedor com as mesmas peças) e tira do saldo dela — tabela nfe_devolucao_forn.
  *   POST devolver            { chave, itens:[{item_id, qtde, cfop?}], motivo } → NF-e de devolução (finalidade 4) ao fornecedor;
  *                            em produção os itens devolvidos saem do saldo da nota (volta se a devolução for cancelada)
  *
@@ -135,6 +138,7 @@ async function garantirTabelas(DB) {
   try { await DB.prepare('ALTER TABLE pecas ADD COLUMN regra_fiscal TEXT').run(); } catch (e) { /* coluna já existe */ }
   await recalcularFiscal(DB);
   await garantirTabelasEmissao(DB);
+  await ligarDevolucoesFornecedor(DB);
   await garantirTabelaNfse(DB);
   // Alerta de nota nova: o que já estava gravado quando o alerta nasceu conta como conferido.
   if (!(await DB.prepare("SELECT valor FROM fiscal_config WHERE chave='alerta_desde'").first())) {
@@ -443,11 +447,12 @@ async function sincronizar(DB, env) {
 async function destinar(DB, b) {
   const qtde = Number(b.qtde);
   if (!b.item_id || !b.ordem_id || !b.os_item_id || !(qtde > 0)) throw new Error('Informe a OS, o item e a quantidade.');
-  const it = await DB.prepare(`SELECT i.*, n.nome_emit, n.cnpj_emit, n.fornecedor_id, n.numero, n.serie, n.dh_emi, n.status,
+  const it = await DB.prepare(`SELECT i.*, n.nome_emit, n.cnpj_emit, n.fornecedor_id, n.numero, n.serie, n.dh_emi, n.status, n.devolucao_forn,
       p.codigo AS peca_codigo, (SELECT COALESCE(SUM(qtde),0) FROM nfe_destinos d WHERE d.item_id=i.id) + ${SQL_DEVOLVIDO} AS destinado
     FROM nfe_entrada_itens i JOIN nfe_entrada n ON n.chave=i.chave LEFT JOIN pecas p ON p.id=i.peca_id WHERE i.id=?`).bind(b.item_id).first();
   if (!it) throw new Error('Item da nota não encontrado.');
   if (it.status === 'cancelada') throw new Error('Esta nota foi cancelada pelo fornecedor.');
+  if (Number(it.devolucao_forn)) throw new Error('Esta é a nota de devolução do fornecedor: as peças voltaram para ele.');
   const saldo = (Number(it.qtde) || 0) - (Number(it.destinado) || 0);
   if (qtde > saldo + 1e-9) throw new Error(`Só restam ${saldo} deste item na nota.`);
   const id = uid(), agora = Date.now();
@@ -825,8 +830,65 @@ async function garantirTabelasEmissao(DB) {
 
 // Quanto de um item de nota de compra já foi devolvido ao fornecedor (só devolução autorizada em produção:
 // teste de homologação não mexe no estoque; cancelou, a quantidade volta).
-const SQL_DEVOLVIDO = `(SELECT COALESCE(SUM(v.qtde),0) FROM nfe_devolucao_itens v JOIN nfe_saida s ON s.id=v.saida_id
-  WHERE v.item_id=i.id AND s.status='autorizada' AND s.tp_amb=1)`;
+const SQL_DEVOLVIDO = `((SELECT COALESCE(SUM(v.qtde),0) FROM nfe_devolucao_itens v JOIN nfe_saida s ON s.id=v.saida_id
+  WHERE v.item_id=i.id AND s.status='autorizada' AND s.tp_amb=1) + (SELECT COALESCE(SUM(f.qtde),0) FROM nfe_devolucao_forn f WHERE f.item_id=i.id))`;
+
+/**
+ * Nota de devolução emitida pelo fornecedor (tpNF 0 + finNFe 4): liga as peças à nota de compra.
+ * Com <refNFe> usa a chave; sem ela (a Kaizen não manda), a compra mais recente do mesmo fornecedor,
+ * anterior à devolução, que tenha todos os códigos com quantidade suficiente. Roda a cada pedido,
+ * poucas notas por vez; nota nova da SEFAZ é ligada no pedido seguinte à busca.
+ */
+async function ligarDevolucoesFornecedor(DB) {
+  await DB.prepare('CREATE TABLE IF NOT EXISTS nfe_devolucao_forn (id TEXT PRIMARY KEY, ret_chave TEXT, item_id TEXT, chave TEXT, qtde REAL, criado INTEGER)').run();
+  for (const col of ['devolucao_forn INTEGER', 'ref_chave TEXT']) {
+    try { await DB.prepare(`ALTER TABLE nfe_entrada ADD COLUMN ${col}`).run(); } catch (e) { /* coluna já existe */ }
+  }
+  const pend = await DB.prepare("SELECT chave, cnpj_emit, dh_emi, xml FROM nfe_entrada WHERE tp_nf='0' AND status='completa' AND xml IS NOT NULL AND devolucao_forn IS NULL LIMIT 10").all();
+  for (const n of pend.results || []) {
+    const ide = tagX(n.xml, 'ide');
+    if (tagX(ide, 'finNFe') !== '4') { await DB.prepare('UPDATE nfe_entrada SET devolucao_forn=0 WHERE chave=?').bind(n.chave).run(); continue; }
+    const volta = await DB.prepare('SELECT codigo, descricao, qtde FROM nfe_entrada_itens WHERE chave=? ORDER BY n_item').bind(n.chave).all();
+    const its = volta.results || [];
+    const saldoDe = async (chave) => {
+      const r = await DB.prepare(`SELECT i.id, i.codigo, i.descricao, i.qtde, ${SQL_DEVOLVIDO} AS dev FROM nfe_entrada_itens i WHERE i.chave=? ORDER BY i.n_item`).bind(chave).all();
+      return (r.results || []).map(i => ({ ...i, livre: (Number(i.qtde) || 0) - (Number(i.dev) || 0) }));
+    };
+    // Distribui cada peça devolvida nos itens da compra com o mesmo código (ou, sem código, a mesma descrição).
+    const alocar = (orig) => {
+      const lin = [];
+      for (const v of its) {
+        let falta = Number(v.qtde) || 0;
+        for (const o of orig) {
+          if (falta <= 1e-9) break;
+          const igual = v.codigo ? o.codigo === v.codigo : nomeNorm(o.descricao) === nomeNorm(v.descricao);
+          if (!igual || o.livre <= 1e-9) continue;
+          const q = Math.min(falta, o.livre); o.livre -= q; falta -= q; lin.push({ item_id: o.id, qtde: q });
+        }
+        if (falta > 1e-9) return null;
+      }
+      return lin;
+    };
+    const refs = [...ide.matchAll(/<refNFe>(\d{44})<\/refNFe>/g)].map(m => m[1]);
+    let candidatos = [];
+    if (refs.length) candidatos = refs;
+    else {
+      const r = await DB.prepare(`SELECT chave FROM nfe_entrada WHERE cnpj_emit=? AND chave<>? AND status='completa' AND COALESCE(tp_nf,'1')='1'
+        AND dh_emi<=? ORDER BY dh_emi DESC LIMIT 30`).bind(n.cnpj_emit, n.chave, n.dh_emi).all();
+      candidatos = (r.results || []).map(x => x.chave);
+    }
+    let ref = '', lin = [];
+    for (const c of candidatos) {
+      const l = alocar(await saldoDe(c));
+      if (l && l.length) { ref = c; lin = l; break; }
+    }
+    const agora = Date.now();
+    await DB.batch([
+      DB.prepare('UPDATE nfe_entrada SET devolucao_forn=1, ref_chave=? WHERE chave=?').bind(ref || (refs[0] || ''), n.chave),
+      ...lin.map(l => DB.prepare('INSERT INTO nfe_devolucao_forn (id,ret_chave,item_id,chave,qtde,criado) VALUES (?,?,?,?,?,?)').bind(uid(), n.chave, l.item_id, ref, l.qtde, agora)),
+    ]);
+  }
+}
 
 async function configEmissao(DB) {
   const [c, nums] = await Promise.all([DB.prepare('SELECT chave, valor FROM fiscal_config').all(), DB.prepare('SELECT * FROM nfe_numeracao').all()]);
@@ -1010,6 +1072,7 @@ async function emitirDevolucao(DB, env, b, quem) {
   const nota = await DB.prepare('SELECT * FROM nfe_entrada WHERE chave=?').bind(chave).first();
   if (!nota) throw new Error('Nota de compra não encontrada.');
   if (nota.status !== 'completa' || !nota.xml) throw new Error('Só dá para devolver nota com o XML completo da SEFAZ.');
+  if (Number(nota.devolucao_forn) || nota.tp_nf === '0') throw new Error('Esta nota é de entrada do fornecedor (devolução dele), não uma compra.');
   const motivo = String(b.motivo || '').trim();
   if (motivo.length < 5) throw new Error('Escreva o motivo da devolução (ex.: peça errada).');
   const pedidos = (Array.isArray(b.itens) ? b.itens : []).filter(x => Number(x.qtde) > 0);
@@ -1151,7 +1214,7 @@ async function estoque(DB) {
   const r = await DB.prepare(`SELECT i.id, i.peca_id, i.descricao, i.unidade, i.qtde, COALESCE(i.custo_unit, i.valor_unit) AS valor_unit, i.ncm, n.chave, n.nome_emit, n.numero, n.dh_emi,
       p.codigo, p.nome AS peca_nome, (SELECT COALESCE(SUM(qtde),0) FROM nfe_destinos d WHERE d.item_id=i.id) + ${SQL_DEVOLVIDO} AS destinado
     FROM nfe_entrada_itens i JOIN nfe_entrada n ON n.chave=i.chave LEFT JOIN pecas p ON p.id=i.peca_id
-    WHERE n.status IN ('completa','manual') AND COALESCE(n.historico,0)=0 ORDER BY n.dh_emi`).all();
+    WHERE n.status IN ('completa','manual') AND COALESCE(n.historico,0)=0 AND COALESCE(n.devolucao_forn,0)=0 ORDER BY n.dh_emi`).all();
   const porPeca = {};
   for (const i of r.results || []) {
     const saldo = (Number(i.qtde) || 0) - (Number(i.destinado) || 0);
@@ -1177,7 +1240,7 @@ export async function onRequest(context) {
 
     if (request.method === 'GET' && acao === 'notas') {
       const [notas, itens, dest, ctl] = await Promise.all([
-        DB.prepare(`SELECT chave,nsu,status,numero,serie,cnpj_emit,nome_emit,fornecedor_id,dh_emi,valor,situacao_sefaz,tp_nf,manifestado,manifesto_msg,historico,comprovante,obs,criado,conferida,conferida_por
+        DB.prepare(`SELECT chave,nsu,status,numero,serie,cnpj_emit,nome_emit,fornecedor_id,dh_emi,valor,situacao_sefaz,tp_nf,manifestado,manifesto_msg,historico,comprovante,obs,criado,conferida,conferida_por,devolucao_forn,ref_chave
           FROM nfe_entrada ORDER BY dh_emi DESC LIMIT 500`).all(),
         DB.prepare(`SELECT i.*, p.codigo AS peca_codigo FROM nfe_entrada_itens i
           JOIN (SELECT chave FROM nfe_entrada ORDER BY dh_emi DESC LIMIT 500) n ON n.chave=i.chave
@@ -1185,12 +1248,17 @@ export async function onRequest(context) {
         DB.prepare('SELECT id,item_id,ordem_id,os_item_id,qtde,quem,criado FROM nfe_destinos').all(),
         DB.prepare("SELECT * FROM dfe_controle WHERE id='3m'").first(),
       ]);
-      const [devIt, devNf] = await Promise.all([
+      const [devIt, devNf, devForn] = await Promise.all([
         DB.prepare(`SELECT v.item_id, v.saida_id, v.qtde, s.status, s.tp_amb FROM nfe_devolucao_itens v JOIN nfe_saida s ON s.id=v.saida_id`).all(),
         DB.prepare(`SELECT id,serie,numero,tp_amb,chave,status,cstat,xmotivo,nprot,dh_emi,valor,cancel_just,dados,ref_chave,quem,criado FROM nfe_saida WHERE tipo='devolucao' ORDER BY criado DESC`).all(),
+        DB.prepare(`SELECT f.item_id, f.qtde, f.ret_chave, f.chave, r.numero, r.dh_emi FROM nfe_devolucao_forn f JOIN nfe_entrada r ON r.chave=f.ret_chave`).all(),
       ]);
       const devPorItem = {};
       (devIt.results || []).forEach(v => { if (v.status === 'autorizada' && Number(v.tp_amb) === 1) devPorItem[v.item_id] = (devPorItem[v.item_id] || 0) + (Number(v.qtde) || 0); });
+      const fornPorItem = {}, fornPorNota = {};
+      (devForn.results || []).forEach(f => { devPorItem[f.item_id] = (devPorItem[f.item_id] || 0) + (Number(f.qtde) || 0);
+        (fornPorItem[f.item_id] ||= []).push({ qtde: f.qtde, chave: f.ret_chave, numero: f.numero });
+        const l = (fornPorNota[f.chave] ||= []); if (!l.some(x => x.chave === f.ret_chave)) l.push({ chave: f.ret_chave, numero: f.numero, dh_emi: f.dh_emi }); });
       const devPorNota = {};
       (devNf.results || []).forEach(d => { let x = {}; try { x = JSON.parse(d.dados || '{}'); } catch (e) { /* sem dados */ }
         (devPorNota[d.ref_chave] ||= []).push({ ...d, dados: undefined, motivo: x.motivo || '', itens: x.itens || [] }); });
@@ -1202,12 +1270,16 @@ export async function onRequest(context) {
         const ds = destPorItem[i.id] || [];
         i.destinos = ds;
         i.devolvido = devPorItem[i.id] || 0;
+        i.devolvido_forn = fornPorItem[i.id] || [];
         i.saldo = (Number(i.qtde) || 0) - ds.reduce((s, d) => s + (Number(d.qtde) || 0), 0) - i.devolvido;
+        // Nota de devolução do fornecedor: as peças não estão aqui.
+        if (notaPorChave[i.chave] && Number(notaPorChave[i.chave].devolucao_forn)) i.saldo = 0;
         i.regra = notaPorChave[i.chave] ? regraVenda(comRegra(i), notaPorChave[i.chave]) : null;
         (porNota[i.chave] ||= []).push(i);
       });
       return jsonResp({
-        notas: (notas.results || []).map(n => ({ ...n, nova: notaNova(n), itens: porNota[n.chave] || [], devolucoes: devPorNota[n.chave] || [] })),
+        notas: (notas.results || []).map(n => ({ ...n, nova: notaNova(n), itens: porNota[n.chave] || [], devolucoes: devPorNota[n.chave] || [], devolucoes_forn: fornPorNota[n.chave] || [],
+          ref_numero: n.ref_chave ? ((notaPorChave[n.ref_chave] || {}).numero || null) : null })),
         controle: ctl || null,
         configurada: !!(env.PONTE_FISCAL_URL && env.PONTE_FISCAL_TOKEN),
       });
