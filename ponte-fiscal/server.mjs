@@ -745,16 +745,35 @@ const leiauteAntigo = (inf) => {
 const novoPorAmb = { 1: false, 2: true };
 const CAMPOS_LEIAUTE = /finNFSe|cNBS|xDescServ|cIntContrib|cLocEmi|cMotivoEmisTI/;
 
-/** Assina a <infDPS> montada pelo sistema e envia à Sefin Nacional. */
+// E0120: "IM do prestador não deve ser informado, pois não existem informações complementares registradas
+// no CNC NFS-e do município" — o cadastro nacional (CNC) do ambiente não tem a IM da 3M (assim na produção
+// restrita em 06/11/2026). Então a DPS vai sem <IM>; a Receita pega o prestador pelo CNPJ.
+const semIMPorAmb = { 1: false, 2: false };
+const tirarIM = (inf) => inf.replace(/(<prest><CNPJ>\d{14}<\/CNPJ>)<IM>[^<]*<\/IM>/, "$1");
+const temErro = (r, cod, campos) => !r.ok && r.erros.some((e) => e.codigo === cod && (!campos || campos.test(`${e.mensagem} ${e.correcao || ""}`)));
+
+/**
+ * Assina a <infDPS> montada pelo sistema e envia à Sefin Nacional. Recusas que dependem só do ambiente
+ * (leiaute novo/antigo, IM fora do CNC) são corrigidas e a DPS reenviada — no máximo 3 envios; cada
+ * recusa anterior não gerou nota, então a mesma DPS não sai em dobro.
+ */
 async function nfseNacGerar(tpAmb, infDPS) {
-  const no = (novo) => (novo ? leiauteNovo(infDPS) : leiauteAntigo(infDPS));
-  const primeiro = await nfseNacEnviar(tpAmb, no(novoPorAmb[tpAmb]));
-  const esquema = !primeiro.ok && primeiro.erros.some((e) => e.codigo === "E1235" && CAMPOS_LEIAUTE.test(`${e.mensagem} ${e.correcao || ""}`));
-  if (!esquema) return primeiro;
-  const segundo = await nfseNacEnviar(tpAmb, no(!novoPorAmb[tpAmb]));
-  console.log(`[nfse nac] ambiente ${tpAmb}: leiaute ${novoPorAmb[tpAmb] ? "novo" : "antigo"} recusado no esquema; o outro → ${segundo.ok ? "aceito" : "também recusado"}`);
-  if (segundo.ok || !segundo.erros.some((e) => e.codigo === "E1235")) { novoPorAmb[tpAmb] = !novoPorAmb[tpAmb]; return segundo; }
-  return primeiro;
+  const montar = () => { const x = novoPorAmb[tpAmb] ? leiauteNovo(infDPS) : leiauteAntigo(infDPS); return semIMPorAmb[tpAmb] ? tirarIM(x) : x; };
+  let r = await nfseNacEnviar(tpAmb, montar());
+  for (let tentativa = 0; tentativa < 2 && !r.ok; tentativa++) {
+    if (temErro(r, "E1235", CAMPOS_LEIAUTE)) {
+      novoPorAmb[tpAmb] = !novoPorAmb[tpAmb];
+      const r2 = await nfseNacEnviar(tpAmb, montar());
+      console.log(`[nfse nac] ambiente ${tpAmb}: trocou para o leiaute ${novoPorAmb[tpAmb] ? "novo" : "antigo"} → ${r2.ok ? "aceito" : r2.erros.map((e) => e.codigo).join(",")}`);
+      if (!r2.ok && temErro(r2, "E1235")) { novoPorAmb[tpAmb] = !novoPorAmb[tpAmb]; return r; } // o outro leiaute também não serve
+      r = r2;
+    } else if (temErro(r, "E0120") && !semIMPorAmb[tpAmb]) {
+      semIMPorAmb[tpAmb] = true;
+      r = await nfseNacEnviar(tpAmb, montar());
+      console.log(`[nfse nac] ambiente ${tpAmb}: sem IM (fora do CNC) → ${r.ok ? "aceito" : r.erros.map((e) => e.codigo).join(",")}`);
+    } else break;
+  }
+  return r;
 }
 
 async function nfseNacEnviar(tpAmb, infDPS) {
