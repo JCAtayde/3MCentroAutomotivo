@@ -781,7 +781,11 @@ function montarInfNFe(n) {
     if (!(q > 0) || !(vUn > 0)) throw new Error(`Peça "${it.nome}" com quantidade ou valor zerado.`);
     const vProd = Math.round(q * vUn * 100) / 100, vDesc = Math.round((Number(it.desconto) || 0) * 100) / 100;
     vProdT += vProd; vDescT += vDesc;
-    const cfop = foraGO ? (r.cfop_fora || r.cfop.replace(/^5/, '6')) : r.cfop;
+    // CFOP de combustível/lubrificante (56xx) exige o grupo da ANP (rejeição 660): vira o da regra
+    // comum, mesmo que a tela mande a regra antiga guardada no navegador.
+    const comb = /^[56]6[56]\d$/.test(r.cfop);
+    const cfopDentro = comb ? (r.csosn === '500' ? '5405' : '5102') : r.cfop;
+    const cfop = foraGO ? (comb ? (r.csosn === '500' ? '6404' : '6102') : (r.cfop_fora || r.cfop.replace(/^5/, '6'))) : cfopDentro;
     const xProd = tpAmb === 2 && nfce && ix === 0 ? HOMOLOG_ITEM : xmlTexto(it.nome, 120);
     const prod = el('cProd', xmlTexto(it.codigo || String(ix + 1).padStart(4, '0'), 60)) + el('cEAN', 'SEM GTIN') + el('xProd', xProd) +
       el('NCM', soDigitos(it.ncm)) + (/^\d{7}$/.test(soDigitos(it.cest)) ? el('CEST', soDigitos(it.cest)) : '') + el('CFOP', cfop) +

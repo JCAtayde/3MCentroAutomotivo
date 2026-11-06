@@ -4246,7 +4246,7 @@ async function abrirEmissaoNota(oid){
   const o=getOS(oid); if(!o) return;
   openModal('<div class="note">Carregando dados fiscais…</div>');
   let jaEmitidas=[];
-  try{ const [, , , ja]=await Promise.all([carregarEmissaoCfg(), fiscalRegras?null:carregarRegrasFiscais(), notasCompra?null:carregarNotasCompra(),
+  try{ const [, , , ja]=await Promise.all([carregarEmissaoCfg(), carregarRegrasFiscais(), carregarNotasCompra(), // sempre as regras de agora (não as guardadas no navegador)
       fetch(API_FISCAL+'/saidas?ordem_id='+encodeURIComponent(oid)).then(r=>r.json()), carregarEmpresaCfg()]);
     jaEmitidas=((ja&&ja.notas)||[]).filter(n=>n.status==='autorizada'); }
   catch(e){ openModal(`<div class="note">Não foi possível carregar: ${esc(e.message)}</div><button class="btn" onclick="closeModal()">Fechar</button>`); return; }
