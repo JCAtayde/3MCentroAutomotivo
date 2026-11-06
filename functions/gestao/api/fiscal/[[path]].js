@@ -522,7 +522,9 @@ async function entradaManual(DB, b) {
 // A regra de cada item sai de duas fontes, nesta ordem:
 //   1. a nota de compra do fornecedor (vinda da SEFAZ): se o ICMS da substituição
 //      tributária já foi pago (CST 10/30/60/70 ou CSOSN 201/202/203/500), a venda é
-//      CSOSN 500; se não, CSOSN 102. Lubrificante usa o CFOP próprio (5656).
+//      CSOSN 500; se não, CSOSN 102. Lubrificante segue a mesma regra (5405/5102): o CFOP 5656
+//      é de combustível e a SEFAZ exige o grupo da ANP (rejeição 660, 06/11/2026); a NF-e 353
+//      (óleo, 5405/CSOSN 500) foi aceita assim.
 //   2. a Lei 10.485/2002 (autopeças monofásicas de PIS/Cofins): NCM do Anexo I = CST 04
 //      (revenda a alíquota zero, art. 3º §2º); fora dela = CST 49 (Simples, outras saídas).
 // O que a fonte não decide sozinha (NCM com "Ex", Anexo II, compra de fora de GO,
@@ -607,12 +609,11 @@ function regraVenda(it, nota) {
     st = false;
     avisos.push(`Não foi possível ler o ICMS da ${fonte}. Usado o cálculo sem ST até conferir.`);
   }
-  const cfop = lub ? '5656' : (st ? '5405' : '5102');
-  // Cliente de outro estado (raro): sem ST 6102, como o contador orientou; com ST já
-  // retida 6404; lubrificante 6656.
-  const cfopFora = lub ? '6656' : (st ? '6404' : '6102');
-  if (lub) motivos.push('Lubrificante: CFOP 5656 (venda de lubrificante comprado de terceiros a consumidor final).');
-  else motivos.push(`CFOP ${cfop}: venda a consumidor final dentro de GO ${st ? 'de mercadoria com ST já paga' : 'de mercadoria sem ST (5102/6102 e CSOSN 102 confirmados pelo contador em 26/10/2026)'}.`);
+  const cfop = st ? '5405' : '5102';
+  // Cliente de outro estado (raro): sem ST 6102, como o contador orientou; com ST já retida 6404.
+  const cfopFora = st ? '6404' : '6102';
+  if (lub) motivos.push('Lubrificante: mesmo CFOP das outras peças (o 5656 é de combustível e a SEFAZ exige o código da ANP).');
+  motivos.push(`CFOP ${cfop}: venda a consumidor final dentro de GO ${st ? 'de mercadoria com ST já paga' : 'de mercadoria sem ST (5102/6102 e CSOSN 102 confirmados pelo contador em 26/10/2026)'}.`);
   motivos.push(`Cliente de outro estado: CFOP ${cfopFora}.`);
 
   const m = monofasico(it.ncm, it.descricao);
