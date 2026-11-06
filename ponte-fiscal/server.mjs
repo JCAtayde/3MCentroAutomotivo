@@ -723,23 +723,38 @@ function resultadoNfseNac(j, dps) {
 }
 
 /**
- * Leiaute da DPS: a produção restrita já roda o da NT 009 (20/10/2026), que exige <finNFSe> (0 = NFS-e
- * regular) logo depois de <tpEmit>; a produção ainda pode estar no de 09/02/2026, que não tem o campo.
- * Se a Receita recusar o esquema por causa do finNFSe (pedindo ou estranhando), troca e reenvia uma vez —
- * a primeira tentativa foi recusada, então a mesma DPS não gera nota em dobro.
+ * Leiaute da DPS: a produção restrita já roda o da NT 009 (20/10/2026); a produção ainda pode estar no
+ * de 09/02/2026. Nos campos que o sistema usa, o novo (Anexo I PRODREST 20261020) difere em dois pontos:
+ *  - <finNFSe> (0 = NFS-e regular), obrigatório, logo depois de <tpEmit>;
+ *  - em <cServ>, <cNBS> vem antes de <xDescServ> (no antigo, depois).
+ * Se a Receita recusar o esquema (E1235) num desses campos, troca de leiaute e reenvia uma vez — a primeira
+ * tentativa foi recusada, então a mesma DPS não gera nota em dobro. O leiaute aceito fica valendo.
  */
-const comFinNFSe = (inf) => inf.includes("<finNFSe>") ? inf : inf.replace("</tpEmit>", "</tpEmit><finNFSe>0</finNFSe>");
-const semFinNFSe = (inf) => inf.replace(/<finNFSe>\d<\/finNFSe>/, "");
-const finNFSePorAmb = { 1: false, 2: true };
+const leiauteNovo = (inf) => {
+  let x = inf.includes("<finNFSe>") ? inf : inf.replace("</tpEmit>", "</tpEmit><finNFSe>0</finNFSe>");
+  const nbs = (x.match(/<cNBS>\d+<\/cNBS>/) ?? [])[0];
+  if (nbs) x = x.replace(nbs, "").replace("<xDescServ>", nbs + "<xDescServ>");
+  return x;
+};
+const leiauteAntigo = (inf) => {
+  let x = inf.replace(/<finNFSe>\d<\/finNFSe>/, "");
+  const nbs = (x.match(/<cNBS>\d+<\/cNBS>/) ?? [])[0];
+  if (nbs) x = x.replace(nbs, "").replace("</xDescServ>", "</xDescServ>" + nbs);
+  return x;
+};
+const novoPorAmb = { 1: false, 2: true };
+const CAMPOS_LEIAUTE = /finNFSe|cNBS|xDescServ|cIntContrib|cLocEmi|cMotivoEmisTI/;
 
 /** Assina a <infDPS> montada pelo sistema e envia à Sefin Nacional. */
 async function nfseNacGerar(tpAmb, infDPS) {
-  const primeiro = await nfseNacEnviar(tpAmb, finNFSePorAmb[tpAmb] ? comFinNFSe(infDPS) : semFinNFSe(infDPS));
-  const esquemaFin = !primeiro.ok && primeiro.erros.some((e) => e.codigo === "E1235" && /finNFSe/.test(`${e.mensagem} ${e.correcao || ""}`));
-  if (!esquemaFin) return primeiro;
-  finNFSePorAmb[tpAmb] = !finNFSePorAmb[tpAmb];
-  console.log(`[nfse nac] leiaute do ambiente ${tpAmb}: finNFSe ${finNFSePorAmb[tpAmb] ? "exigido" : "não aceito"} — reenviando`);
-  return nfseNacEnviar(tpAmb, finNFSePorAmb[tpAmb] ? comFinNFSe(infDPS) : semFinNFSe(infDPS));
+  const no = (novo) => (novo ? leiauteNovo(infDPS) : leiauteAntigo(infDPS));
+  const primeiro = await nfseNacEnviar(tpAmb, no(novoPorAmb[tpAmb]));
+  const esquema = !primeiro.ok && primeiro.erros.some((e) => e.codigo === "E1235" && CAMPOS_LEIAUTE.test(`${e.mensagem} ${e.correcao || ""}`));
+  if (!esquema) return primeiro;
+  const segundo = await nfseNacEnviar(tpAmb, no(!novoPorAmb[tpAmb]));
+  console.log(`[nfse nac] ambiente ${tpAmb}: leiaute ${novoPorAmb[tpAmb] ? "novo" : "antigo"} recusado no esquema; o outro → ${segundo.ok ? "aceito" : "também recusado"}`);
+  if (segundo.ok || !segundo.erros.some((e) => e.codigo === "E1235")) { novoPorAmb[tpAmb] = !novoPorAmb[tpAmb]; return segundo; }
+  return primeiro;
 }
 
 async function nfseNacEnviar(tpAmb, infDPS) {
