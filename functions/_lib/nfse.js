@@ -74,7 +74,8 @@ export function montarInfDPS(d) {
     `<regTrib><opSimpNac>${emp.opSimpNac}</opSimpNac>${emp.opSimpNac === '3' ? `<regApTribSN>${emp.regApTribSN}</regApTribSN>` : ''}<regEspTrib>${emp.regEspTrib || '0'}</regEspTrib></regTrib></prest>` +
     toma +
     `<serv><locPrest><cLocPrestacao>${emp.cMun}</cLocPrestacao></locPrest>` +
-    `<cServ><cTribNac>${emp.cTribNac}</cTribNac><cTribMun>${emp.cTribMun || '0'}</cTribMun><xDescServ>${descricao}</xDescServ>${emp.cNBS ? `<cNBS>${emp.cNBS}</cNBS>` : ''}</cServ>` +
+    // cTribMun é opcional; a Receita recusa "000" (E0315, 06/11/2026): sem código municipal, não vai o campo.
+    `<cServ><cTribNac>${emp.cTribNac}</cTribNac>${/^0*$/.test(soDigitos(emp.cTribMun)) ? '' : `<cTribMun>${soDigitos(emp.cTribMun)}</cTribMun>`}<xDescServ>${descricao}</xDescServ>${emp.cNBS ? `<cNBS>${emp.cNBS}</cNBS>` : ''}</cServ>` +
     (info ? `<infoCompl><xInfComp>${info}</xInfComp></infoCompl>` : '') + `</serv>` +
     `<valores><vServPrest><vServ>${dec2(valor)}</vServ></vServPrest>` +
     (desconto > 0 ? `<vDescCondIncond><vDescIncond>${dec2(desconto)}</vDescIncond></vDescCondIncond>` : '') +
