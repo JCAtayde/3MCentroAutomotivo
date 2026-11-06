@@ -2759,7 +2759,9 @@ function tokensPeca(t){ return normPeca(t).split(/[^a-z0-9]+/).filter(x=>x.lengt
 function palavraParecida(a,b){ if(a===b) return 1; const c=a.length<=b.length?a:b, l=a.length<=b.length?b:a; return c.length>=3&&l.startsWith(c)?0.8:0; }
 function semelhancaPeca(nome,texto){ const ts=tokensPeca(nome), cs=tokensPeca(texto); if(!ts.length) return 0;
   return ts.reduce((s,t)=>s+cs.reduce((m,c)=>Math.max(m,palavraParecida(t,c)),0),0)/ts.length; }
-function osVincLinha(row){ if(!osFormId||!podeVincularOS()) return '';
+function osVincLinha(row){ if(!podeVincularOS()) return '';
+  if(row._pend){ const p=row._pend; return `<div class="s" style="margin:0 0 8px;font-size:12px;color:#E8B23A">📦 Ao salvar a OS, sai do estoque: ${nfeQtd(p.qtde)} × ${esc(p.desc||'')} · ${p.nf?('NF '+esc(p.nf)):'sem nota'} · ${esc(p.forn||'—')} <a href="#" style="color:#e57373;margin-left:4px" onclick='event.preventDefault(); osPendTirar("${row.id}")'>tirar</a></div>`; }
+  if(!osFormId) return '';
   if(!row._orig||!row._orig.id) return '<div class="hint" style="margin:0 0 8px;font-size:12px">Salve a OS para buscar esta peça na nota ou no estoque.</div>';
   const q=parseInt(row.qtde)||1, ligada=itemOsVinculado(row._orig), falta=q-ligada;
   const orig=(row._orig.origens||[]).map(x=>`<div class="s" style="font-size:12px;color:var(--muted)">🔗 ${nfeQtd(x.qtde)} × ${esc(x.descricao||'')} · ${x.nf?('NF '+esc(x.nf)):'sem nota'} · ${esc(x.fornecedor||'—')} <a href="#" style="color:#e57373;margin-left:4px" onclick='event.preventDefault(); osVincDesfazer("${row.id}","${x.destino_id}")'>desfazer</a></div>`).join('');
@@ -2829,9 +2831,52 @@ function comboRender(id, filtro){
   const el=document.getElementById('combo-'+id); if(!el) return;
   const f=(filtro||'').trim().toLowerCase();
   const list=catalogoOS().filter(r=>!f || r.nome.toLowerCase().includes(f));
-  if(!list.length){ el.innerHTML='<div class="combo-empty">Nada no catálogo com esse nome — pode digitar livremente ou usar "Cadastrar peça".</div>'; el.classList.add('open'); return; }
-  el.innerHTML=list.slice(0,60).map(r=>`<div class="combo-opt" onmousedown="event.preventDefault(); comboPick('${id}',this.dataset.n)" data-n="${esc(r.nome)}">${esc(r.nome)}${r.preco?` <span class="combo-preco">${moneyFmt(r.preco)}</span>`:''}</div>`).join('');
+  const est=comboEstoque(id,filtro);
+  if(!list.length&&!est){ el.innerHTML='<div class="combo-empty">Nada no catálogo nem no estoque com esse nome — pode digitar livremente ou usar "Cadastrar peça".</div>'; el.classList.add('open'); return; }
+  el.innerHTML=est+list.slice(0,60).map(r=>`<div class="combo-opt" onmousedown="event.preventDefault(); comboPick('${id}',this.dataset.n)" data-n="${esc(r.nome)}">${esc(r.nome)}${r.preco?` <span class="combo-preco">${moneyFmt(r.preco)}</span>`:''}</div>`).join('');
   el.classList.add('open');
+}
+/* Ao digitar a peça na OS, mostra também o que tem no estoque (itens de nota de compra com saldo).
+   Escolher um deles liga a peça à nota (nfe_destinos) e a quantidade sai do estoque. */
+let comboNotasCarregando=false;
+function comboEstoque(id,filtro){
+  if(!podeVincularOS()) return '';
+  const row=osItens.find(x=>x.id===id); if(!row||row._pend||(row._orig&&(row._orig.origens||[]).length)) return '';
+  const termos=normPeca(filtro).trim().split(/\s+/).filter(t=>t.length>=2); if(!termos.length) return '';
+  if(!notasCompra){ if(!comboNotasCarregando){ comboNotasCarregando=true;
+      carregarNotasCompra().catch(()=>{}).finally(()=>{ comboNotasCarregando=false; const el=document.getElementById('combo-'+id); const r=osItens.find(x=>x.id===id);
+        if(el&&el.classList.contains('open')&&r) comboRender(id,r.nome); }); }
+    return '<div class="combo-empty">📦 Buscando no estoque…</div>'; }
+  const lista=[];
+  (notasCompra.notas||[]).forEach(n=>{ if((n.status!=='completa'&&n.status!=='manual')||n.historico||n.devolucao_forn) return;
+    (n.itens||[]).forEach(i=>{ if(!(Number(i.saldo)>1e-9)) return;
+      const texto=normPeca([i.descricao,i.codigo,i.peca_codigo].join(' ')); if(termos.every(t=>texto.includes(t))) lista.push({n,i}); }); });
+  if(!lista.length) return '';
+  lista.sort((a,b)=>String(b.n.dh_emi||'').localeCompare(String(a.n.dh_emi||'')));
+  return `<div class="combo-empty" style="font-weight:600">📦 No estoque</div>`+lista.slice(0,8).map(({n,i})=>`<div class="combo-opt" onmousedown='event.preventDefault(); comboPickEstoque("${id}","${n.chave}","${i.id}")'>
+    ${esc(i.descricao||'')}${i.codigo?` <span class="combo-preco">cód. ${esc(i.codigo)}</span>`:''}
+    <div style="font-size:11px;color:var(--muted)">${nfeQtd(i.saldo)} ${esc(i.unidade||'')} no estoque · ${n.status==='manual'?'compra sem nota':('NF '+esc(n.numero||'—'))} · ${esc(n.nome_emit||'—')} · ${nfeFmtData(n.dh_emi)}${pode('valores')?(' · custo '+moneyFmt(nfeCustoItem(i))):''}</div></div>`).join('');
+}
+async function comboPickEstoque(id,chave,itemId){
+  const r=osItens.find(x=>x.id===id); const n=notasCompra&&notasCompra.notas.find(x=>x.chave===chave); const i=n&&n.itens.find(x=>x.id===itemId); if(!r||!i) return;
+  const el=document.getElementById('combo-'+id); if(el) el.classList.remove('open');
+  const quer=parseInt(r.qtde)||1, saldo=Number(i.saldo)||0, qtde=Math.min(quer,saldo);
+  r.nome=String(i.descricao||'').trim();
+  const pc=(i.peca_id&&(state.pecas||[]).find(p=>p.id===i.peca_id))||pecaPorNome(r.nome);
+  if(pc&&pc.preco&&!moneyParse(r.valor)) r.valor=String(pc.preco).replace('.',',');
+  if(qtde<quer) toast('Só há '+nfeQtd(saldo)+' no estoque desta nota; a diferença você liga em outra.');
+  const salvo=osFormId&&r._orig&&r._orig.id&&getOS(osFormId)&&(getOS(osFormId).itens||[]).some(x=>x.id===r.id);
+  if(!salvo){ r._pend={chave,itemId,qtde,desc:i.descricao,nf:n.status==='manual'?'':n.numero,forn:n.nome_emit}; renderOsItens(); return; }
+  try{ await registrarDestino(chave,itemId,osFormId,r.id,qtde); osVincAtualizarLinha(r); renderOsItens(); toast('Peça ligada à OS ✓ — saiu do estoque'); carregarNotasCompra().catch(()=>{}); }
+  catch(e){ renderOsItens(); toast('Não foi possível ligar: '+e.message); }
+}
+function osPendTirar(id){ const r=osItens.find(x=>x.id===id); if(r) delete r._pend; renderOsItens(); }
+// Depois de salvar a OS: grava as ligações escolhidas no estoque antes de a linha existir.
+async function ligarPendentesOS(osid,rows){
+  for(const row of rows){ const p=row._pend; const o=getOS(osid); const it=o&&(o.itens||[]).find(x=>x.id===row.id); if(!it) continue;
+    try{ await registrarDestino(p.chave,p.itemId,osid,row.id,Math.min(p.qtde,Number(it.qtde)||1)); }
+    catch(e){ toast('Não foi possível tirar do estoque "'+(p.desc||'')+'": '+e.message); } }
+  carregarNotasCompra().catch(()=>{});
 }
 function comboToggle(id){ const el=document.getElementById('combo-'+id); if(!el) return; if(el.classList.contains('open')){ el.classList.remove('open'); } else { const r=osItens.find(x=>x.id===id); comboRender(id, ''); } }
 function comboInput(id,v){ const r=osItens.find(x=>x.id===id); if(r) r.nome=v; calcOsPrevia(); comboRender(id,v); }
@@ -3055,7 +3100,9 @@ function saveOS(id){
   let osid;
   if(id){ Object.assign(getOS(id),dados); osid=id; } else { const novo={id:uid(),...dados,criado:Date.now()}; state.ordens.push(novo); osid=novo.id; }
   const v=getVeiculo(vid); if(km&&(!v.km_atual||km>Number(v.km_atual))) v.km_atual=km;
+  const pend=osItens.filter(i=>i._pend&&(i.nome||'').trim());
   salvar(); closeModal(); toast('Ordem salva ✓'); go('os',osid);
+  if(pend.length) ligarPendentesOS(osid,pend);
 }
 
 /* ==================================================================
