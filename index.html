@@ -2,6 +2,27 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+<!-- Google Ads (conta 298-658-8707): tag + conversão "Clique no WhatsApp (site)" -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=AW-11084073510"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'AW-11084073510');
+  // Qualquer clique em link de WhatsApp (botões atuais e futuros) conta como conversão.
+  (function(){
+    var ultimo = 0;
+    document.addEventListener('click', function(e){
+      var a = e.target && e.target.closest ? e.target.closest('a') : null;
+      var href = a ? (a.getAttribute('href') || '') : '';
+      if (!/wa\.me|api\.whatsapp\.com|whatsapp\.com\/send/.test(href)) return;
+      var agora = Date.now();
+      if (agora - ultimo < 1500) return;
+      ultimo = agora;
+      gtag('event', 'conversion', {'send_to': 'AW-11084073510/ESDgCMiz3rUdEKaUpqUp', 'value': 1.0, 'currency': 'BRL'});
+    }, true);
+  })();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>3M Centro Automotivo — Mecânica e Diagnóstico Eletrônico em Goiânia</title>
 <meta name="description" content="Oficina de diagnóstico em Goiânia. Osciloscópio, descarbonização por casca de nozes, troca de óleo de câmbio com máquina própria e elétrica automotiva. 4,9 no Google. Até 5x sem juros.">
