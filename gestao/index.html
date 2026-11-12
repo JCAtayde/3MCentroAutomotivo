@@ -1803,7 +1803,7 @@ function renderOsDet(id){
   const stBadge=`<span class="badge" style="border-color:${faseCor(st)};color:${faseCor(st)}">${faseLabel(st)}</span>`;
   const linhaPeca=i=>{ const q=Number(i.qtde)||1; const sub=(Number(i.valor)||0)*q;
     return `<div class="row"><div class="main"><div class="t">${esc(i.nome)}${(i.regra_id||regraPorNome(i.nome))?' <span class="badge prev">gera retorno</span>':''}</div>
-      <div class="s">${q} × ${i.valor?moneyFmt(i.valor):'—'}</div>${origemPecaOS(i)}</div><span class="valor-tag">${moneyFmt(sub)}</span></div>`; };
+      <div class="s">${q} × ${i.valor?moneyFmt(i.valor):'—'}</div>${custoPecaOS(i)}</div><span class="valor-tag">${moneyFmt(sub)}</span></div>`; };
 
   // Cabeçalho comum
   let head=`<div class="det-head"><h2>OS · ${(st==='agendamento'||st==='faltou')?(o.agenda_data?fmtBR(parseISO(o.agenda_data)):'Agendamento'):fmtBR(parseISO(o.data))}</h2>
@@ -1879,6 +1879,7 @@ function renderOsDetMecanico(o,mid){
   const box=document.getElementById('osDet'); const v=getVeiculo(o.veiculo_id); const c=v?getCliente(v.cliente_id):null; const st=osStatus(o);
   const minhas=(o.maodeobra||[]).filter(m=>m.mecanico_id===mid);
   const meuTotal=minhas.reduce((s,m)=>s+(Number(m.valor)||0),0);
+  const verCom=podeVerComissao();
   const pecas=(o.itens||[]).map(i=>`<div class="row"><div class="main"><div class="t">${esc(i.nome)}</div><div class="s">Qtd: ${Number(i.qtde)||1}</div></div></div>`).join('');
   box.innerHTML=`
     <div class="det-head"><h2>OS · ${st==='agendamento'?(o.agenda_data?fmtBR(parseISO(o.agenda_data)):'Agendamento'):fmtBR(parseISO(o.data))}</h2></div>
@@ -1891,9 +1892,9 @@ function renderOsDetMecanico(o,mid){
     ${(st==='aguardando'||st==='andamento')?blocoDiagnostico(o):(o.obs_mecanico?`<div class="note-label">Diagnóstico</div><div class="note">${esc(o.obs_mecanico)}</div>`:'')}
     ${(st==='aguardando'||st==='andamento')?((podeMidiaEntrada()?blocoMidias(o,'entrada',podeAddEntrada(o)):'')+(podeMidiaProblemas()?blocoMidias(o,'defeito',podeAddDefeito(o)):'')):''}
     ${pecas?`<div class="section-label">Peças / itens do serviço</div><div class="rows">${pecas}</div>`:''}
-    <div class="section-label">Sua mão de obra</div>
-    ${minhas.length?`<div class="rows">${minhas.map(m=>`<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div></div><span class="valor-tag">${moneyFmt(m.valor)}</span></div>`).join('')}</div>
-      <div class="os-total"><span class="l"><b>Seu total de mão de obra</b></span><span class="v"><b>${moneyFmt(meuTotal)}</b></span></div>`:'<div class="note empty-note">Nenhuma mão de obra sua nesta OS ainda.</div>'}
+    <div class="section-label">${verCom?'Sua mão de obra':'Seus serviços nesta OS'}</div>
+    ${minhas.length?`<div class="rows">${minhas.map(m=>`<div class="row"><div class="main"><div class="t">${esc(m.desc||'Mão de obra')}</div></div>${verCom?`<span class="valor-tag">${moneyFmt(m.valor)}</span>`:''}</div>`).join('')}</div>
+      ${verCom?`<div class="os-total"><span class="l"><b>Seu total de mão de obra</b></span><span class="v"><b>${moneyFmt(meuTotal)}</b></span></div>`:''}`:'<div class="note empty-note">Nenhuma mão de obra sua nesta OS ainda.</div>'}
     ${(st==='andamento'&&podeLiberarOS(o))?`<div class="form-actions" style="margin-top:16px"><button class="btn green" style="width:100%" onclick='liberarCarro("${o.id}")'>🚗 Carro pronto — Liberar para entrega</button></div><div class="hint" style="margin-top:6px">Ao liberar, o carro vai para "Liberados" e o administrativo recebe o aviso de entrega.</div>`:''}`;
 }
 function blocoDiagnostico(o){
@@ -3080,7 +3081,15 @@ function removeOsMdo(id){ osMdo=osMdo.filter(x=>x.id!==id); renderOsMdo(); }
 // Dados internos do item (nota de compra de onde veio a peça) que a edição da OS preserva.
 function origemPecaOS(i){
   if(!pode('valores')||!(i.origens||[]).length) return '';
-  return i.origens.map(x=>`<div class="s" style="color:var(--muted);font-size:12px">🔒 ${x.peca_codigo?('<b>'+esc(x.peca_codigo)+'</b> · '):''}${esc(x.fornecedor||'—')} · ${x.nf?('NF '+esc(x.nf)):'sem nota'} de ${nfeFmtData(x.data)} · ${nfeQtd(x.qtde)} × ${moneyFmt(x.custo)}${i.custo_orcado!=null&&Number(i.custo_orcado)!==Number(x.custo)?(' <span title="custo do orçamento">(orçado '+moneyFmt(i.custo_orcado)+')</span>'):''}</div>`).join('');
+  return i.origens.map(x=>`<div class="s" style="color:var(--muted);font-size:12px">🔒 ${x.peca_codigo?('<b>'+esc(x.peca_codigo)+'</b> · '):''}${esc(x.fornecedor||'—')} · ${x.nf?('NF '+esc(x.nf)):'sem nota'} de ${nfeFmtData(x.data)} · ${nfeQtd(x.qtde)} × ${moneyFmt(x.custo)} = ${moneyFmt((Number(x.qtde)||0)*(Number(x.custo)||0))}${i.custo_orcado!=null&&Number(i.custo_orcado)!==Number(x.custo)?(' <span title="custo do orçamento">(orçado '+moneyFmt(i.custo_orcado)+')</span>'):''}</div>`).join('');
+}
+// Custo de cada peça na visão interna: a soma das linhas fecha com "Custo das peças".
+function custoPecaOS(i){
+  if(!pode('valores')||ehMecRestrito()) return '';
+  const q=Number(i.qtde)||1, c=Number(i.custo)||0, linha=t=>`<div class="s" style="color:var(--muted);font-size:12px">🔒 ${t}</div>`;
+  if((i.origens||[]).length){ const falta=q-itemOsVinculado(i), co=Number(i.custo_orcado)||0;
+    return origemPecaOS(i)+(falta>0?linha(`${nfeQtd(falta)} sem nota × ${moneyFmt(co)} = ${moneyFmt(falta*co)}`):''); }
+  return c>0?linha(`Custo lançado à mão: ${q} × ${moneyFmt(c)} = ${moneyFmt(q*c)}`):`<div class="s" style="color:var(--amber);font-size:12px">🔒 Custo não lançado</div>`;
 }
 function extrasItemOS(o){ if(!o) return {}; const x={}; ['origens','custo_orcado','peca_id','peca_codigo','ncm'].forEach(k=>{ if(o[k]!==undefined) x[k]=o[k]; }); return x; }
 function saveOS(id){
@@ -3244,7 +3253,7 @@ function renderServicos(pre){
       <div class="row"><div class="t">${esc(v?nomeVeiculo(v):'Veículo')}${v&&v.placa?` · ${esc(v.placa)}`:''}</div>${o.retorno_de?'<span class="badge cyan">Retorno</span>':'<span class="badge green">Concluído</span>'}</div>
       <div class="s">${esc((c&&c.nome)||'—')} · ${o.data?fmtBR(parseISO(o.data)):'—'}${o.km?(' · '+nfmt(o.km)+' km'):''}</div>
       ${serv?`<div class="s" style="margin-top:3px">${esc(serv)}</div>`:''}
-      ${_restrServ?`<div class="row" style="margin-top:6px"><span class="s">Sua mão de obra</span><span class="valor-tag" style="color:var(--green)">${moneyFmt((o.maodeobra||[]).filter(m=>m.mecanico_id===souMecanico()).reduce((s,m)=>s+(Number(m.valor)||0),0))}</span></div>`:`<div class="row" style="margin-top:6px"><span class="s">Total</span><span class="valor-tag" style="color:var(--green)">${moneyFmt(osTotal(o))}</span></div>`}
+      ${_restrServ?(!podeVerComissao()?'':`<div class="row" style="margin-top:6px"><span class="s">Sua mão de obra</span><span class="valor-tag" style="color:var(--green)">${moneyFmt((o.maodeobra||[]).filter(m=>m.mecanico_id===souMecanico()).reduce((s,m)=>s+(Number(m.valor)||0),0))}</span></div>`):`<div class="row" style="margin-top:6px"><span class="s">Total</span><span class="valor-tag" style="color:var(--green)">${moneyFmt(osTotal(o))}</span></div>`}
     </div>`; }).join('');
   box.innerHTML=`
     <div class="srv-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
@@ -3261,14 +3270,14 @@ function competenciaAtualIni(){ const d=hoje(); return toISO(new Date(d.getFullY
 /* ---- Permissões ---- */
 /* ===== PERFIS DE ACESSO (flexível) ===== */
 const FLAGS_TELAS=[['painel','Painel'],['ordens','Ordens de serviço'],['clientes','Clientes'],['veiculos','Veículos'],['financeiro','Financeiro'],['saldos','Saldos (caixa e banco)'],['fornecedores','Fornecedores'],['boletos','Boletos a receber'],['regras','Tabela de Revisões'],['config','Configurações'],['acessos','Gerenciar acessos'],['folha','Folha de pagamento'],['auditoria','Registro de auditoria']];
-const FLAGS_ACOES=[['editar','Cadastrar / editar'],['excluir','Excluir registros'],['valores','Ver valores (R$)'],['liberar','Liberar carro'],['receber','Receber / finalizar OS'],['relatorios','Ver relatório de comissões'],['reabrir','Reabrir / mudar status de OS'],['importar','Importar clientes']];
+const FLAGS_ACOES=[['editar','Cadastrar / editar'],['excluir','Excluir registros'],['valores','Ver valores (R$)'],['liberar','Liberar carro'],['receber','Receber / finalizar OS'],['relatorios','Ver relatório de comissões'],['ver_comissao','Mecânico vê a própria mão de obra/comissão (R$)'],['reabrir','Reabrir / mudar status de OS'],['importar','Importar clientes']];
 const FLAGS_MIDIA=[['midia_entrada','Fotos/vídeos da entrada'],['midia_problemas','Fotos/vídeos dos problemas']];
 const TODAS_FLAGS=[...FLAGS_TELAS,...FLAGS_ACOES,...FLAGS_MIDIA,['modo_mec','Modo mecânico (vê só as OS dele)']].map(x=>x[0]);
 function flagsAll(v){ const o={}; TODAS_FLAGS.forEach(k=>o[k]=v); return o; }
 const PERFIS_PADRAO=[
   {id:'mecanico',nome:'Mecânico',icone:'🔧',sistema:true,flags:Object.assign(flagsAll(false),{ordens:true,editar:true,liberar:true,midia_entrada:true,midia_problemas:true,modo_mec:true})},
-  {id:'atendente',nome:'Atendente',icone:'🧾',sistema:true,flags:Object.assign(flagsAll(false),{painel:true,ordens:true,clientes:true,veiculos:true,financeiro:true,fornecedores:true,boletos:true,regras:true,editar:true,valores:true,liberar:true,receber:true,midia_entrada:true,midia_problemas:true,folha:true,relatorios:true})},
-  {id:'gestor',nome:'Gestor',icone:'👔',sistema:true,flags:Object.assign(flagsAll(false),{painel:true,ordens:true,clientes:true,veiculos:true,financeiro:true,saldos:true,fornecedores:true,boletos:true,regras:true,editar:true,excluir:false,valores:true,liberar:true,receber:true,midia_entrada:true,midia_problemas:true,folha:true,relatorios:true,reabrir:true,auditoria:true,importar:true})},
+  {id:'atendente',nome:'Atendente',icone:'🧾',sistema:true,flags:Object.assign(flagsAll(false),{ver_comissao:true,painel:true,ordens:true,clientes:true,veiculos:true,financeiro:true,fornecedores:true,boletos:true,regras:true,editar:true,valores:true,liberar:true,receber:true,midia_entrada:true,midia_problemas:true,folha:true,relatorios:true})},
+  {id:'gestor',nome:'Gestor',icone:'👔',sistema:true,flags:Object.assign(flagsAll(false),{ver_comissao:true,painel:true,ordens:true,clientes:true,veiculos:true,financeiro:true,saldos:true,fornecedores:true,boletos:true,regras:true,editar:true,excluir:false,valores:true,liberar:true,receber:true,midia_entrada:true,midia_problemas:true,folha:true,relatorios:true,reabrir:true,auditoria:true,importar:true})},
   {id:'admin',nome:'Administrador',icone:'👑',sistema:true,flags:flagsAll(true)},
 ];
 function getPerfis(){ if(!state.perfis||!Array.isArray(state.perfis)||!state.perfis.length){ state.perfis=PERFIS_PADRAO.map(p=>({...p,flags:{...p.flags}})); } return state.perfis; }
@@ -3316,6 +3325,7 @@ function telaLiberada(t){ return flag(t); }
 function podeLiberar(){ return flag('liberar'); }
 function podeLiberarOS(o){ if(!podeLiberar()) return false; if(ehMecanico()){ return !!souMecanico() && o && o.mecanico_id===souMecanico(); } return true; }
 function podeReceber(){ return flag('receber'); }
+function podeVerComissao(){ return flag('ver_comissao'); }
 function podeMidiaEntrada(){ return flag('midia_entrada'); }
 function podeMidiaProblemas(){ return flag('midia_problemas'); }
 function aplicarPermissoesUI(){ document.body.classList.toggle('sem-valores', !pode('valores') && !ehMecanico()); document.body.classList.toggle('modo-mecanico', ehMecanico()); montarNav(); if(ehMecanico()){ osFiltroStatus='aguardando'; } iniciarInatividade(); }
